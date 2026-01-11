@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flow"
+version = "0.1.0"
+description = "찬양 가사 송출 시스템 - 악보 기반 직관적 UI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "Flow Team" }
+]
+dependencies = [
+    "PySide6>=6.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-qt>=4.2.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+flow = "flow.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flow"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = """
+    -v --tb=short
+    -p no:launch_pytest
+    -p no:launch_testing
+    -p no:launch_testing_ros
+    -p no:ament_xmllint
+    -p no:ament_pep257
+    -p no:ament_mypy
+    -p no:ament_flake8
+    -p no:ament_copyright
+    -p no:ament_lint
+"""
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "I", "N", "W"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_ignores = true
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
