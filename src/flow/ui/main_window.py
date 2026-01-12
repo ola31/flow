@@ -245,6 +245,11 @@ class MainWindow(QMainWindow):
         self._live_controller.live_changed.connect(self._on_live_changed)
         # 슬라이드 이미지 송출 연결
         self._live_controller.slide_changed.connect(self._on_slide_changed)
+        
+        # PPT 비동기 로딩 시그널
+        self._slide_manager.load_started.connect(self._on_ppt_load_started)
+        self._slide_manager.load_finished.connect(self._on_ppt_load_finished)
+        self._slide_manager.load_error.connect(self._on_ppt_load_error)
     
     # === 프로젝트 관리 ===
     
@@ -335,6 +340,26 @@ class MainWindow(QMainWindow):
         """송출창이 닫혔을 때"""
         self._statusbar.showMessage("송출창이 닫혔습니다")
     
+    # === PPT 비동기 로딩 핸들러 ===
+    
+    def _on_ppt_load_started(self) -> None:
+        """PPT 로딩 시작"""
+        self._statusbar.showMessage("📽 PPT 변환 중... 잠시만 기다려주세요.", 0) # 0은 무한 지속
+        self._slide_preview.setEnabled(False) # 로딩 중 조작 방지
+        
+    def _on_ppt_load_finished(self, count: int) -> None:
+        """PPT 로딩 완료"""
+        self._slide_preview.setEnabled(True)
+        self._slide_preview.refresh_slides()
+        self._statusbar.showMessage(f"✅ PPT 로드 완료 ({count} 슬라이드)", 3000)
+        
+    def _on_ppt_load_error(self, message: str) -> None:
+        """PPT 로딩 에러"""
+        self._slide_preview.setEnabled(True)
+        self._slide_preview.refresh_slides()
+        QMessageBox.warning(self, "PPT 로딩 오류", message)
+        self._statusbar.showMessage("❌ PPT 로드 실패", 3000)
+
     # === 이벤트 핸들러 ===
     
     def _on_song_selected(self, sheet: ScoreSheet) -> None:
@@ -349,18 +374,12 @@ class MainWindow(QMainWindow):
         current_ppt = str(self._slide_manager._pptx_path.resolve()) if self._slide_manager._pptx_path else ""
         
         if ppt_to_load != current_ppt:
-            try:
-                if ppt_to_load:
-                    self._slide_manager.load_pptx(ppt_to_load)
-                    self._slide_manager.start_watching(ppt_to_load)
-                else:
-                    self._slide_manager.load_pptx("")
-                    self._slide_manager.stop_watching()
-                
-                self._slide_preview.refresh_slides()
-            except Exception as e:
-                QMessageBox.warning(self, "PPT 로딩 오류", str(e))
-                self._slide_manager.load_pptx("") # 에러 시 초기화
+            if ppt_to_load:
+                self._slide_manager.load_pptx(ppt_to_load)
+                self._slide_manager.start_watching(ppt_to_load)
+            else:
+                self._slide_manager.load_pptx("")
+                self._slide_manager.stop_watching()
                 self._slide_preview.refresh_slides()
             
         self._statusbar.showMessage(f"곡 선택: {sheet.name}")
