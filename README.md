@@ -5,7 +5,16 @@
 ## 설치
 
 ```bash
-# 개발 환경 설치
+# 가상 환경 생성 (최초 1회)
+python -m venv .venv
+
+# 가상 환경 활성화
+# Linux/macOS
+source .venv/bin/activate
+# Windows
+.venv\Scripts\activate
+
+# 의존성 설치
 pip install -e ".[dev]"
 ```
 
