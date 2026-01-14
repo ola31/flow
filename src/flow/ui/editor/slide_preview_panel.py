@@ -51,17 +51,38 @@ class SlidePreviewPanel(QWidget):
         self._list.setViewMode(QListWidget.ViewMode.IconMode)
         self._list.setFlow(QListWidget.Flow.LeftToRight) # 수평 흐름
         self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn) # 항상 표시
         self._list.setIconSize(QSize(160, 90))
         self._list.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self._list.setWrapping(False) # [핵심] 다음 줄로 넘어가지 않도록 설정
         self._list.setMovement(QListWidget.Movement.Static)
         self._list.setSpacing(10)
-        self._list.setFocusPolicy(Qt.FocusPolicy.ClickFocus) # 클릭 시에만 포커스 (화살표 키 자동 가로채기 방지)
-        self._list.setFixedHeight(130) # 수평 모드를 위해 높이 제한
+        self._list.setUniformItemSizes(True) # [성능 최적화]
+        self._list.setHorizontalScrollMode(QListWidget.ScrollMode.ScrollPerPixel) # 부드러운 스크롤
+        self._list.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self._list.setFixedHeight(160)
         self._list.setStyleSheet("""
             QListWidget { background-color: #2a2a2a; border: none; }
             QListWidget::item { border: 1px solid #444; border-radius: 4px; padding: 2px; }
             QListWidget::item:selected { background-color: #3d3d3d; border: 2px solid #2196f3; }
+            
+            /* 스크롤바 스타일링 */
+            QScrollBar:horizontal {
+                height: 10px;
+                background: #1a1a1a;
+                margin: 0px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #555;
+                min-width: 20px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #2196f3;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
+            }
         """)
         self._list.itemClicked.connect(self._on_item_clicked)
         self._list.itemDoubleClicked.connect(self._on_item_double_clicked)
@@ -71,13 +92,12 @@ class SlidePreviewPanel(QWidget):
         layout.addWidget(self._list)
         
     def wheelEvent(self, event) -> None:
-        """마우스 휠 이벤트를 수평 스크롤로 변환"""
+        """마우스 휠 이벤트를 수평 스크롤로 변환 (감도 개선)"""
         if self._list.underMouse():
-            # 휠 델타 값을 수평 스크롤바에 전달
+            # 휠 델타 값을 수평 스크롤바에 전달 (반응성 향상)
             delta = event.angleDelta().y() or event.angleDelta().x()
-            self._list.horizontalScrollBar().setValue(
-                self._list.horizontalScrollBar().value() - delta
-            )
+            current = self._list.horizontalScrollBar().value()
+            self._list.horizontalScrollBar().setValue(current - delta)
             event.accept()
         else:
             super().wheelEvent(event)
@@ -158,7 +178,9 @@ class SlidePreviewPanel(QWidget):
                 label += " (🔗)"
                 
             item = QListWidgetItem(label)
-            item.setIcon(QIcon(pixmap.scaled(160, 90, Qt.AspectRatioMode.KeepAspectRatio)))
+            # 고품질 스케일링을 미리 수행하여 리스트 렌더링 부하 감소
+            scaled_pixmap = pixmap.scaled(160, 90, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            item.setIcon(QIcon(scaled_pixmap))
             item.setData(Qt.ItemDataRole.UserRole, i)
             
             if is_mapped:
