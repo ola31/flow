@@ -19,6 +19,7 @@ class Hotspot:
         y: Y 좌표 (픽셀)
         order: 표시 순서 (0부터 시작)
         lyric: 연결된 가사 텍스트
+        slide_mappings: 절별 슬라이드 매핑 (str(verse_index) -> slide_index)
         id: 고유 식별자 (자동 생성)
     """
     
@@ -26,9 +27,29 @@ class Hotspot:
     y: int
     order: int = 0
     lyric: str = ""
-    slide_index: int = -1
+    slide_index: int = -1 # 기본 매핑 (Verse 1용)
+    slide_mappings: dict[str, int] = field(default_factory=dict)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     
+    def get_slide_index(self, verse_index: int = 0) -> int:
+        """특정 절에 매핑된 슬라이드 인덱스 반환"""
+        # 1. 명시적 가사 매핑 확인
+        v_key = str(verse_index)
+        if v_key in self.slide_mappings:
+            return self.slide_mappings[v_key]
+        
+        # 2. Verse 1(0)인 경우 기본 slide_index 반환 (하위 호환)
+        if verse_index == 0:
+            return self.slide_index
+            
+        return -1
+
+    def set_slide_index(self, slide_index: int, verse_index: int = 0) -> None:
+        """특정 절에 슬라이드 매핑 설정"""
+        self.slide_mappings[str(verse_index)] = slide_index
+        if verse_index == 0:
+            self.slide_index = slide_index
+
     def to_dict(self) -> dict[str, Any]:
         """딕셔너리로 변환 (JSON 직렬화용)"""
         return {
@@ -38,6 +59,7 @@ class Hotspot:
             "order": self.order,
             "lyric": self.lyric,
             "slide_index": self.slide_index,
+            "slide_mappings": self.slide_mappings,
         }
     
     @classmethod
@@ -50,4 +72,5 @@ class Hotspot:
             order=data.get("order", 0),
             lyric=data.get("lyric", ""),
             slide_index=data.get("slide_index", -1),
+            slide_mappings=data.get("slide_mappings", {}),
         )

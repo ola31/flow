@@ -27,9 +27,9 @@ class ScoreCanvas(QWidget):
     hotspot_removed = Signal(str)  # hotspot_id
     hotspot_moved = Signal(object)  # Hotspot
     
-    HOTSPOT_RADIUS = 20  # 15에서 20으로 확대
-    HOTSPOT_COLOR = QColor(255, 100, 100, 200)
-    HOTSPOT_SELECTED_COLOR = QColor(100, 255, 100, 240)
+    HOTSPOT_RADIUS = 16  # 20에서 16으로 축소하여 악보 가독성 향상
+    HOTSPOT_COLOR = QColor(255, 100, 100, 150) # 투명도 증가 (200 -> 150)
+    HOTSPOT_SELECTED_COLOR = QColor(100, 255, 100, 200) # 투명도 증가 (240 -> 200)
     
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -39,6 +39,7 @@ class ScoreCanvas(QWidget):
         self._edit_mode = True
         self._scaled_pixmap: QPixmap | None = None # 캐시된 스케일 이미지
         self._last_size = QSize(0, 0)
+        self._verse_index = 0 # 현재 선택된 절 (UI 표시용)
         
         self.setMinimumSize(200, 150)
         self.setMouseTracking(True)
@@ -47,6 +48,29 @@ class ScoreCanvas(QWidget):
         # 드래그 관련 상태
         self._is_dragging = False
         self._drag_hotspot_id = None
+        
+    def is_hotspot_editable(self, hotspot: Hotspot, verse_index: int) -> bool:
+        """현재 레이어에서 이 핫스팟이 편집 가능한지 판별"""
+        if not hotspot: return False
+        
+        # [수정] 1~5절(0~4)은 하나의 편집 그룹으로 묶고, 후렴(5)과만 분리
+        is_verse_group = (verse_index < 5)
+        
+        # 실제로 어떤 매핑(기존 방식 포함)이라도 존재하는지 여부 (완전한 '새 버튼' 판별용)
+        is_completely_new = (not hotspot.slide_mappings and hotspot.slide_index == -1)
+        
+        has_verse_mapping = any(str(i) in hotspot.slide_mappings for i in range(5)) or (hotspot.slide_index >= 0)
+        has_chorus_mapping = ("5" in hotspot.slide_mappings)
+
+        # 1. 절 그룹 모드(1~5절)일 때
+        if is_verse_group:
+            # 절 매핑이 있거나, 아예 아무 소속도 없는 '완전한 새 버튼'인 경우 편집 가능
+            return has_verse_mapping or is_completely_new
+            
+        # 2. 후렴 모드(5)일 때
+        else:
+            # 후렴 매핑이 있거나, 아예 아무 소속도 없는 '완전한 새 버튼'인 경우 편집 가능
+            return has_chorus_mapping or is_completely_new
     
     def set_score_sheet(self, sheet: ScoreSheet | None) -> None:
         """악보 설정"""
@@ -70,6 +94,11 @@ class ScoreCanvas(QWidget):
     def select_hotspot(self, hotspot_id: str | None) -> None:
         """핫스팟 선택"""
         self._selected_hotspot_id = hotspot_id
+        self.update()
+        
+    def set_verse_index(self, index: int) -> None:
+        """현재 절 인덱스 설정 (UI 갱신)"""
+        self._verse_index = index
         self.update()
     
     def get_selected_hotspot(self) -> Hotspot | None:
@@ -119,31 +148,85 @@ class ScoreCanvas(QWidget):
         if not self._score_sheet:
             return
         
-        for i, hotspot in enumerate(self._score_sheet.get_ordered_hotspots()):
+        # 1. 후렴 레이블 대상 식별 및 할당 (ABC 순서 보장)
+        ordered_hotspots = self._score_sheet.get_ordered_hotspots()
+        chorus_labels = {}
+        chorus_counter = 0
+        
+        v_idx = self._verse_index
+        chorus_counter = 0
+        verse_display_counter = 0
+        
+        for h in ordered_hotspots:
+            # [수정] 후렴 매핑이 있거나, 후렴 레이어에서 생성된 버튼인 경우 ABC 레이블 할당
+            # (slide_mappings에 '5' 키가 명시적으로 존재하는지 확인)
+            has_chorus_intent = ("5" in h.slide_mappings)
+            if has_chorus_intent:
+                label_char = chr(65 + chorus_counter) if chorus_counter < 26 else str(chorus_counter + 1)
+                chorus_labels[h.id] = label_char
+                chorus_counter += 1
+                
+        # 2. 핫스팟 그리기 루프
+        for i, hotspot in enumerate(ordered_hotspots):
+            # 레이어 기반 편집 상태 판별
+            v_idx = self._verse_index
+            is_selected = (hotspot.id == self._selected_hotspot_id)
+            is_editable = self.is_hotspot_editable(hotspot, v_idx)
+            
+            # [수정] 후렴 모드(5) 전용: 후렴 매핑이 없는 타 레이어 버튼은 아예 숨김
+            if v_idx == 5 and not is_editable and not is_selected:
+                continue
+                
             # 좌표 변환 (이미지 좌표 → 위젯 좌표)
             pos = self._image_to_widget_coords(hotspot.x, hotspot.y)
             
-            # 색상 결정
-            if hotspot.id == self._selected_hotspot_id:
+            # 모든 버튼을 보이게 하되, 타 레이어 버튼은 외곽선 스타일로 '편집 잠금' 표시
+            if is_selected:
                 color = self.HOTSPOT_SELECTED_COLOR
+                pen = QPen(Qt.GlobalColor.white, 2)
             else:
                 color = self.HOTSPOT_COLOR
+                if is_editable:
+                    pen = QPen(Qt.GlobalColor.white, 1)
+                else:
+                    # 타 레이어 전용 버튼 (Verse 모드에서만 보임): 연한 점선 외곽선
+                    pen = QPen(QColor(200, 200, 200, 180), 1, Qt.PenStyle.DashLine)
             
             # 원 그리기
             painter.setBrush(color)
-            painter.setPen(QPen(Qt.GlobalColor.white, 2))
+            painter.setPen(pen)
             painter.drawEllipse(pos, self.HOTSPOT_RADIUS, self.HOTSPOT_RADIUS)
             
             # 텍스트 드로잉 (잘림 방지를 위해 범위 확대 및 폰트 설정)
             painter.setPen(Qt.GlobalColor.white)
             font = painter.font()
             font.setBold(True)
-            font.setPointSize(9)
-            painter.setFont(font)
             
-            label = str(i + 1)
-            if hasattr(hotspot, 'slide_index') and hotspot.slide_index >= 0:
-                label = f"{i + 1}-S{hotspot.slide_index + 1}"
+            # [수정] 레이블 결정 로직: 
+            # - 후렴 버튼으로 식별된 경우: 미리 계산된 알파벳(A, B, C...) 유지
+            # - 그 외(절 전용 버튼): 별도의 카운터를 사용하여 숫자(1, 2, 3...) 부여 (건너뛰기 방지)
+            if hotspot.id in chorus_labels:
+                display_name = chorus_labels[hotspot.id]
+            else:
+                verse_display_counter += 1
+                display_name = str(verse_display_counter)
+                
+            label = display_name
+            # [수정] 현재 절 매핑 우선, 없으면 후렴 매핑 표시 (내비게이션 지원)
+            slide_idx = hotspot.get_slide_index(self._verse_index)
+            
+            # 현재 절 매핑이 없고, 후렴 버튼인 경우 후렴 슬라이드 번호 표시
+            is_chorus_hotspot = (hotspot.id in chorus_labels)
+            if slide_idx < 0 and is_chorus_hotspot:
+                slide_idx = hotspot.get_slide_index(5) # 후렴 슬라이드 가져오기
+                
+            if slide_idx >= 0:
+                label = f"{display_name}-{slide_idx + 1}"
+                font.setPointSize(7)
+            else:
+                font.setPointSize(9)
+                
+            painter.setFont(font)
                 
             # 원 안의 중앙에 텍스트 배치
             text_rect = QRect(
@@ -221,7 +304,8 @@ class ScoreCanvas(QWidget):
                 self._selected_hotspot_id = clicked_hotspot.id
                 self.hotspot_selected.emit(clicked_hotspot)
                 
-                if self._edit_mode:
+                # [수정] 현재 모드에서 편집 가능한 경우에만 드래그 허용
+                if self._edit_mode and self.is_hotspot_editable(clicked_hotspot, self._verse_index):
                     self._is_dragging = True
                     self._drag_hotspot_id = clicked_hotspot.id
                     self.setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -231,6 +315,8 @@ class ScoreCanvas(QWidget):
                 if img_coords:
                     order = len(self._score_sheet.hotspots)
                     hotspot = Hotspot(x=img_coords[0], y=img_coords[1], order=order)
+                    # [추가] 생성된 레이어(절)를 소유주로 명시적 기록
+                    hotspot.set_slide_index(-1, self._verse_index)
                     self._score_sheet.add_hotspot(hotspot)
                     self._selected_hotspot_id = hotspot.id
                     self.hotspot_created.emit(hotspot)
@@ -281,11 +367,17 @@ class ScoreCanvas(QWidget):
             return None
         
         for hotspot in self._score_sheet.hotspots:
+            # [수정] 후렴 모드(5)인 경우, 후렴 매핑이 있거나 선택된 것만 클릭 가능하도록 일관성 유지
+            if self._verse_index == 5:
+                if not self.is_hotspot_editable(hotspot, 5) and hotspot.id != self._selected_hotspot_id:
+                    continue
+                    
             hotspot_pos = self._image_to_widget_coords(hotspot.x, hotspot.y)
             distance = ((pos.x() - hotspot_pos.x()) ** 2 + 
                        (pos.y() - hotspot_pos.y()) ** 2) ** 0.5
             
-            if distance <= self.HOTSPOT_RADIUS + 5:
+            # 실제 원보다 약간 더 넓은 범위까지 클릭으로 인정 (작아진 버튼 보완)
+            if distance <= self.HOTSPOT_RADIUS + 8:
                 return hotspot
         
         return None
@@ -294,20 +386,27 @@ class ScoreCanvas(QWidget):
         """컨텍스트 메뉴 표시"""
         menu = QMenu(self)
         
-        # 순서 기반 삽입 기능 추가
-        insert_before = QAction(f"➕ 이 위치({hotspot.order + 1}번) 앞에 삽입", self)
-        insert_before.triggered.connect(lambda: self._insert_hotspot_at(hotspot, before=True))
-        menu.addAction(insert_before)
-        
-        insert_after = QAction(f"➕ 이 위치({hotspot.order + 1}번) 뒤에 삽입", self)
-        insert_after.triggered.connect(lambda: self._insert_hotspot_at(hotspot, before=False))
-        menu.addAction(insert_after)
-        
-        menu.addSeparator()
-        
-        delete_action = QAction("🗑️ 삭제", self)
-        delete_action.triggered.connect(lambda: self._delete_hotspot(hotspot))
-        menu.addAction(delete_action)
+        # [추가] 타 레이어 버튼 락 안내 (절 그룹 vs 후렴 그룹)
+        if not self.is_hotspot_editable(hotspot, self._verse_index):
+            v_name = "후렴" if self._verse_index < 5 else "절"
+            lock_action = menu.addAction(f"🔒 {v_name} 전용 버튼")
+            lock_action.setEnabled(False)
+            menu.addSeparator()
+        else:
+            # 순서 기반 삽입 기능 추가
+            insert_before = QAction(f"➕ 이 위치 앞에 삽입", self)
+            insert_before.triggered.connect(lambda: self._insert_hotspot_at(hotspot, before=True))
+            menu.addAction(insert_before)
+            
+            insert_after = QAction(f"➕ 이 위치 뒤에 삽입", self)
+            insert_after.triggered.connect(lambda: self._insert_hotspot_at(hotspot, before=False))
+            menu.addAction(insert_after)
+            
+            menu.addSeparator()
+            
+            delete_action = QAction("🗑️ 삭제", self)
+            delete_action.triggered.connect(lambda: self._delete_hotspot(hotspot))
+            menu.addAction(delete_action)
         
         menu.exec(self.mapToGlobal(pos))
     
@@ -329,6 +428,8 @@ class ScoreCanvas(QWidget):
             x=base_hotspot.x + (0 if before else 30), 
             y=base_hotspot.y + (0 if before else 30)
         )
+        # [추가] 생성된 레이어(절)를 소유주로 명시적 기록
+        new_hotspot.set_slide_index(-1, self._verse_index)
         
         self._score_sheet.add_hotspot(new_hotspot, index=new_order)
         self._selected_hotspot_id = new_hotspot.id

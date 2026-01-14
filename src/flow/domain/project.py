@@ -27,6 +27,7 @@ class Project:
     pptx_path: str = ""
     score_sheets: list[ScoreSheet] = field(default_factory=list)
     current_sheet_index: int = 0
+    current_verse_index: int = 0 # 0=1절, 1=2절, 2=3절, 3=4절, 4=5절, 5=후렴
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     
     def add_score_sheet(self, sheet: ScoreSheet) -> None:
@@ -88,6 +89,7 @@ class Project:
             "name": self.name,
             "pptx_path": self.pptx_path,
             "current_sheet_index": self.current_sheet_index,
+            "current_verse_index": self.current_verse_index,
             "score_sheets": [s.to_dict() for s in self.score_sheets],
         }
     
@@ -101,4 +103,5 @@ class Project:
             pptx_path=data.get("pptx_path", ""),
             score_sheets=score_sheets,
             current_sheet_index=data.get("current_sheet_index", 0),
+            current_verse_index=data.get("current_verse_index", 0),
         )

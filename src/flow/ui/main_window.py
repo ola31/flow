@@ -8,7 +8,9 @@ import shutil
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter,
-    QToolBar, QStatusBar, QFileDialog, QMessageBox, QTabWidget
+    QToolBar, QStatusBar, QFileDialog, QMessageBox, QTabWidget,
+    QLabel, QFrame, QButtonGroup, QRadioButton, QPushButton,
+    QLineEdit, QTextEdit, QPlainTextEdit
 )
 from PySide6.QtGui import QAction, QKeySequence, QPixmap
 from PySide6 import QtGui
@@ -105,9 +107,50 @@ class MainWindow(QMainWindow):
         self._song_list.setMinimumWidth(150)
         self._h_splitter.addWidget(self._song_list)
         
-        # 중앙: 악보 캔버스
+        # 중앙: 악보 캔버스 영역 (절 선택기 포함)
+        center_widget = QWidget()
+        center_layout = QVBoxLayout(center_widget)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(0)
+        
+        # [NEW] 절(Verse) 선택바 추가 (초슬림 모드)
+        self._verse_container = QWidget()
+        self._verse_container.setFixedHeight(28) # 높이 제한
+        self._verse_container.setStyleSheet("background-color: #2a2a2a; border-bottom: 1px solid #3d3d3d;")
+        verse_bar_layout = QHBoxLayout(self._verse_container)
+        verse_bar_layout.setContentsMargins(8, 0, 8, 0)
+        verse_bar_layout.setSpacing(4)
+        
+        lbl = QLabel("📂 Ver:")
+        lbl.setStyleSheet("font-size: 11px; color: #888;")
+        verse_bar_layout.addWidget(lbl)
+        
+        self._verse_group = QButtonGroup(self)
+        verses = [("1", 0), ("2", 1), ("3", 2), ("4", 3), ("5", 4), ("후렴", 5)]
+        for text, idx in verses:
+            btn = QPushButton(text)
+            btn.setCheckable(True)
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus) # [추가] 마우스 클릭 시 포커스를 뺏지 않도록 설정
+            btn.setFixedWidth(36 if idx < 5 else 44) # 숫자키는 더 작게
+            btn.setStyleSheet("""
+                QPushButton { 
+                    background-color: #3d3d3d; border: 1px solid #444; 
+                    border-radius: 3px; color: #ccc; font-size: 11px; 
+                }
+                QPushButton:checked { background-color: #ff4444; color: white; font-weight: bold; border: 1px solid #ff6666; }
+                QPushButton:hover { background-color: #555; }
+            """)
+            if idx == 0: btn.setChecked(True)
+            self._verse_group.addButton(btn, idx)
+            verse_bar_layout.addWidget(btn)
+        
+        self._verse_group.idClicked.connect(self._on_verse_changed)
+        verse_bar_layout.addStretch()
+        center_layout.addWidget(self._verse_container)
+        
         self._canvas = ScoreCanvas()
-        self._h_splitter.addWidget(self._canvas)
+        center_layout.addWidget(self._canvas)
+        self._h_splitter.addWidget(center_widget)
         
         # 오른쪽: 편집 패널
         right_panel = QWidget()
@@ -116,7 +159,6 @@ class MainWindow(QMainWindow):
         right_panel.setMinimumWidth(200)
         
         # Preview 패널 (다음 가사)
-        from PySide6.QtWidgets import QLabel, QFrame
         
         preview_frame = QFrame()
         preview_frame.setFrameStyle(QFrame.Shape.StyledPanel)
@@ -299,7 +341,6 @@ class MainWindow(QMainWindow):
     
     def _new_project(self) -> None:
         """새 프로젝트 폴더 생성 및 시작"""
-        from PySide6.QtWidgets import QFileDialog
         
         # 1. 프로젝트 이름/위치 선택
         # [수정] 폴더 안으로 들어가는 것을 방지하기 위해 .json 확장자를 붙여서 제안
@@ -367,6 +408,11 @@ class MainWindow(QMainWindow):
             # 1. 곡 목록 갱신
             self._song_list.set_project(self._project)
             
+            # [NEW] 절 선택 UI 동기화
+            v_idx = self._project.current_verse_index
+            self._verse_group.button(v_idx).setChecked(True)
+            self._canvas.set_verse_index(v_idx)
+            
             # 2. 매핑 상태 UI 동기화
             self._update_mapped_slides_ui()
             
@@ -399,7 +445,6 @@ class MainWindow(QMainWindow):
         
         # 저장 경로가 없거나 처음 저장하는 경우 이름/위치 묻기
         if not self._project_path:
-            from PySide6.QtWidgets import QFileDialog
             file_path, _ = QFileDialog.getSaveFileName(
                 self, "프로젝트 저장",
                 str(self._repo.base_path / f"{self._project.name}.json"),
@@ -414,9 +459,29 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(f"Flow - {self._project.name}")
             self._clear_dirty() # 저장 완료 후 깨끗한 상태
             self._statusbar.showMessage(f"프로젝트가 저장되었습니다: {self._project_path.name}")
-            
         except Exception as e:
             QMessageBox.critical(self, "오류", f"프로젝트를 저장할 수 없습니다:\n{e}")
+
+    def _on_verse_changed(self, verse_index: int) -> None:
+        """현재 선택된 절 변경 핸들러"""
+        if not self._project:
+            return
+            
+        self._project.current_verse_index = verse_index
+        self._canvas.set_verse_index(verse_index)
+        
+        # [수정] 현재 선택된 핫스팟이 바뀐 절에 매핑되어 있지 않다면 선택 해제 (화면 정돈)
+        current_hotspot = self._canvas.get_selected_hotspot()
+        if current_hotspot:
+            if current_hotspot.get_slide_index(verse_index) >= 0:
+                self._update_preview(current_hotspot)
+                self._live_controller.set_preview(current_hotspot)
+            else:
+                self._canvas.select_hotspot(None)
+                self._update_preview(None)
+                self._live_controller.set_preview(None)
+            
+        self._statusbar.showMessage(f"{verse_index + 1 if verse_index < 5 else '후렴'}을(를) 선택했습니다.", 1000)
 
     def _save_project_as(self) -> None:
         """현재 프로젝트를 다른 이름(폴더 통째로 복사)으로 저장"""
@@ -660,8 +725,14 @@ class MainWindow(QMainWindow):
         # 모드와 관계없이 항상 Preview에 설정 (전환 시 즉시 송출 대기용)
         self._live_controller.set_preview(hotspot)
         
-        # 슬라이드가 매핑되어 있다면 썸네일 목록에서 강조 및 스크롤
-        slide_idx = getattr(hotspot, 'slide_index', -1)
+        # [수정] 현재 절 매핑 우선, 없으면 후렴 매핑 확인 (내비게이션용)
+        v_idx = self._project.current_verse_index
+        slide_idx = hotspot.get_slide_index(v_idx)
+        
+        # 현재 절에 매핑이 없더라도 후렴 매핑이 있다면 해당 슬라이드 강조
+        if slide_idx < 0:
+            slide_idx = hotspot.get_slide_index(5) # 후렴 체크
+            
         if slide_idx >= 0:
             self._slide_preview.select_slide(slide_idx)
     
@@ -680,6 +751,8 @@ class MainWindow(QMainWindow):
         self._mark_dirty()
         self._statusbar.showMessage(f"핫스팟 이동됨: #{hotspot.order + 1}")
     
+    # === 슬라이드 미리보기 및 매핑 정보 동기화 ===
+    
     def _update_preview(self, hotspot: Hotspot | None) -> None:
         """미리보기 업데이트"""
         text = "(선택된 핫스팟 없음)"
@@ -687,14 +760,20 @@ class MainWindow(QMainWindow):
         
         if hotspot:
             lyric = getattr(hotspot, 'lyric', "")
-            slide_idx = getattr(hotspot, 'slide_index', -1)
+            # [수정] 현재 절의 슬라이드를 가져오되, 없으면 후렴 매핑 활용 (범용 내비게이션)
+            v_idx = self._project.current_verse_index
+            slide_idx = hotspot.get_slide_index(v_idx)
+            
+            # 현재 절 매핑이 없고 후렴 매핑이 있는 경우 후렴 슬라이드를 보여줌
+            if slide_idx < 0:
+                slide_idx = hotspot.get_slide_index(5)
             
             if lyric:
                 text = lyric
             elif slide_idx >= 0:
                 text = f"슬라이드 {slide_idx + 1}"
             else:
-                text = "(가사/슬라이드 없음)"
+                text = "(슬라이드 없음)"
             
             # 매핑된 슬라이드 이미지가 있다면 프리뷰에 표시
             if slide_idx >= 0:
@@ -808,12 +887,20 @@ class MainWindow(QMainWindow):
         # 1. 모든 곡(ScoreSheet) 탐색
         for sheet in self._project.score_sheets:
             for hotspot in sheet.hotspots:
-                if getattr(hotspot, 'slide_index', -1) == index:
-                    found_sheet = sheet
-                    found_hotspot = hotspot
-                    break
-            if found_sheet:
-                break
+                # 모든 절 매핑을 검사
+                for v_idx_str, s_idx in hotspot.slide_mappings.items():
+                    if s_idx == index:
+                        found_sheet = sheet
+                        found_hotspot = hotspot
+                        # 찾은 경우 해당 절로 전환 시도
+                        v_idx = int(v_idx_str)
+                        if self._project.current_verse_index != v_idx:
+                            self._on_verse_changed(v_idx)
+                            # 버튼 UI 동기화
+                            self._verse_group.button(v_idx).setChecked(True)
+                        break
+                if found_sheet: break
+            if found_sheet: break
         
         # 2. 결과에 따른 처리
         if found_sheet and found_hotspot:
@@ -869,36 +956,45 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "매핑 안내", "슬라이드를 매핑하려면 먼저 악보에서 핫스팟을 선택하세요.")
             return
 
+        # [추가] 현재 모드에서 편집 가능한 버튼인지 확인 (타 레이어 전용 버튼 보호)
+        if not self._canvas.is_hotspot_editable(selected_hotspot, self._project.current_verse_index):
+            v_name = f"{self._project.current_verse_index + 1}절" if self._project.current_verse_index < 5 else "후렴"
+            QMessageBox.warning(self, "매핑 제한", f"이 버튼은 타 레이어에서 생성되었습니다.\n{v_name}에서 작업하시려면 해당 레이어로 이동하거나 새 버튼을 만들어 주세요.")
+            return
+
         # 1:1 매핑 체크: 이 슬라이드가 이미 다른 곳에 매핑되어 있는지 확인
         existing_info = None
         for sheet in self._project.score_sheets:
-            # 순서 보장을 위해 정렬된 핫스팟 목록 사용
             ordered_hotspots = sheet.get_ordered_hotspots()
             for i, hotspot in enumerate(ordered_hotspots):
-                if getattr(hotspot, 'slide_index', -1) == index:
-                    # 현재 매핑하려는 핫스팟 자체가 이미 이 슬라이드인 경우는 제외
-                    if hotspot != selected_hotspot:
-                        existing_info = {
-                            "sheet_name": sheet.name,
-                            "order": i + 1,
-                            "lyric": hotspot.lyric or "가사 없음"
-                        }
-                        break
-            if existing_info:
-                break
+                # 모든 절 매핑을 검사
+                for v_idx_str, s_idx in hotspot.slide_mappings.items():
+                    if s_idx == index:
+                        if hotspot != selected_hotspot:
+                            v_idx = int(v_idx_str)
+                            v_name = f"{v_idx + 1}절" if v_idx < 5 else "후렴"
+                            existing_info = {
+                                "sheet_name": sheet.name,
+                                "order": i + 1,
+                                "verse": v_name,
+                                "lyric": hotspot.lyric or "가사 없음"
+                            }
+                            break
+                if existing_info: break
+            if existing_info: break
         
         if existing_info:
             QMessageBox.warning(
                 self, "매핑 중복",
                 f"슬라이드 {index + 1}은(는) 이미 다른 곳에 매핑되어 있습니다.\n\n"
                 f"📍 곡명: {existing_info['sheet_name']}\n"
-                f"📍 위치: {existing_info['order']}번 버튼 ({existing_info['lyric']})\n\n"
+                f"📍 위치: {existing_info['verse']}의 {existing_info['order']}번 버튼 ({existing_info['lyric']})\n\n"
                 "먼저 해당 위치의 매핑을 해제한 후 다시 시도해 주세요."
             )
             return
             
-        # 현재 핫스팟에 매핑 진행
-        selected_hotspot.slide_index = index
+        # 현재 핫스팟의 '현재 절'에 매핑 진행
+        selected_hotspot.set_slide_index(index, self._project.current_verse_index)
         if not selected_hotspot.lyric:
             selected_hotspot.lyric = f"Slide {index + 1}"
         
@@ -908,14 +1004,15 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"매핑 완료: 슬라이드 {index + 1} → 현재 핫스팟", 3000)
 
     def _update_mapped_slides_ui(self) -> None:
-        """전체 프로젝트를 뒤져 매핑된 슬라이드 정보를 UI에 반영"""
+        """전체 프로젝트를 뒤져 현재 절에 매핑된 슬라이드 정보를 UI에 반영"""
         if not self._project:
             return
             
         mapped_indices = set()
         for sheet in self._project.score_sheets:
             for hotspot in sheet.hotspots:
-                idx = getattr(hotspot, 'slide_index', -1)
+                # [수정] 현재 절의 매핑만 추출
+                idx = hotspot.get_slide_index(self._project.current_verse_index)
                 if idx >= 0:
                     mapped_indices.add(idx)
         
@@ -929,7 +1026,13 @@ class MainWindow(QMainWindow):
         count = 0
         for sheet in self._project.score_sheets:
             for hotspot in sheet.hotspots:
-                if getattr(hotspot, 'slide_index', -1) == index:
+                # 모든 절 매핑에서 해당 슬라이드 제거
+                keys_to_remove = [k for k, v in hotspot.slide_mappings.items() if v == index]
+                for k in keys_to_remove:
+                    del hotspot.slide_mappings[k]
+                    count += 1
+                # 하위 호환 필드도 체크
+                if hotspot.slide_index == index:
                     hotspot.slide_index = -1
                     count += 1
         
@@ -941,14 +1044,19 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"해제 완료: {count}개의 핫스팟에서 슬라이드 {index + 1} 연결을 끊었습니다.", 3000)
 
     def _on_unlink_current_hotspot(self) -> None:
-        """현재 선택된 핫스팟의 슬라이드 매핑만 해제"""
+        """현재 선택된 핫스팟의 '현재 절' 슬라이드 매핑만 해제"""
         hotspot = self._canvas.get_selected_hotspot()
         if hotspot:
-            hotspot.slide_index = -1
+            v_key = str(self._project.current_verse_index)
+            if v_key in hotspot.slide_mappings:
+                del hotspot.slide_mappings[v_key]
+            if self._project.current_verse_index == 0:
+                hotspot.slide_index = -1
+                
             self._canvas.update()
             self._update_preview(hotspot)
             self._update_mapped_slides_ui()
-            self.statusBar().showMessage("현재 핫스팟의 매핑을 해제했습니다.", 3000)
+            self.statusBar().showMessage("현재 절의 매핑을 해제했습니다.", 3000)
 
     def _update_preview_with_index(self, index: int) -> None:
         """인덱스로 직접 프리뷰 이미지 갱신 (핫스팟 없을 때)"""
@@ -971,8 +1079,22 @@ class MainWindow(QMainWindow):
         key = event.key()
         focused = self.focusWidget()
         
+        # 숫자키 1-6 (상단 숫자키): 절(Verse) 즉시 전환
+        verse_idx = -1
+        if Qt.Key.Key_1 <= key <= Qt.Key.Key_6:
+            verse_idx = key - Qt.Key.Key_1
+            
+        if verse_idx != -1:
+            self._on_verse_changed(verse_idx)
+            # 버튼 UI 동기화
+            btn = self._verse_group.button(verse_idx)
+            if btn:
+                btn.setChecked(True)
+            self.statusBar().showMessage(f"레이어 전환: {verse_idx + 1 if verse_idx < 5 else '후렴'}", 1000)
+            event.accept()
+            return
+        
         # [중요] 텍스트 입력 중일 때는 전역 키 조작을 하지 않음 (커서 이동/줄바꿈 보호)
-        from PySide6.QtWidgets import QLineEdit, QTextEdit, QPlainTextEdit
         if isinstance(focused, (QLineEdit, QTextEdit, QPlainTextEdit)):
             super().keyPressEvent(event)
             return
@@ -981,29 +1103,64 @@ class MainWindow(QMainWindow):
         current_sheet = self._project.get_current_score_sheet()
         selected_id = getattr(self._canvas, '_selected_hotspot_id', None)
         
-        # 방향키: 핫스팟 탐색 시스템
+        # 방향키: 핫스팟 탐색 시스템 (현재 모드 내에서만 순환)
         if key == Qt.Key.Key_Right:
             target = None
             if current_sheet:
-                if selected_id:
-                    target = current_sheet.get_next_hotspot(selected_id)
-                    # 끝에 도달했으면 첫 번째로 순환
-                    if target is None:
-                        ordered = current_sheet.get_ordered_hotspots()
-                        if ordered: target = ordered[0]
+                v_idx = self._project.current_verse_index
+                ordered = current_sheet.get_ordered_hotspots()
+                
+                # 탐색 대상(eligible) 결정 및 정렬 규칙: (레이어 간 물리적/논리적 분리 엄격 적용)
+                chorus_ids = [h.id for h in ordered if ("5" in h.slide_mappings or h.get_slide_index(5) >= 0)]
+                
+                if v_idx < 5:
+                    # 1~5절 모드: 오직 절 전용 버튼(숫자)들만 탐색하고 순환함
+                    eligible = [h for h in ordered if h.id not in chorus_ids]
                 else:
-                    ordered = current_sheet.get_ordered_hotspots()
-                    if ordered: target = ordered[0]
+                    # 후렴 모드: 오직 후렴 전용 버튼(ABC)들만 탐색하고 순환함
+                    eligible = [h for h in ordered if h.id in chorus_ids]
+                
+                if not eligible:
+                    event.accept()
+                    return
+
+                if selected_id:
+                    # 현재 가사의 순서 찾기
+                    cur_idx = -1
+                    for i, h in enumerate(eligible):
+                        if h.id == selected_id:
+                            cur_idx = i
+                            break
+                    
+                    if cur_idx != -1 and cur_idx < len(eligible) - 1:
+                        # 1. 다음 버튼으로 이동
+                        target = eligible[cur_idx + 1]
+                    else:
+                        # 2. 마지막이면 해당 모드의 처음으로 순환 (다른 레이어로 점프 금지)
+                        target = eligible[0]
+                else:
+                    # 선택된 게 없으면 해당 모드의 첫 번째 버튼
+                    target = eligible[0]
             
             if target:
                 self._canvas.select_hotspot(target.id)
                 self._on_hotspot_selected(target)
-                self.statusBar().showMessage(f"탐색: 가사 #{target.order + 1}", 1000)
+                
+                # 레이블 이름 판별 (상태바 표시용)
+                label = ""
+                # 어떤 버튼인지에 따라 A, B, C 또는 1, 2, 3 판별
+                chorus_ids = [h.id for h in ordered if ("5" in h.slide_mappings or h.get_slide_index(5) >= 0)]
+                if target.id in chorus_ids:
+                    c_idx = chorus_ids.index(target.id)
+                    label = chr(65 + c_idx) if c_idx < 26 else str(c_idx + 1)
+                else:
+                    v_ids = [h.id for h in ordered if h.id not in chorus_ids]
+                    v_num = v_ids.index(target.id) + 1 if target.id in v_ids else "?"
+                    label = str(v_num)
+                
+                display_v = "후렴" if v_idx == 5 else f"{v_idx + 1}절"
+                self.statusBar().showMessage(f"탐색({display_v}): {label}번 가사", 1000)
                 event.accept()
-                return
-            # 이동할 가사가 없는데 슬라이드 클릭 중이면 슬라이드 넘김 허용
-            if focused == self._slide_preview._list:
-                super().keyPressEvent(event)
                 return
             event.accept()
             return
@@ -1011,25 +1168,59 @@ class MainWindow(QMainWindow):
         elif key == Qt.Key.Key_Left:
             target = None
             if current_sheet:
-                if selected_id:
-                    target = current_sheet.get_previous_hotspot(selected_id)
-                    # 처음에 도달했으면 마지막으로 순환
-                    if target is None:
-                        ordered = current_sheet.get_ordered_hotspots()
-                        if ordered: target = ordered[-1]
+                v_idx = self._project.current_verse_index
+                ordered = current_sheet.get_ordered_hotspots()
+                
+                # 탐색 대상(eligible) 결정 및 정렬 규칙:
+                chorus_ids = [h.id for h in ordered if ("5" in h.slide_mappings or h.get_slide_index(5) >= 0)]
+                
+                if v_idx < 5:
+                    # 1~5절 모드: 오직 절 전용 버튼(숫자)들만 탐색함
+                    eligible = [h for h in ordered if h.id not in chorus_ids]
                 else:
-                    ordered = current_sheet.get_ordered_hotspots()
-                    if ordered: target = ordered[-1]
+                    # 후렴 모드: 후렴 전용 버튼(ABC)들만 탐색함
+                    eligible = [h for h in ordered if h.id in chorus_ids]
+                
+                if not eligible:
+                    event.accept()
+                    return
+
+                if selected_id:
+                    # 현재 가사의 순서 찾기
+                    cur_idx = -1
+                    for i, h in enumerate(eligible):
+                        if h.id == selected_id:
+                            cur_idx = i
+                            break
+                    
+                    if cur_idx > 0:
+                        # 1. 이전 버튼으로 이동
+                        target = eligible[cur_idx - 1]
+                    else:
+                        # 2. 처음이면 해당 모드의 마지막으로 순환 (다른 레이어로 점프 금지)
+                        target = eligible[-1]
+                else:
+                    # 선택된 게 없으면 해당 모드의 마지막 버튼
+                    target = eligible[-1]
             
             if target:
                 self._canvas.select_hotspot(target.id)
                 self._on_hotspot_selected(target)
-                self.statusBar().showMessage(f"탐색: 가사 #{target.order + 1}", 1000)
+                
+                # 레이블 이름 판별 (상태바 표시용)
+                label = ""
+                chorus_ids = [h.id for h in ordered if ("5" in h.slide_mappings or h.get_slide_index(5) >= 0)]
+                if target.id in chorus_ids:
+                    c_idx = chorus_ids.index(target.id)
+                    label = chr(65 + c_idx) if c_idx < 26 else str(c_idx + 1)
+                else:
+                    v_ids = [h.id for h in ordered if h.id not in chorus_ids]
+                    v_num = v_ids.index(target.id) + 1 if target.id in v_ids else "?"
+                    label = str(v_num)
+                
+                display_v = "후렴" if v_idx == 5 else f"{v_idx + 1}절"
+                self.statusBar().showMessage(f"탐색({display_v}): {label}번 가사", 1000)
                 event.accept()
-                return
-            # 이동할 가사가 없는데 슬라이드 클릭 중이면 슬라이드 넘김 허용
-            if focused == self._slide_preview._list:
-                super().keyPressEvent(event)
                 return
             event.accept()
             return
