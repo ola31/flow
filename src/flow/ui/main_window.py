@@ -987,6 +987,10 @@ class MainWindow(QMainWindow):
             if current_sheet:
                 if selected_id:
                     target = current_sheet.get_next_hotspot(selected_id)
+                    # 끝에 도달했으면 첫 번째로 순환
+                    if target is None:
+                        ordered = current_sheet.get_ordered_hotspots()
+                        if ordered: target = ordered[0]
                 else:
                     ordered = current_sheet.get_ordered_hotspots()
                     if ordered: target = ordered[0]
@@ -1006,8 +1010,16 @@ class MainWindow(QMainWindow):
 
         elif key == Qt.Key.Key_Left:
             target = None
-            if current_sheet and selected_id:
-                target = current_sheet.get_previous_hotspot(selected_id)
+            if current_sheet:
+                if selected_id:
+                    target = current_sheet.get_previous_hotspot(selected_id)
+                    # 처음에 도달했으면 마지막으로 순환
+                    if target is None:
+                        ordered = current_sheet.get_ordered_hotspots()
+                        if ordered: target = ordered[-1]
+                else:
+                    ordered = current_sheet.get_ordered_hotspots()
+                    if ordered: target = ordered[-1]
             
             if target:
                 self._canvas.select_hotspot(target.id)
