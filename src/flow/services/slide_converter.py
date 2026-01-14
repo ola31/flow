@@ -15,126 +15,172 @@ class SlideConverter(abc.ABC):
 import subprocess
 import tempfile
 import shutil
-from pdf2image import convert_from_path
+import hashlib
+import fitz  # PyMuPDF
 
 class LinuxSlideConverter(SlideConverter):
-    """Linux 운영 환경용 변환기 (LibreOffice + pdf2image 사용)"""
+    """Linux 운영 환경용 변환기 (LibreOffice + PyMuPDF 사용)"""
     
     def __init__(self):
         self._cache_dir = Path(tempfile.gettempdir()) / "flow_ppt_cache"
         self._cache_dir.mkdir(exist_ok=True)
-        self._current_pdf = None
-        self._current_pptx = None
 
     def convert_slide(self, pptx_path: Path, index: int) -> QImage:
-        """LibreOffice로 PDF 변환 후 모든 슬라이드를 이미지 파일로 캐싱"""
-        if not pptx_path or not pptx_path.exists():
-            return self._draw_error_image("파일 없음")
-
-        # 캐시 디렉토리 구조: flow_ppt_cache/{pptx_hash}/slide_{index}.png
-        import hashlib
-        pptx_hash = hashlib.md5(str(pptx_path.resolve()).encode()).hexdigest()
-        pptx_cache_dir = self._cache_dir / pptx_hash
-        pptx_cache_dir.mkdir(exist_ok=True)
-        
-        img_path = pptx_cache_dir / f"slide_{index}.png"
-        
-        # 1. 이미 캐싱된 파일이 있으면 즉시 반환 (매우 빠름)
-        if img_path.exists():
-            return QImage(str(img_path))
-
-        # 2. 캐시가 없으면 일괄 변환 수행
-        try:
-            # 먼저 PDF가 있는지 확인 (없으면 생성)
-            pdf_path = pptx_cache_dir / "temp.pdf"
-            if not pdf_path.exists():
-                subprocess.run([
-                    "libreoffice", "--headless", 
-                    "--convert-to", "pdf", 
-                    "--outdir", str(pptx_cache_dir),
-                    str(pptx_path)
-                ], check=True, capture_output=True)
-                # LibreOffice는 원본 파일명.pdf로 저장하므로 이름 변경
-                original_pdf = pptx_cache_dir / f"{pptx_path.stem}.pdf"
-                if original_pdf.exists():
-                    original_pdf.replace(pdf_path)
-
-            # PDF 전체를 이미지로 변환하여 캐시 디렉토리에 저장
-            # (CPU 코어 사용 옵션 등을 추가할 수 있으나 여기서는 단순 구현)
-            images = convert_from_path(
-                str(pdf_path),
-                output_folder=str(pptx_cache_dir),
-                fmt="png",
-                output_file="slide", # slide-1.png, slide-2.png 형식으로 저장됨
-                paths_only=True      # 파일 경로만 반환받아 메모리 절약
-            )
-            
-            # pdf2image 명명 규칙(slide-1.png)을 우리 규칙(slide_0.png)으로 정리하거나 그대로 사용
-            # 여기서는 파일 중 하나를 반환
-            for i, path in enumerate(sorted(images)):
-                target = pptx_cache_dir / f"slide_{i}.png"
-                if not target.exists():
-                    Path(path).replace(target)
-            
-            if img_path.exists():
-                return QImage(str(img_path))
-                
-        except Exception as e:
-            print(f"Linux PPT 최적화 변환 실패: {e}")
-            
-        return self._draw_error_image(f"변환 실패 (Page {index+1})")
+        """LibreOffice로 PDF 변환 후 PyMuPDF로 이미지 캐싱"""
+        return _convert_with_libreoffice(pptx_path, index, self._cache_dir, "libreoffice")
 
     def _draw_error_image(self, text: str) -> QImage:
-        """오류 시 표시할 이미지"""
         img = QImage(1280, 720, QImage.Format.Format_RGB32)
         img.fill("#ff0000")
-        # 텍스트 그리는 로직은 생략하거나 간단히 구현
         return img
 
+def _convert_with_libreoffice(pptx_path: Path, index: int, cache_dir: Path, soffice_cmd: str) -> QImage:
+    """LibreOffice를 사용하여 PPTX를 PDF로 변환 후 이미지를 추출하는 공통 로직"""
+    if not pptx_path or not pptx_path.exists():
+        return QImage(1280, 720, QImage.Format.Format_RGB32)
+
+    pptx_hash = hashlib.md5(str(pptx_path.resolve()).encode()).hexdigest()
+    pptx_cache_dir = cache_dir / pptx_hash
+    pptx_cache_dir.mkdir(exist_ok=True)
+    
+    img_path = pptx_cache_dir / f"slide_{index}.png"
+    
+    if img_path.exists():
+        return QImage(str(img_path))
+
+    try:
+        pdf_path = pptx_cache_dir / "temp.pdf"
+        if not pdf_path.exists():
+            # [중요] 윈도우에서 LibreOffice가 이미 실행 중일 때 충돌 방지를 위해 별도 프로필 사용
+            user_profile = pptx_cache_dir / "lo_profile"
+            user_profile.mkdir(exist_ok=True)
+            
+            # 윈도우 경로 형식으로 변환
+            user_profile_url = f"file:///{str(user_profile).replace('\\', '/')}"
+            
+            cmd = [
+                soffice_cmd,
+                f"-env:UserInstallation={user_profile_url}",
+                "--headless",
+                "--convert-to", "pdf",
+                "--outdir", str(pptx_cache_dir),
+                str(pptx_path)
+            ]
+            
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            
+            original_pdf = pptx_cache_dir / f"{pptx_path.stem}.pdf"
+            if original_pdf.exists():
+                original_pdf.replace(pdf_path)
+            else:
+                # 가끔 파일명이 다른 경우 검색 시도
+                pdf_files = list(pptx_cache_dir.glob("*.pdf"))
+                if pdf_files:
+                    pdf_files[0].replace(pdf_path)
+
+        if not pdf_path.exists():
+             raise RuntimeError("PDF 변환 결과 파일을 찾을 수 없습니다.")
+
+        # PyMuPDF(fitz)를 사용하여 PDF의 모든 페이지를 이미지로 변환 및 캐싱
+        doc = fitz.open(str(pdf_path))
+        for i in range(len(doc)):
+            page = doc.load_page(i)
+            # 고해상도 변환 (2.0 = 144 DPI)
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            target = pptx_cache_dir / f"slide_{i}.png"
+            pix.save(str(target))
+        doc.close()
+        
+        if img_path.exists():
+            return QImage(str(img_path))
+            
+    except subprocess.CalledProcessError as e:
+        print(f"LibreOffice 변환 명령어 실패: {e.stdout} / {e.stderr}")
+    except Exception as e:
+        print(f"LibreOffice 변환 에러: {e}")
+        
+    return QImage(1280, 720, QImage.Format.Format_RGB32)
+
 class WindowsSlideConverter(SlideConverter):
-    """Windows 운영 환경용 변환기 (PowerPoint COM 사용)"""
+    """Windows 운영 환경용 변환기 (PowerPoint COM -> LibreOffice fallback)"""
     
     def __init__(self):
         self._temp_dir = Path(tempfile.gettempdir()) / "flow_ppt_win"
         self._temp_dir.mkdir(exist_ok=True)
+        self._has_pp = None # None: 미확인, True/False: 확인됨
+        self._soffice_path = self._find_libreoffice()
 
-    def convert_slide(self, pptx_path: Path, index: int) -> QImage:
-        """PowerPoint COM을 사용하여 전체 슬라이드를 한 번에 캐싱"""
+    def _find_libreoffice(self) -> str | None:
+        """윈도우에서 LibreOffice 실행 파일 경로 탐색"""
+        common_paths = [
+            r"C:\Program Files\LibreOffice\program\soffice.exe",
+            r"C:\Program Files (x86)\LibreOffice\program\soffice.exe"
+        ]
+        for path in common_paths:
+            if Path(path).exists():
+                return path
+        
+        # PATH 환경변수 확인
+        which_path = shutil.which("soffice")
+        return which_path
+
+    def _check_powerpoint_installed(self) -> bool:
+        """PowerPoint 설치 여부 확인"""
+        if self._has_pp is not None:
+            return self._has_pp
+            
         import pythoncom
         from win32com import client
-        import hashlib
         
-        # 캐시 경로 설정
+        pythoncom.CoInitialize()
+        try:
+            # 단순히 Dispatch만 시도하여 설치 여부 확인
+            pp = client.Dispatch("PowerPoint.Application")
+            self._has_pp = True
+            return True
+        except Exception:
+            self._has_pp = False
+            return False
+
+    def convert_slide(self, pptx_path: Path, index: int) -> QImage:
+        """PowerPoint가 있으면 COM 사용, 없으면 LibreOffice 사용"""
+        
+        # 1. PowerPoint 사용 시도
+        if self._check_powerpoint_installed():
+            try:
+                return self._convert_with_com(pptx_path, index)
+            except Exception as e:
+                print(f"PowerPoint COM 변환 실패, Fallback 시도: {e}")
+        
+        # 2. LibreOffice 사용 시도
+        if self._soffice_path:
+            return _convert_with_libreoffice(pptx_path, index, self._temp_dir, self._soffice_path)
+            
+        # 3. 모두 실패 시 에러 이미지
+        print("에러: PowerPoint 또는 LibreOffice를 찾을 수 없습니다.")
+        return QImage(1280, 720, QImage.Format.Format_RGB32)
+
+    def _convert_with_com(self, pptx_path: Path, index: int) -> QImage:
+        """기존 PowerPoint COM 방식 로직"""
+        import pythoncom
+        from win32com import client
+        
         pptx_hash = hashlib.md5(str(pptx_path.resolve()).encode()).hexdigest()
         pptx_cache_dir = self._temp_dir / pptx_hash
         pptx_cache_dir.mkdir(exist_ok=True)
         
-        img_path = pptx_cache_dir / f"slide_{index + 1}.PNG" # PPT Export는 slide_1.PNG 형식임
-        
-        # 1. 캐시 확인
+        img_path = pptx_cache_dir / f"Slide{index + 1}.PNG"
         if img_path.exists():
             return QImage(str(img_path))
 
-        # 2. 일괄 Export 수행
         pythoncom.CoInitialize()
+        pp = client.Dispatch("PowerPoint.Application")
+        pres = pp.Presentations.Open(str(pptx_path.resolve()), WithWindow=False, ReadOnly=True)
         try:
-            pp = client.Dispatch("PowerPoint.Application")
-            pres = pp.Presentations.Open(str(pptx_path.resolve()), WithWindow=False, ReadOnly=True)
-            
-            try:
-                # 폴더 전체를 지정하여 모든 슬라이드 내보내기
-                # Export(Path, FilterName, Width, Height)
-                pres.Export(str(pptx_cache_dir), "PNG", 1920, 1080)
-                
-                # 내보낸 후 파일명이 Slide1.PNG 등으로 생성됨을 확인하여 규칙에 맞게 반환하거나 로드
-                # (Windows PowerPoint 버전에 따라 파일명이 다를 수 있으므로 유연하게 대처)
-                possible_path = pptx_cache_dir / f"Slide{index + 1}.PNG"
-                if possible_path.exists():
-                    return QImage(str(possible_path))
-                    
-            finally:
-                pres.Close()
-        except Exception as e:
-            print(f"Windows PPT 일괄 변환 실패: {e}")
-            
+            pres.Export(str(pptx_cache_dir), "PNG", 1920, 1080)
+            if img_path.exists():
+                return QImage(str(img_path))
+        finally:
+            pres.Close()
+        
         return QImage(1280, 720, QImage.Format.Format_RGB32)

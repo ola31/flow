@@ -14,6 +14,11 @@ authors = [
 ]
 dependencies = [
     "PySide6>=6.4.0",
+    "python-pptx",
+    "watchdog",
+    "pywin32; platform_system == 'Windows'",
+    "pdf2image",
+    "pymupdf",
 ]
 
 [project.optional-dependencies]

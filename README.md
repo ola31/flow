@@ -12,6 +12,9 @@ python -m venv .venv
 # Linux/macOS
 source .venv/bin/activate
 # Windows
+
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
 .venv\Scripts\activate
 
 # 의존성 설치
