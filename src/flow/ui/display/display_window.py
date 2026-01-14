@@ -151,11 +151,8 @@ class DisplayWindow(QWidget):
             self.setGeometry(geometry)
             self.showFullScreen()
         else:
-            # 싱글 모니터: 윈도우 모드로 열기 (제어 가능하게)
-            self.setWindowFlags(
-                Qt.WindowType.Window |
-                Qt.WindowType.WindowStaysOnTopHint  # 항상 위에
-            )
+            # 싱글 모니터: 윈도우 모드로 열기 (일반 윈도우처럼 관리 가능하도록)
+            self.setWindowFlags(Qt.WindowType.Window)
             self.resize(960, 540)  # 16:9 비율
             self.show()
             # 화면 오른쪽 하단에 배치

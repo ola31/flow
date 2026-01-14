@@ -4,6 +4,7 @@
 """
 
 from pathlib import Path
+import shutil
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter,
@@ -52,8 +53,12 @@ class MainWindow(QMainWindow):
         self._setup_statusbar()
         self._connect_signals()
         
-        # 새 프로젝트로 시작
-        self._new_project()
+        # SongListWidget에 메인 윈도우 참조 연결 (경로 획득용)
+        self._song_list.set_main_window(self)
+        
+        # 앱 시작 시 기본 프로젝트 생성 (파일 다이얼로그 없이)
+        self._create_initial_project()
+        self._toggle_edit_mode()
     
     def _setup_ui(self) -> None:
         """UI 초기화"""
@@ -133,9 +138,9 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(preview_frame)
         
         # Live 패널 (현재 송출 중)
-        live_frame = QFrame()
-        live_frame.setFrameStyle(QFrame.Shape.StyledPanel)
-        live_layout = QVBoxLayout(live_frame)
+        self._live_panel = QFrame()
+        self._live_panel.setFrameStyle(QFrame.Shape.StyledPanel)
+        live_layout = QVBoxLayout(self._live_panel)
         live_layout.setContentsMargins(8, 8, 8, 8)
         
         live_header = QLabel("🔴 LIVE (송출 중)")
@@ -163,7 +168,7 @@ class MainWindow(QMainWindow):
         self._live_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         live_layout.addWidget(self._live_image)
         self._live_image.hide()
-        right_layout.addWidget(live_frame)
+        right_layout.addWidget(self._live_panel)
         
         right_layout.addStretch()
         splitter.addWidget(right_panel)
@@ -184,24 +189,32 @@ class MainWindow(QMainWindow):
         new_action = QAction("📄 새 프로젝트", self)
         new_action.setShortcut(QKeySequence.StandardKey.New)
         new_action.triggered.connect(self._new_project)
+        self._new_action = new_action
         toolbar.addAction(new_action)
         
         open_action = QAction("📂 열기", self)
         open_action.setShortcut(QKeySequence.StandardKey.Open)
         open_action.triggered.connect(self._open_project)
+        self._open_action = open_action
         toolbar.addAction(open_action)
         
         save_action = QAction("💾 저장", self)
         save_action.setShortcut(QKeySequence.StandardKey.Save)
         save_action.triggered.connect(self._save_project)
         toolbar.addAction(save_action)
+        self._save_action = save_action
+        
+        save_as_action = QAction("💾 다른 이름으로 저장", self)
+        save_as_action.triggered.connect(self._save_project_as)
+        toolbar.addAction(save_as_action)
+        self._save_as_action = save_as_action
         
         toolbar.addSeparator()
         
         # PPT 로드 액션 추가 (단일 버튼으로 유지)
-        load_ppt_action = QAction("📽 PPT 로드", self)
-        load_ppt_action.triggered.connect(self._on_load_ppt)
-        toolbar.addAction(load_ppt_action)
+        self._load_ppt_action = QAction("📽 PPT 로드", self)
+        self._load_ppt_action.triggered.connect(self._on_load_ppt)
+        toolbar.addAction(self._load_ppt_action)
         
         toolbar.addSeparator()
         
@@ -219,11 +232,12 @@ class MainWindow(QMainWindow):
         
         toolbar.addSeparator()
         
-        # 송출창 열기
-        display_action = QAction("📺 송출창 열기", self)
-        display_action.setShortcut("F11")
-        display_action.triggered.connect(self._open_display_window)
-        toolbar.addAction(display_action)
+        # 송출 제어 (초기상태 비활성)
+        self._display_action = QAction("📺 송출 시작", self)
+        self._display_action.setShortcut("F11")
+        self._display_action.setEnabled(False) # 편집 모드에선 비활성
+        self._display_action.triggered.connect(self._toggle_display)
+        toolbar.addAction(self._display_action)
     
     def _setup_statusbar(self) -> None:
         """상태바 설정"""
@@ -254,16 +268,55 @@ class MainWindow(QMainWindow):
     # === 프로젝트 관리 ===
     
     def _new_project(self) -> None:
-        """새 프로젝트 생성"""
+        """새 프로젝트 폴더 생성 및 시작"""
+        from PySide6.QtWidgets import QFileDialog
+        
+        # 1. 프로젝트 이름/위치 선택
+        # [수정] 폴더 안으로 들어가는 것을 방지하기 위해 .json 확장자를 붙여서 제안
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "새 프로젝트 생성 (폴더명 입력)",
+            str(self._repo.base_path / "새 프로젝트.json"),
+            "Flow 프로젝트 (*.json)"
+        )
+        
+        if not file_path:
+            return
+
+        # [핵심] 사용자가 입력한 경로(파일명)를 이름으로 하는 '폴더'를 생성
+        p_base = Path(file_path).resolve()
+        # 확장자가 붙어있다면 제거 (폴더명으로 쓰기 위함)
+        if p_base.suffix.lower() == ".json":
+            p_base = p_base.with_suffix("")
+            
+        project_dir = p_base
+        self._project_path = project_dir / "project.json"
+        self._project = Project(name=project_dir.name)
+        
+        try:
+            # 폴더 생성 및 저장
+            project_dir.mkdir(parents=True, exist_ok=True)
+            self._repo.save(self._project, self._project_path)
+            
+            # UI 초기화
+            self._song_list.set_project(self._project)
+            self._canvas.set_score_sheet(None)
+            self._slide_manager.load_pptx("")
+            self._slide_preview.refresh_slides()
+            
+            self.setWindowTitle(f"Flow - {self._project.name}")
+            self._statusbar.showMessage(f"새 프로젝트가 생성되었습니다: {project_dir}")
+            self._toggle_edit_mode()
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"프로젝트 폴더를 생성할 수 없습니다:\n{e}")
+
+    def _create_initial_project(self) -> None:
+        """앱 시작 시 조용히 기본 프로젝트 생성"""
         self._project = Project(name="새 프로젝트")
         self._project_path = None
-        
         self._song_list.set_project(self._project)
         self._canvas.set_score_sheet(None)
         self._slide_preview.refresh_slides()
-        
         self.setWindowTitle("Flow - 새 프로젝트")
-        self._statusbar.showMessage("새 프로젝트가 생성되었습니다")
     
     def _open_project(self) -> None:
         """프로젝트 열기"""
@@ -280,11 +333,24 @@ class MainWindow(QMainWindow):
             self._project = self._repo.load(Path(file_path))
             self._project_path = Path(file_path)
             
+            # 1. 곡 목록 갱신
             self._song_list.set_project(self._project)
             
-            # 첫 번째 곡 선택
+            # 2. 매핑 상태 UI 동기화
+            self._update_mapped_slides_ui()
+            
+            # 3. 전역 PPT 설정 복구
+            if self._project.pptx_path:
+                self._slide_manager.load_pptx(self._project.pptx_path)
+            else:
+                self._slide_preview.refresh_slides()
+
+            # 4. 첫 번째 곡 선택 및 악보 표시
             if self._project.score_sheets:
-                self._on_song_selected(self._project.score_sheets[0])
+                first_sheet = self._project.score_sheets[0]
+                self._on_song_selected(first_sheet)
+                # 곡 목록 UI에서 첫 번째 항목 선택 표시
+                self._song_list._list.setCurrentRow(0)
             else:
                 self._canvas.set_score_sheet(None)
             
@@ -299,13 +365,80 @@ class MainWindow(QMainWindow):
         if not self._project:
             return
         
+        # 저장 경로가 없거나 처음 저장하는 경우 이름/위치 묻기
+        if not self._project_path:
+            from PySide6.QtWidgets import QFileDialog
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "프로젝트 저장",
+                str(self._repo.base_path / f"{self._project.name}.json"),
+                "Flow 프로젝트 (*.json)"
+            )
+            if not file_path:
+                return
+            self._project_path = Path(file_path)
+
         try:
-            self._project_path = self._repo.save(self._project)
+            self._project_path = self._repo.save(self._project, self._project_path)
             self.setWindowTitle(f"Flow - {self._project.name}")
-            self._statusbar.showMessage("프로젝트가 저장되었습니다")
+            self._statusbar.showMessage(f"프로젝트가 저장되었습니다: {self._project_path.name}")
             
         except Exception as e:
             QMessageBox.critical(self, "오류", f"프로젝트를 저장할 수 없습니다:\n{e}")
+
+    def _save_project_as(self) -> None:
+        """현재 프로젝트를 다른 이름(폴더 통째로 복사)으로 저장"""
+        if not self._project:
+            return
+            
+        # 기본 저장 경로 설정 (.json을 붙여 제안하여 폴더 진입 방지)
+        if self._project_path:
+            initial_path = self._project_path.parent.parent / f"{self._project.name}_복사본.json"
+        else:
+            initial_path = self._repo.base_path / f"{self._project.name}_복사본.json"
+            
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "다른 이름으로 저장 (새 폴더 생성)",
+            str(initial_path),
+            "Flow 프로젝트 (*.json)"
+        )
+        
+        if not file_path:
+            return
+            
+        p_base = Path(file_path).resolve()
+        if p_base.suffix.lower() == ".json":
+            p_base = p_base.with_suffix("")
+            
+        new_project_dir = p_base
+        old_project_dir = self._project_path.parent if self._project_path else None
+        
+        try:
+            # 1. 새 폴더가 이미 있으면 삭제 (깨끗한 복제를 위해)
+            if new_project_dir.exists():
+                shutil.rmtree(new_project_dir)
+                
+            # 2. 기존 프로젝트 폴더가 있다면 그 내용물을 모두 복사
+            if old_project_dir and old_project_dir.exists():
+                shutil.copytree(old_project_dir, new_project_dir)
+            else:
+                # 기존 폴더가 없는 경우(임의의 초기 프로젝트) 새 폴더만 생성
+                new_project_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 3. 프로젝트 객체 정보 업데이트
+            self._project.name = new_project_dir.name
+            self._project_path = new_project_dir / "project.json"
+            
+            # 4. 새로운 위치에 project.json 덮어씌워 저장 (수정된 이름 반영)
+            self._save_project()
+            
+            # 5. 복사된 환경에 맞춰 PPT 다시 로드 (복사본 파일 사용을 위해)
+            if self._project.pptx_path:
+                self._slide_manager.load_pptx(self._project.pptx_path)
+
+            self._statusbar.showMessage(f"프로젝트 전용 폴더가 생성되고 모든 파일이 복제되었습니다: {new_project_dir.name}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"프로젝트를 복제할 수 없습니다:\n{e}")
     
     # === 모드 전환 ===
     
@@ -314,6 +447,18 @@ class MainWindow(QMainWindow):
         self._edit_mode_action.setChecked(True)
         self._live_mode_action.setChecked(False)
         self._canvas.set_edit_mode(True)
+        
+        # 편집 기능 활성화
+        self._set_project_editable(True)
+        
+        # Live 패널 숨기기
+        self._live_panel.hide()
+        
+        # 송출 중지 및 비활성화
+        if self._display_window and self._display_window.isVisible():
+            self._toggle_display()
+        self._display_action.setEnabled(False)
+        
         self._statusbar.showMessage("편집 모드")
     
     def _toggle_live_mode(self) -> None:
@@ -321,25 +466,58 @@ class MainWindow(QMainWindow):
         self._edit_mode_action.setChecked(False)
         self._live_mode_action.setChecked(True)
         self._canvas.set_edit_mode(False)
-        self.setFocus() # 전환 즉시 키 입력을 받을 수 있도록 포커스 설정
-        self._statusbar.showMessage("라이브 모드 - Enter로 송출")
-    
-    def _open_display_window(self) -> None:
-        """송출창 열기"""
-        if self._display_window is None:
-            self._display_window = DisplayWindow()
-            self._display_window.closed.connect(self._on_display_closed)
-            
-            # 라이브 컨트롤러 연결
-            self._live_controller.live_changed.connect(self._display_window.show_lyric)
         
-        self._display_window.show_fullscreen_on_secondary()
-        self._statusbar.showMessage("송출창이 열렸습니다 (ESC로 닫기)")
+        # 편집 기능 비활성화
+        self._set_project_editable(False)
+        
+        # Live 패널 표시
+        self._live_panel.show()
+        
+        # 송출 시작 버튼 활성화
+        self._display_action.setEnabled(True)
+        
+        self.setFocus()
+        self._statusbar.showMessage("라이브 모드 - F11로 송출 시작")
+    
+    def _toggle_display(self) -> None:
+        """송출 시작/중지 토글"""
+        if self._display_window and self._display_window.isVisible():
+            # 중지 로직
+            self._display_window.close()
+            # closeEvent에서 _on_display_closed가 호출되어 UI가 갱신됨
+        else:
+            # 시작 로직
+            if self._display_window is None:
+                self._display_window = DisplayWindow()
+                self._display_window.closed.connect(self._on_display_closed)
+                # 시그널 연결 (MainWindow의 핸들러를 통해 전달됨)
+            
+            self._display_window.show_fullscreen_on_secondary()
+            
+            # [중요] 송출창이 열린 후 현재 라이브 상태를 즉시 동기화
+            self._live_controller.sync_live()
+            
+            self._display_action.setText("⏹ 송출 중지")
+            self._statusbar.showMessage("송출이 시작되었습니다 (F11로 중지)")
     
     def _on_display_closed(self) -> None:
-        """송출창이 닫혔을 때"""
-        self._statusbar.showMessage("송출창이 닫혔습니다")
+        """송출창이 닫혔을 때 (ESC로 닫거나 버튼으로 닫혔을 때 공통)"""
+        self._display_action.setText("📺 송출 시작")
+        self._statusbar.showMessage("송출이 중지되었습니다")
     
+    def _set_project_editable(self, editable: bool) -> None:
+        """프로젝트 편집 관련 UI 요소들 활성/비활성 제어"""
+        # 툴바 액션
+        self._new_action.setEnabled(editable)
+        self._open_action.setEnabled(editable)
+        self._save_action.setEnabled(editable)
+        self._save_as_action.setEnabled(editable)
+        self._load_ppt_action.setEnabled(editable)
+        
+        # 위젯 내부 버튼
+        self._song_list.set_editable(editable)
+        self._slide_preview.set_editable(editable)
+
     # === PPT 비동기 로딩 핸들러 ===
     
     def _on_ppt_load_started(self) -> None:
@@ -394,6 +572,10 @@ class MainWindow(QMainWindow):
         """곡 추가됨"""
         self._canvas.set_score_sheet(sheet)
         self._statusbar.showMessage(f"새 곡 추가: {sheet.name}")
+        
+    def _project_dir(self) -> str:
+        """현재 프로젝트의 디렉토리 경로 반환"""
+        return str(self._project_path.parent) if self._project_path else ""
     
     def _on_hotspot_selected(self, hotspot: Hotspot) -> None:
         """핫스팟 선택됨"""
@@ -471,13 +653,16 @@ class MainWindow(QMainWindow):
             self._display_window.show_image(image)
 
     def _on_load_ppt(self) -> None:
-        """PPTX 파일 로드 핸들러"""
+        """PPTX 파일 로드 핸들러 - 프로젝트 폴더 우선 탐색"""
         if not self._project:
             return
             
         from PySide6.QtWidgets import QFileDialog
+        # 프로젝트 폴더가 있으면 그곳을 기본 경로로 설정
+        initial_dir = str(self._project_path.parent) if self._project_path else ""
+        
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "PPTX 파일 선택", "", "PPTX 파일 (*.pptx)"
+            self, "PPTX 파일 선택", initial_dir, "PPTX 파일 (*.pptx)"
         )
         
         if file_path:

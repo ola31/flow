@@ -81,6 +81,22 @@ class LiveController(QObject):
         self._live_slide_index = -1
         self.live_changed.emit("")
         self.slide_changed.emit(None)
+
+    def sync_live(self) -> None:
+        """현재 Live 상태를 다시 송출 (이미 열린 창 동기화용)"""
+        if self._live_hotspot:
+            self.live_changed.emit(self._live_hotspot.lyric)
+            if self._slide_manager and self._live_hotspot.slide_index >= 0:
+                image = self._slide_manager.get_slide_image(self._live_hotspot.slide_index)
+                self.slide_changed.emit(image)
+        elif self._live_slide_index >= 0:
+            self.live_changed.emit(f"Slide {self._live_slide_index + 1}")
+            if self._slide_manager:
+                image = self._slide_manager.get_slide_image(self._live_slide_index)
+                self.slide_changed.emit(image)
+        else:
+            self.live_changed.emit("")
+            self.slide_changed.emit(None)
     
     def next_hotspot(self) -> Hotspot | None:
         """다음 핫스팟으로 Preview 이동"""

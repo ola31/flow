@@ -88,6 +88,13 @@ class SlidePreviewPanel(QWidget):
         self._slide_manager.file_changed.connect(self.refresh_slides)
         self.refresh_slides()
         
+    def set_editable(self, editable: bool) -> None:
+        """편집 모드 활성/비활성 제어"""
+        self._btn_load.setEnabled(editable)
+        # 닫기 버튼은 PPT가 로드된 경우에만 활성화되어야 하므로 추가 조건 확인
+        has_ppt = self._slide_manager and self._slide_manager._pptx_path is not None
+        self._btn_close.setEnabled(editable and has_ppt)
+        
     def select_slide(self, index: int) -> None:
         """특정 인덱스의 슬라이드를 선택하고 목록 중앙으로 스크롤"""
         if 0 <= index < self._list.count():

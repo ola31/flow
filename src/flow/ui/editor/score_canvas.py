@@ -5,7 +5,7 @@
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QScrollArea, QMenu
 from PySide6.QtGui import QPixmap, QPainter, QColor, QPen, QMouseEvent, QAction
-from PySide6.QtCore import Signal, Qt, QPoint, QRect
+from PySide6.QtCore import Signal, Qt, QPoint, QRect, QSize
 
 from flow.domain.score_sheet import ScoreSheet
 from flow.domain.hotspot import Hotspot
@@ -35,7 +35,9 @@ class ScoreCanvas(QWidget):
         self._score_sheet: ScoreSheet | None = None
         self._pixmap: QPixmap | None = None
         self._selected_hotspot_id: str | None = None
-        self._edit_mode = True  # 편집 모드 활성화
+        self._edit_mode = True
+        self._scaled_pixmap: QPixmap | None = None # 캐시된 스케일 이미지
+        self._last_size = QSize(0, 0)
         
         self.setMinimumSize(400, 300)
         self.setMouseTracking(True)
@@ -53,6 +55,7 @@ class ScoreCanvas(QWidget):
         else:
             self._pixmap = None
         
+        self._scaled_pixmap = None # 악보 변경 시 캐시 초기화
         self.update()
     
     def set_edit_mode(self, enabled: bool) -> None:
@@ -83,15 +86,18 @@ class ScoreCanvas(QWidget):
             return
         
         if self._pixmap:
-            # 악보 이미지 그리기 (중앙 정렬, 비율 유지)
-            scaled = self._pixmap.scaled(
-                self.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            )
-            x = (self.width() - scaled.width()) // 2
-            y = (self.height() - scaled.height()) // 2
-            painter.drawPixmap(x, y, scaled)
+            # [화질 개선] 윈도우 크기에 맞춰 미리 고품질 스케일링
+            if self._scaled_pixmap is None or self.size() != self._last_size:
+                self._scaled_pixmap = self._pixmap.scaled(
+                    self.size(),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                self._last_size = self.size()
+            
+            x = (self.width() - self._scaled_pixmap.width()) // 2
+            y = (self.height() - self._scaled_pixmap.height()) // 2
+            painter.drawPixmap(x, y, self._scaled_pixmap)
         else:
             self._draw_placeholder(painter, f"악보: {self._score_sheet.name}\n(이미지를 추가하세요)")
         
@@ -258,3 +264,8 @@ class ScoreCanvas(QWidget):
                 self._selected_hotspot_id = None
             self.hotspot_removed.emit(hotspot.id)
             self.update()
+
+    def resizeEvent(self, event) -> None:
+        """창 크기 변경 시 캐시된 이미지 무효화"""
+        self._scaled_pixmap = None
+        super().resizeEvent(event)

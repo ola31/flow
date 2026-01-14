@@ -29,6 +29,7 @@ class SongListWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._project: Project | None = None
+        self._main_window = None # 메인 윈도우 참조 보관
         self._setup_ui()
     
     def _setup_ui(self) -> None:
@@ -45,6 +46,7 @@ class SongListWidget(QWidget):
         self._list = QListWidget()
         self._list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
         self._list.currentItemChanged.connect(self._on_selection_changed)
+        self._list.itemClicked.connect(self._on_item_clicked) # 클릭 시에도 명시적 호출 추가
         layout.addWidget(self._list)
         
         # 버튼들
@@ -65,6 +67,15 @@ class SongListWidget(QWidget):
         """프로젝트 설정 및 곡 목록 갱신"""
         self._project = project
         self.refresh_list()
+        
+    def set_main_window(self, win) -> None:
+        """메인 윈도우 참조 설정 (프로젝트 경로 획득용)"""
+        self._main_window = win
+        
+    def set_editable(self, editable: bool) -> None:
+        """편집 모드 활성/비활성 제어"""
+        self._add_btn.setEnabled(editable)
+        self._remove_btn.setEnabled(editable)
         
     def select_next_song(self) -> bool:
         """다음 곡 선택"""
@@ -144,6 +155,16 @@ class SongListWidget(QWidget):
                 if item.text().startswith("▶"):
                     item.setText(sheet.name)
     
+    def _on_item_clicked(self, item: QListWidgetItem) -> None:
+        """아이템 클릭 시 (이미 선택된 항목을 다시 누를 때 대응)"""
+        if not self._project:
+            return
+            
+        sheet_id = item.data(Qt.ItemDataRole.UserRole)
+        sheet = self._project.find_score_sheet_by_id(sheet_id)
+        if sheet:
+            self.song_selected.emit(sheet)
+    
     def _on_add_clicked(self) -> None:
         """곡 추가 버튼 클릭"""
         if not self._project:
@@ -158,9 +179,13 @@ class SongListWidget(QWidget):
             return
         
         # 악보 이미지 선택 (선택사항)
+        initial_dir = ""
+        if self._main_window:
+            initial_dir = self._main_window._project_dir()
+            
         image_path, _ = QFileDialog.getOpenFileName(
             self, "악보 이미지 선택 (선택사항)",
-            "", "이미지 (*.jpg *.jpeg *.png *.bmp)"
+            initial_dir, "이미지 (*.jpg *.jpeg *.png *.bmp)"
         )
         
         # 새 악보 생성
