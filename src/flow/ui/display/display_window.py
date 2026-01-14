@@ -41,14 +41,16 @@ class DisplayWindow(QWidget):
             Qt.WindowType.FramelessWindowHint
         )
         
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(50, 50, 50, 50)
+        self._main_layout = QVBoxLayout(self)
+        self._main_layout.setContentsMargins(0, 0, 0, 0) # 기본 마진 제거
         
-        # 가사 라벨
         self._lyric_label = QLabel()
         self._lyric_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._lyric_label.setWordWrap(True)
-        layout.addWidget(self._lyric_label)
+        self._main_layout.addWidget(self._lyric_label)
+        
+        # 슬라이드 보관용 (리사이즈 시 필요)
+        self._current_image = None
         
         # 기본 폰트 설정
         self.set_font_size(72)
@@ -83,8 +85,19 @@ class DisplayWindow(QWidget):
         self._apply_style()
     
     def set_font_size(self, size: int) -> None:
-        """폰트 크기 설정"""
-        font = QFont("Malgun Gothic", size)  # Windows 기본 한글 폰트
+        """폰트 크기 설정 (직접 설정 시)"""
+        self._apply_scaled_font(size)
+
+    def _apply_scaled_font(self, base_size: int) -> None:
+        """화면 높이에 비례하는 폰트 적용"""
+        # 기준 높이를 1080px로 잡고 비율 계산
+        screen_height = self.height() or 1080
+        scaled_size = int(base_size * (screen_height / 1080))
+        
+        font = QFont("Pretendard", scaled_size) # Pretendard 우선 적용
+        if not font.exactMatch():
+            font = QFont("Malgun Gothic", scaled_size)
+        
         font.setBold(True)
         self._lyric_label.setFont(font)
     
@@ -97,17 +110,29 @@ class DisplayWindow(QWidget):
     
     def show_image(self, image) -> None:
         """슬라이드 이미지 표시"""
-        from PySide6.QtGui import QPixmap
+        self._current_image = image
+        self._current_lyric = ""
+        self._main_layout.setContentsMargins(0, 0, 0, 0) # 이미지 시 마진 없음
+        
         if image:
+            from PySide6.QtGui import QPixmap
             pixmap = QPixmap.fromImage(image)
             # 라벨 크기에 맞춰 이미지 스케일링
             self._lyric_label.setPixmap(pixmap.scaled(
-                self._lyric_label.size(),
+                self.size(),
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
             ))
         else:
-            self._lyric_label.setPixmap(QPixmap())
+            self._lyric_label.setPixmap(QtGui.QPixmap())
+
+    def resizeEvent(self, event) -> None:
+        """창 크기가 바뀔 때 내용물 재조정 (모니터 크기 대응)"""
+        super().resizeEvent(event)
+        if self._current_image:
+            self.show_image(self._current_image)
+        elif self._current_lyric:
+            self._apply_scaled_font(72) # 기본 크기 72pt 기준 재계산
     
     def clear(self) -> None:
         """가사 및 이미지 지우기"""

@@ -39,9 +39,15 @@ def _convert_with_libreoffice(pptx_path: Path, index: int, cache_dir: Path, soff
     if not pptx_path or not pptx_path.exists():
         return QImage(1280, 720, QImage.Format.Format_RGB32)
 
-    pptx_hash = hashlib.md5(str(pptx_path.resolve()).encode()).hexdigest()
+    # [수정] 파일 정보 및 렌더링 품질 버전을 포함하여 캐시 무효화 (v2: 고화질 버전)
+    mtime = pptx_path.stat().st_mtime
+    quality_v = "v2" 
+    pptx_hash = hashlib.md5(f"{quality_v}_{str(pptx_path.resolve())}_{mtime}".encode()).hexdigest()
     pptx_cache_dir = cache_dir / pptx_hash
-    pptx_cache_dir.mkdir(exist_ok=True)
+    
+    if not pptx_cache_dir.exists():
+        pptx_cache_dir.mkdir(parents=True, exist_ok=True)
+        print(f"[SlideConverter] 새 캐시 디렉토리 생성: {pptx_cache_dir}")
     
     img_path = pptx_cache_dir / f"slide_{index}.png"
     
@@ -51,12 +57,15 @@ def _convert_with_libreoffice(pptx_path: Path, index: int, cache_dir: Path, soff
     try:
         pdf_path = pptx_cache_dir / "temp.pdf"
         if not pdf_path.exists():
-            # [중요] 윈도우에서 LibreOffice가 이미 실행 중일 때 충돌 방지를 위해 별도 프로필 사용
-            user_profile = pptx_cache_dir / "lo_profile"
+            # [수정] 모든 PPT 변환에 대해 하나의 고정된 프로필을 사용하여 폰트 캐시 및 설정 유지
+            user_profile = cache_dir / "lo_profile"
             user_profile.mkdir(exist_ok=True)
             
             # 윈도우 경로 형식으로 변환
             user_profile_url = f"file:///{str(user_profile).replace('\\', '/')}"
+            
+            # 로깅 추가: 어떤 명령어가 실행되는지 확인 가능하게 함
+            print(f"[SlideConverter] LibreOffice 변환 시작: {pptx_path.name}")
             
             cmd = [
                 soffice_cmd,
@@ -85,8 +94,8 @@ def _convert_with_libreoffice(pptx_path: Path, index: int, cache_dir: Path, soff
         doc = fitz.open(str(pdf_path))
         for i in range(len(doc)):
             page = doc.load_page(i)
-            # 고해상도 변환 (2.0 = 144 DPI)
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            # [화질 개선] 4.0배 배율 (288 DPI) 적용 - 4K급 선명도
+            pix = page.get_pixmap(matrix=fitz.Matrix(4.0, 4.0))
             target = pptx_cache_dir / f"slide_{i}.png"
             pix.save(str(target))
         doc.close()
@@ -148,12 +157,14 @@ class WindowsSlideConverter(SlideConverter):
         # 1. PowerPoint 사용 시도
         if self._check_powerpoint_installed():
             try:
+                print("[SlideConverter] PowerPoint (COM) 사용")
                 return self._convert_with_com(pptx_path, index)
             except Exception as e:
-                print(f"PowerPoint COM 변환 실패, Fallback 시도: {e}")
+                print(f"[SlideConverter] PowerPoint COM 변환 실패, Fallback 시도: {e}")
         
         # 2. LibreOffice 사용 시도
         if self._soffice_path:
+            print(f"[SlideConverter] LibreOffice 사용: {self._soffice_path}")
             return _convert_with_libreoffice(pptx_path, index, self._temp_dir, self._soffice_path)
             
         # 3. 모두 실패 시 에러 이미지
@@ -177,7 +188,8 @@ class WindowsSlideConverter(SlideConverter):
         pp = client.Dispatch("PowerPoint.Application")
         pres = pp.Presentations.Open(str(pptx_path.resolve()), WithWindow=False, ReadOnly=True)
         try:
-            pres.Export(str(pptx_cache_dir), "PNG", 1920, 1080)
+            # [화질 개선] 4K 해상도로 내보내기
+            pres.Export(str(pptx_cache_dir), "PNG", 3840, 2160)
             if img_path.exists():
                 return QImage(str(img_path))
         finally:
