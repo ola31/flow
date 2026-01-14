@@ -63,15 +63,19 @@ class MainWindow(QMainWindow):
     def _setup_ui(self) -> None:
         """UI 초기화"""
         self.setWindowTitle("Flow - 찬양 가사 송출")
-        self.setMinimumSize(1200, 800)
+        self.setMinimumSize(800, 600)
         
         # 중앙 위젯
         central = QWidget()
         self.setCentralWidget(central)
         
-        main_layout = QVBoxLayout(central) # 수직 레이아웃으로 변경
+        main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
+        
+        # 전체 수직 스플리터 (상단 슬라이드 영역 / 하단 편집 영역)
+        self._v_splitter = QSplitter(Qt.Orientation.Vertical)
+        main_layout.addWidget(self._v_splitter)
         
         # 1. 상단: 슬라이드 프리뷰 패널 (PPT 슬라이드 목록)
         self._slide_preview = SlidePreviewPanel()
@@ -82,21 +86,26 @@ class MainWindow(QMainWindow):
         # 패널 내부의 로드/닫기 버튼 연동
         self._slide_preview._btn_load.clicked.connect(self._on_load_ppt)
         self._slide_preview._btn_close.clicked.connect(self._on_close_ppt)
-        main_layout.addWidget(self._slide_preview)
+        self._v_splitter.addWidget(self._slide_preview)
         
         # 2. 하단: 메인 스플리터 (곡 목록 + 악보 캔버스 + 라이브 패널)
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        main_layout.addWidget(splitter, 1) # 하단 영역이 가득 차도록
+        self._h_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._v_splitter.addWidget(self._h_splitter)
+        
+        # 초기 비율 설정 (상단 슬라이드 영역은 내용만큼만, 하단이 가득 차도록)
+        self._v_splitter.setStretchFactor(0, 0)
+        self._v_splitter.setStretchFactor(1, 1)
+        self._v_splitter.setHandleWidth(2) # 핸들 두께 줄임
         
         # 왼쪽: 곡 목록
         self._song_list = SongListWidget()
         self._song_list.setMaximumWidth(250)
         self._song_list.setMinimumWidth(150)
-        splitter.addWidget(self._song_list)
+        self._h_splitter.addWidget(self._song_list)
         
         # 중앙: 악보 캔버스
         self._canvas = ScoreCanvas()
-        splitter.addWidget(self._canvas)
+        self._h_splitter.addWidget(self._canvas)
         
         # 오른쪽: 편집 패널
         right_panel = QWidget()
@@ -171,13 +180,18 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self._live_panel)
         
         right_layout.addStretch()
-        splitter.addWidget(right_panel)
+        self._h_splitter.addWidget(right_panel)
         
-        right_layout.addStretch()
-        splitter.addWidget(right_panel)
+        # 전체 수직 스플리터에 하단 영역 추가 완료
+        self._v_splitter.addWidget(self._h_splitter)
+        
+        # 초기 비율 설정 (상단 슬라이드 영역은 내용만큼만, 하단이 가득 차도록)
+        self._v_splitter.setStretchFactor(0, 0)
+        self._v_splitter.setStretchFactor(1, 1)
+        self._v_splitter.setHandleWidth(4)
         
         # 스플리터 비율 설정
-        splitter.setSizes([200, 700, 300])
+        self._h_splitter.setSizes([200, 700, 300])
     
     def _setup_toolbar(self) -> None:
         """툴바 설정"""
@@ -218,7 +232,15 @@ class MainWindow(QMainWindow):
         
         toolbar.addSeparator()
         
-        # 모드 전환
+        # 슬라이드 패널 토글 액션
+        self._toggle_slide_action = QAction("🖼 슬라이드 목록", self)
+        self._toggle_slide_action.setCheckable(True)
+        self._toggle_slide_action.setChecked(True)
+        self._toggle_slide_action.setShortcut("Ctrl+H")
+        self._toggle_slide_action.triggered.connect(self._toggle_slide_preview)
+        toolbar.addAction(self._toggle_slide_action)
+        
+        toolbar.addSeparator()
         self._edit_mode_action = QAction("✏️ 편집", self)
         self._edit_mode_action.setCheckable(True)
         self._edit_mode_action.setChecked(True)
@@ -966,3 +988,11 @@ class MainWindow(QMainWindow):
                 return
                 
         super().keyPressEvent(event)
+
+    def _toggle_slide_preview(self, checked: bool) -> None:
+        """상단 슬라이드 패널 보이기/숨기기"""
+        self._slide_preview.setVisible(checked)
+        if checked:
+            self._statusbar.showMessage("슬라이드 목록을 표시합니다.", 2000)
+        else:
+            self._statusbar.showMessage("슬라이드 목록을 숨겼습니다. (Ctrl+H)", 2000)

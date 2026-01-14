@@ -39,7 +39,7 @@ class ScoreCanvas(QWidget):
         self._scaled_pixmap: QPixmap | None = None # 캐시된 스케일 이미지
         self._last_size = QSize(0, 0)
         
-        self.setMinimumSize(400, 300)
+        self.setMinimumSize(200, 150)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus) # 클릭 시 포커스를 가져오도록 설정
     
