@@ -29,20 +29,37 @@ class ScoreSheet:
     hotspots: list[Hotspot] = field(default_factory=list)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     
-    def add_hotspot(self, hotspot: Hotspot) -> None:
-        """핫스팟 추가"""
-        self.hotspots.append(hotspot)
-    
-    def remove_hotspot(self, hotspot_id: str) -> bool:
-        """핫스팟 제거
+    def add_hotspot(self, hotspot: Hotspot, index: int | None = None) -> None:
+        """핫스팟 추가 및 순서 재배치"""
+        if index is None:
+            # 맨 뒤에 추가
+            hotspot.order = len(self.hotspots)
+            self.hotspots.append(hotspot)
+        else:
+            # 특정 위치에 삽입 (기존 것들은 뒤로 밀림)
+            hotspot.order = index
+            for h in self.hotspots:
+                if h.order >= index:
+                    h.order += 1
+            self.hotspots.append(hotspot)
         
-        Returns:
-            True if removed, False if not found
-        """
+    def remove_hotspot(self, hotspot_id: str) -> bool:
+        """핫스팟 제거 및 순서 재배치"""
+        removed_order = -1
+        target_idx = -1
         for i, h in enumerate(self.hotspots):
             if h.id == hotspot_id:
-                self.hotspots.pop(i)
-                return True
+                removed_order = h.order
+                target_idx = i
+                break
+        
+        if target_idx != -1:
+            self.hotspots.pop(target_idx)
+            # 순서 재정렬 (빈자리 채우기)
+            for h in self.hotspots:
+                if h.order > removed_order:
+                    h.order -= 1
+            return True
         return False
     
     def find_hotspot_by_id(self, hotspot_id: str) -> Hotspot | None:

@@ -41,7 +41,11 @@ class ScoreCanvas(QWidget):
         
         self.setMinimumSize(200, 150)
         self.setMouseTracking(True)
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus) # 클릭 시 포커스를 가져오도록 설정
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        
+        # 드래그 관련 상태
+        self._is_dragging = False
+        self._drag_hotspot_id = None
     
     def set_score_sheet(self, sheet: ScoreSheet | None) -> None:
         """악보 설정"""
@@ -212,9 +216,14 @@ class ScoreCanvas(QWidget):
         
         if event.button() == Qt.MouseButton.LeftButton:
             if clicked_hotspot:
-                # 기존 핫스팟 선택
+                # 선택 및 드래그 시작 준비
                 self._selected_hotspot_id = clicked_hotspot.id
                 self.hotspot_selected.emit(clicked_hotspot)
+                
+                if self._edit_mode:
+                    self._is_dragging = True
+                    self._drag_hotspot_id = clicked_hotspot.id
+                    self.setCursor(Qt.CursorShape.ClosedHandCursor)
             elif self._edit_mode:
                 # 새 핫스팟 생성
                 img_coords = self._widget_to_image_coords(pos.x(), pos.y())
@@ -230,6 +239,35 @@ class ScoreCanvas(QWidget):
         elif event.button() == Qt.MouseButton.RightButton and clicked_hotspot:
             # 우클릭 컨텍스트 메뉴
             self._show_context_menu(pos, clicked_hotspot)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """마우스 이동 (드래그 처리)"""
+        pos = event.position().toPoint()
+        
+        if self._is_dragging and self._drag_hotspot_id and self._score_sheet:
+            hotspot = self._score_sheet.find_hotspot_by_id(self._drag_hotspot_id)
+            if hotspot:
+                img_coords = self._widget_to_image_coords(pos.x(), pos.y())
+                if img_coords:
+                    hotspot.x, hotspot.y = img_coords
+                    self.update()
+        else:
+            # 마우스 커서 변경 (핫스팟 위에 있을 때)
+            if self._find_hotspot_at(pos):
+                self.setCursor(Qt.CursorShape.PointingHandCursor)
+            else:
+                self.setCursor(Qt.CursorShape.ArrowCursor)
+                
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """마우스 뗌 (드래그 종료)"""
+        if event.button() == Qt.MouseButton.LeftButton and self._is_dragging:
+            self._is_dragging = False
+            self._drag_hotspot_id = None
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            
+        super().mouseReleaseEvent(event)
     
     def _find_hotspot_at(self, pos: QPoint) -> Hotspot | None:
         """해당 위치의 핫스팟 찾기"""
@@ -250,11 +288,46 @@ class ScoreCanvas(QWidget):
         """컨텍스트 메뉴 표시"""
         menu = QMenu(self)
         
+        # 순서 기반 삽입 기능 추가
+        insert_before = QAction(f"➕ 이 위치({hotspot.order + 1}번) 앞에 삽입", self)
+        insert_before.triggered.connect(lambda: self._insert_hotspot_at(hotspot, before=True))
+        menu.addAction(insert_before)
+        
+        insert_after = QAction(f"➕ 이 위치({hotspot.order + 1}번) 뒤에 삽입", self)
+        insert_after.triggered.connect(lambda: self._insert_hotspot_at(hotspot, before=False))
+        menu.addAction(insert_after)
+        
+        menu.addSeparator()
+        
         delete_action = QAction("🗑️ 삭제", self)
         delete_action.triggered.connect(lambda: self._delete_hotspot(hotspot))
         menu.addAction(delete_action)
         
         menu.exec(self.mapToGlobal(pos))
+    
+    def _insert_hotspot_at(self, base_hotspot: Hotspot, before: bool = True) -> None:
+        """특정 위치를 기준으로 새 핫스팟 삽입"""
+        if not self._score_sheet:
+            return
+            
+        # 기준 위치 결정
+        new_order = base_hotspot.order if before else base_hotspot.order + 1
+        
+        # 좌표는 기준 핫스팟 근처로 임시 설정 (사용자가 이후 드래그하거나 위치를 잡을 수 있게)
+        # 현재 드래그 이동 기능이 미비하므로, 일단 기준 핫스팟 위에 겹치게 생성 후 
+        # 사용자가 다시 위치를 선정하도록 유도하거나, 마ウス 위치를 기억했다 쓰면 좋음.
+        # 여기서는 마지막 마우스 우클릭 위치(pos는 widget_to_image_coords로 변환 필요)를 못 가져오니
+        # 일단 기준 핫스팟 좌표 근처에 생성.
+        
+        new_hotspot = Hotspot(
+            x=base_hotspot.x + (0 if before else 30), 
+            y=base_hotspot.y + (0 if before else 30)
+        )
+        
+        self._score_sheet.add_hotspot(new_hotspot, index=new_order)
+        self._selected_hotspot_id = new_hotspot.id
+        self.hotspot_created.emit(new_hotspot)
+        self.update()
     
     def _delete_hotspot(self, hotspot: Hotspot) -> None:
         """핫스팟 삭제"""
