@@ -787,22 +787,30 @@ class MainWindow(QMainWindow):
             return
 
         # 1:1 매핑 체크: 이 슬라이드가 이미 다른 곳에 매핑되어 있는지 확인
-        existing_sheet_name = None
+        existing_info = None
         for sheet in self._project.score_sheets:
-            for hotspot in sheet.hotspots:
+            # 순서 보장을 위해 정렬된 핫스팟 목록 사용
+            ordered_hotspots = sheet.get_ordered_hotspots()
+            for i, hotspot in enumerate(ordered_hotspots):
                 if getattr(hotspot, 'slide_index', -1) == index:
                     # 현재 매핑하려는 핫스팟 자체가 이미 이 슬라이드인 경우는 제외
                     if hotspot != selected_hotspot:
-                        existing_sheet_name = sheet.name
+                        existing_info = {
+                            "sheet_name": sheet.name,
+                            "order": i + 1,
+                            "lyric": hotspot.lyric or "가사 없음"
+                        }
                         break
-            if existing_sheet_name:
+            if existing_info:
                 break
         
-        if existing_sheet_name:
+        if existing_info:
             QMessageBox.warning(
                 self, "매핑 중복",
-                f"슬라이드 {index + 1}은(는) 이미 '{existing_sheet_name}' 곡에 매핑되어 있습니다.\n\n"
-                "먼저 해당 슬라이드에서 '매핑 해제'를 선택한 후 다시 시도해 주세요."
+                f"슬라이드 {index + 1}은(는) 이미 다른 곳에 매핑되어 있습니다.\n\n"
+                f"📍 곡명: {existing_info['sheet_name']}\n"
+                f"📍 위치: {existing_info['order']}번 버튼 ({existing_info['lyric']})\n\n"
+                "먼저 해당 위치의 매핑을 해제한 후 다시 시도해 주세요."
             )
             return
             
