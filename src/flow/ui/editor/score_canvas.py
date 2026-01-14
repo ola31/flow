@@ -25,6 +25,7 @@ class ScoreCanvas(QWidget):
     hotspot_created = Signal(object)  # Hotspot
     hotspot_selected = Signal(object)  # Hotspot
     hotspot_removed = Signal(str)  # hotspot_id
+    hotspot_moved = Signal(object)  # Hotspot
     
     HOTSPOT_RADIUS = 20  # 15에서 20으로 확대
     HOTSPOT_COLOR = QColor(255, 100, 100, 200)
@@ -263,6 +264,11 @@ class ScoreCanvas(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """마우스 뗌 (드래그 종료)"""
         if event.button() == Qt.MouseButton.LeftButton and self._is_dragging:
+            if self._drag_hotspot_id and self._score_sheet:
+                hotspot = self._score_sheet.find_hotspot_by_id(self._drag_hotspot_id)
+                if hotspot:
+                    self.hotspot_moved.emit(hotspot)
+                    
             self._is_dragging = False
             self._drag_hotspot_id = None
             self.setCursor(Qt.CursorShape.ArrowCursor)

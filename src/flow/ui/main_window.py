@@ -48,6 +48,8 @@ class MainWindow(QMainWindow):
         self._slide_click_timer.timeout.connect(self._execute_slide_navigation)
         self._pending_slide_index = -1
         
+        self._is_dirty = False
+        
         self._setup_ui()
         self._setup_toolbar()
         self._setup_statusbar()
@@ -276,6 +278,8 @@ class MainWindow(QMainWindow):
         # 캔버스 시그널
         self._canvas.hotspot_selected.connect(self._on_hotspot_selected)
         self._canvas.hotspot_created.connect(self._on_hotspot_created)
+        self._canvas.hotspot_removed.connect(self._on_hotspot_removed)
+        self._canvas.hotspot_moved.connect(self._on_hotspot_moved)
         
         # 라이브 컨트롤러 시그널 - 메인 윈도우 및 송출창 업데이트
         self._live_controller.live_changed.connect(self._on_live_changed)
@@ -286,6 +290,10 @@ class MainWindow(QMainWindow):
         self._slide_manager.load_started.connect(self._on_ppt_load_started)
         self._slide_manager.load_finished.connect(self._on_ppt_load_finished)
         self._slide_manager.load_error.connect(self._on_ppt_load_error)
+        
+        # 프로젝트 변경 감지 시그널 (SongListWidget)
+        self._song_list.song_added.connect(self._on_song_added)
+        self._song_list.song_removed.connect(self._on_song_removed)
     
     # === 프로젝트 관리 ===
     
@@ -326,6 +334,7 @@ class MainWindow(QMainWindow):
             self._slide_preview.refresh_slides()
             
             self.setWindowTitle(f"Flow - {self._project.name}")
+            self._clear_dirty() # 새 프로젝트는 깨끗한 상태
             self._statusbar.showMessage(f"새 프로젝트가 생성되었습니다: {project_dir}")
             self._toggle_edit_mode()
         except Exception as e:
@@ -377,6 +386,7 @@ class MainWindow(QMainWindow):
                 self._canvas.set_score_sheet(None)
             
             self.setWindowTitle(f"Flow - {self._project.name}")
+            self._clear_dirty() # 로드 직후는 깨끗한 상태
             self._statusbar.showMessage(f"프로젝트를 열었습니다: {self._project.name}")
             
         except Exception as e:
@@ -402,6 +412,7 @@ class MainWindow(QMainWindow):
         try:
             self._project_path = self._repo.save(self._project, self._project_path)
             self.setWindowTitle(f"Flow - {self._project.name}")
+            self._clear_dirty() # 저장 완료 후 깨끗한 상태
             self._statusbar.showMessage(f"프로젝트가 저장되었습니다: {self._project_path.name}")
             
         except Exception as e:
@@ -540,6 +551,42 @@ class MainWindow(QMainWindow):
         self._song_list.set_editable(editable)
         self._slide_preview.set_editable(editable)
 
+    def _mark_dirty(self) -> None:
+        """변경사항이 있음을 표시"""
+        if not self._is_dirty:
+            self._is_dirty = True
+            title = self.windowTitle()
+            if not title.endswith("*"):
+                self.setWindowTitle(title + " *")
+
+    def _clear_dirty(self) -> None:
+        """변경사항이 없음을 표시 (저장/로드 후)"""
+        self._is_dirty = False
+        title = self.windowTitle()
+        if title.endswith("*"):
+            self.setWindowTitle(title[:-2].strip())
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        """윈도우 종료 시 저장 확인"""
+        if self._is_dirty:
+            reply = QMessageBox.question(
+                self, "저장 확인",
+                "저장되지 않은 변경사항이 있습니다.\n종료하기 전에 저장하시겠습니까?",
+                QMessageBox.StandardButton.Save | 
+                QMessageBox.StandardButton.Discard | 
+                QMessageBox.StandardButton.Cancel
+            )
+            
+            if reply == QMessageBox.StandardButton.Save:
+                self._save_project()
+                event.accept()
+            elif reply == QMessageBox.StandardButton.Discard:
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()
+
     # === PPT 비동기 로딩 핸들러 ===
     
     def _on_ppt_load_started(self) -> None:
@@ -592,8 +639,15 @@ class MainWindow(QMainWindow):
     
     def _on_song_added(self, sheet: ScoreSheet) -> None:
         """곡 추가됨"""
+        self._mark_dirty()
         self._canvas.set_score_sheet(sheet)
         self._statusbar.showMessage(f"새 곡 추가: {sheet.name}")
+        
+    def _on_song_removed(self, sheet_id: str) -> None:
+        """곡 삭제됨"""
+        self._mark_dirty()
+        self._canvas.set_score_sheet(None)
+        self._statusbar.showMessage("곡 삭제됨")
         
     def _project_dir(self) -> str:
         """현재 프로젝트의 디렉토리 경로 반환"""
@@ -613,12 +667,18 @@ class MainWindow(QMainWindow):
     
     def _on_hotspot_created(self, hotspot: Hotspot) -> None:
         """핫스팟 생성됨"""
+        self._mark_dirty()
         self._statusbar.showMessage(f"핫스팟 추가됨: #{hotspot.order + 1}")
-    
-    def _on_lyric_changed(self, hotspot: Hotspot) -> None:
-        """가사 변경됨"""
-        self._canvas.update()
-        self._update_preview(hotspot)
+        
+    def _on_hotspot_removed(self, hotspot_id: str) -> None:
+        """핫스팟 삭제됨"""
+        self._mark_dirty()
+        self._statusbar.showMessage("핫스팟 삭제됨")
+        
+    def _on_hotspot_moved(self, hotspot: Hotspot) -> None:
+        """핫스팟 위치 이동됨"""
+        self._mark_dirty()
+        self._statusbar.showMessage(f"핫스팟 이동됨: #{hotspot.order + 1}")
     
     def _update_preview(self, hotspot: Hotspot | None) -> None:
         """미리보기 업데이트"""
@@ -696,6 +756,7 @@ class MainWindow(QMainWindow):
                 
                 # UI 갱신
                 self._slide_preview.refresh_slides()
+                self._mark_dirty()
                 self.statusBar().showMessage(f"전역 PPT 설정 완료: {file_path}", 5000)
                 
                 # 현재 선택된 핫스팟이 있다면 프리뷰 갱신
