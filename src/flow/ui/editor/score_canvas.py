@@ -22,10 +22,11 @@ class ScoreCanvas(QWidget):
         hotspot_removed: 핫스팟이 삭제됨 (str: hotspot_id)
     """
     
-    hotspot_created = Signal(object)  # Hotspot
+    hotspot_created_request = Signal(int, int, object) # x, y 좌표, index(선택적)
+    hotspot_removed_request = Signal(object)   # Hotspot 객체
     hotspot_selected = Signal(object)  # Hotspot
     hotspot_removed = Signal(str)  # hotspot_id
-    hotspot_moved = Signal(object)  # Hotspot
+    hotspot_moved = Signal(object, tuple, tuple)  # Hotspot, old_pos, new_pos
     
     HOTSPOT_RADIUS = 16  # 20에서 16으로 축소하여 악보 가독성 향상
     HOTSPOT_COLOR = QColor(255, 100, 100, 150) # 투명도 증가 (200 -> 150)
@@ -296,6 +297,16 @@ class ScoreCanvas(QWidget):
             int((widget_y - offset_y) * scale_y)
         )
     
+    def keyPressEvent(self, event) -> None:
+        """키보드 이벤트 - Delete/Backspace로 핫스팟 삭제"""
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            if self._edit_mode and self._selected_hotspot_id:
+                hotspot = self.get_selected_hotspot()
+                if hotspot and self.is_hotspot_editable(hotspot, self._verse_index):
+                    self._delete_hotspot(hotspot)
+                    return
+        super().keyPressEvent(event)
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """마우스 클릭"""
         self.setFocus() # 클릭 시 키보드 포커스 획득
@@ -317,18 +328,13 @@ class ScoreCanvas(QWidget):
                 if self._edit_mode and self.is_hotspot_editable(clicked_hotspot, self._verse_index):
                     self._is_dragging = True
                     self._drag_hotspot_id = clicked_hotspot.id
+                    self._drag_start_pos = (clicked_hotspot.x, clicked_hotspot.y)
                     self.setCursor(Qt.CursorShape.ClosedHandCursor)
             elif self._edit_mode:
-                # 새 핫스팟 생성
+                # 새 핫스팟 생성 요청
                 img_coords = self._widget_to_image_coords(pos.x(), pos.y())
                 if img_coords:
-                    order = len(self._score_sheet.hotspots)
-                    hotspot = Hotspot(x=img_coords[0], y=img_coords[1], order=order)
-                    # [추가] 생성된 레이어(절)를 소유주로 명시적 기록
-                    hotspot.set_slide_index(-1, self._verse_index)
-                    self._score_sheet.add_hotspot(hotspot)
-                    self._selected_hotspot_id = hotspot.id
-                    self.hotspot_created.emit(hotspot)
+                    self.hotspot_created_request.emit(img_coords[0], img_coords[1], None)
             
             self.update()
         
@@ -362,7 +368,9 @@ class ScoreCanvas(QWidget):
             if self._drag_hotspot_id and self._score_sheet:
                 hotspot = self._score_sheet.find_hotspot_by_id(self._drag_hotspot_id)
                 if hotspot:
-                    self.hotspot_moved.emit(hotspot)
+                    new_pos = (hotspot.x, hotspot.y)
+                    if new_pos != self._drag_start_pos:
+                        self.hotspot_moved.emit(hotspot, self._drag_start_pos, new_pos)
                     
             self._is_dragging = False
             self._drag_hotspot_id = None
@@ -420,39 +428,23 @@ class ScoreCanvas(QWidget):
         menu.exec(self.mapToGlobal(pos))
     
     def _insert_hotspot_at(self, base_hotspot: Hotspot, before: bool = True) -> None:
-        """특정 위치를 기준으로 새 핫스팟 삽입"""
+        """특정 위치를 기준으로 새 핫스팟 삽입 요청"""
         if not self._score_sheet:
             return
             
-        # 기준 위치 결정
         new_order = base_hotspot.order if before else base_hotspot.order + 1
         
-        # 좌표는 기준 핫스팟 근처로 임시 설정 (사용자가 이후 드래그하거나 위치를 잡을 수 있게)
-        # 현재 드래그 이동 기능이 미비하므로, 일단 기준 핫스팟 위에 겹치게 생성 후 
-        # 사용자가 다시 위치를 선정하도록 유도하거나, 마ウス 위치를 기억했다 쓰면 좋음.
-        # 여기서는 마지막 마우스 우클릭 위치(pos는 widget_to_image_coords로 변환 필요)를 못 가져오니
-        # 일단 기준 핫스팟 좌표 근처에 생성.
+        # 좌표는 기준 핫스팟 근처로 임시 설정
+        new_x = base_hotspot.x + (0 if before else 30)
+        new_y = base_hotspot.y + (0 if before else 30)
         
-        new_hotspot = Hotspot(
-            x=base_hotspot.x + (0 if before else 30), 
-            y=base_hotspot.y + (0 if before else 30)
-        )
-        # [추가] 생성된 레이어(절)를 소유주로 명시적 기록
-        new_hotspot.set_slide_index(-1, self._verse_index)
-        
-        self._score_sheet.add_hotspot(new_hotspot, index=new_order)
-        self._selected_hotspot_id = new_hotspot.id
-        self.hotspot_created.emit(new_hotspot)
-        self.update()
+        # MainWindow에 삽입 위치(index) 포함하여 생성 요청
+        self.hotspot_created_request.emit(new_x, new_y, new_order)
     
     def _delete_hotspot(self, hotspot: Hotspot) -> None:
-        """핫스팟 삭제"""
+        """핫스팟 삭제 요청"""
         if self._score_sheet:
-            self._score_sheet.remove_hotspot(hotspot.id)
-            if self._selected_hotspot_id == hotspot.id:
-                self._selected_hotspot_id = None
-            self.hotspot_removed.emit(hotspot.id)
-            self.update()
+            self.hotspot_removed_request.emit(hotspot)
 
     def resizeEvent(self, event) -> None:
         """창 크기 변경 시 캐시된 이미지 무효화"""

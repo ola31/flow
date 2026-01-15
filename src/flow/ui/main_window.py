@@ -12,9 +12,10 @@ from PySide6.QtWidgets import (
     QLabel, QFrame, QButtonGroup, QRadioButton, QPushButton,
     QLineEdit, QTextEdit, QPlainTextEdit
 )
-from PySide6.QtGui import QAction, QKeySequence, QPixmap
+from PySide6.QtGui import QAction, QKeySequence, QPixmap, QUndoStack
 from PySide6 import QtGui
 from PySide6.QtCore import Qt, QTimer
+from flow.ui.undo_commands import AddHotspotCommand, RemoveHotspotCommand, MoveHotspotCommand, MapSlideCommand
 
 from flow.domain.project import Project
 from flow.domain.score_sheet import ScoreSheet
@@ -43,6 +44,11 @@ class MainWindow(QMainWindow):
         self._display_window: DisplayWindow | None = None
         self._slide_manager = SlideManager()
         self._live_controller = LiveController(self, slide_manager=self._slide_manager)
+        
+        # Undo/Redo 관련
+        self._undo_stack = QUndoStack(self)
+        self._undo_stack.setUndoLimit(100)
+        self._undo_stack.cleanChanged.connect(self._on_undo_stack_clean_changed)
         
         # 슬라이드 클릭/더블클릭 구분용 타이머
         self._slide_click_timer = QTimer(self)
@@ -304,6 +310,19 @@ class MainWindow(QMainWindow):
         self._display_action.setEnabled(False) # 편집 모드에선 비활성
         self._display_action.triggered.connect(self._toggle_display)
         toolbar.addAction(self._display_action)
+        
+        toolbar.addSeparator()
+        
+        # Undo/Redo 액션 (Qt 제공 기본 도구 활용)
+        undo_action = self._undo_stack.createUndoAction(self, "↩️ 실행 취소")
+        undo_action.setShortcut(QKeySequence.Undo)
+        toolbar.addAction(undo_action)
+        self._undo_action = undo_action
+        
+        redo_action = self._undo_stack.createRedoAction(self, "↪️ 다시 실행")
+        redo_action.setShortcut(QKeySequence.Redo)
+        toolbar.addAction(redo_action)
+        self._redo_action = redo_action
     
     def _setup_statusbar(self) -> None:
         """상태바 설정"""
@@ -317,10 +336,10 @@ class MainWindow(QMainWindow):
         self._song_list.song_selected.connect(self._on_song_selected)
         self._song_list.song_added.connect(self._on_song_added)
         
-        # 캔버스 시그널
+        # 캔버스 시그널 (Undo 대응 요청 시그널로 변경)
+        self._canvas.hotspot_created_request.connect(self._on_hotspot_created_request)
+        self._canvas.hotspot_removed_request.connect(self._on_hotspot_removed_request)
         self._canvas.hotspot_selected.connect(self._on_hotspot_selected)
-        self._canvas.hotspot_created.connect(self._on_hotspot_created)
-        self._canvas.hotspot_removed.connect(self._on_hotspot_removed)
         self._canvas.hotspot_moved.connect(self._on_hotspot_moved)
         
         # 라이브 컨트롤러 시그널 - 메인 윈도우 및 송출창 업데이트
@@ -457,10 +476,17 @@ class MainWindow(QMainWindow):
         try:
             self._project_path = self._repo.save(self._project, self._project_path)
             self.setWindowTitle(f"Flow - {self._project.name}")
-            self._clear_dirty() # 저장 완료 후 깨끗한 상태
+            self._undo_stack.setClean() # 저장 시점 기록
             self._statusbar.showMessage(f"프로젝트가 저장되었습니다: {self._project_path.name}")
         except Exception as e:
             QMessageBox.critical(self, "오류", f"프로젝트를 저장할 수 없습니다:\n{e}")
+
+    def _on_undo_stack_clean_changed(self, is_clean: bool) -> None:
+        """Undo 스택 상태에 따른 dirty 표시 업데이트"""
+        if is_clean:
+            self._clear_dirty()
+        else:
+            self._mark_dirty()
 
     def _on_verse_changed(self, verse_index: int) -> None:
         """현재 선택된 절 변경 핸들러"""
@@ -611,6 +637,8 @@ class MainWindow(QMainWindow):
         self._save_action.setEnabled(editable)
         self._save_as_action.setEnabled(editable)
         self._load_ppt_action.setEnabled(editable)
+        self._undo_action.setEnabled(editable)
+        self._redo_action.setEnabled(editable)
         
         # 위젯 내부 버튼
         self._song_list.set_editable(editable)
@@ -736,20 +764,58 @@ class MainWindow(QMainWindow):
         if slide_idx >= 0:
             self._slide_preview.select_slide(slide_idx)
     
-    def _on_hotspot_created(self, hotspot: Hotspot) -> None:
-        """핫스팟 생성됨"""
-        self._mark_dirty()
-        self._statusbar.showMessage(f"핫스팟 추가됨: #{hotspot.order + 1}")
+    def _on_hotspot_created_request(self, x: int, y: int, index: int | None = None) -> None:
+        """핫스팟 생성 요청 처리 (Undo 지원)"""
+        sheet = self._canvas._score_sheet
+        if not sheet: return
         
-    def _on_hotspot_removed(self, hotspot_id: str) -> None:
-        """핫스팟 삭제됨"""
-        self._mark_dirty()
-        self._statusbar.showMessage("핫스팟 삭제됨")
+        # 새 핫스팟 객체 생성 (실제 추가는 Command가 수행)
+        hotspot = Hotspot(x=x, y=y)
+        # 현재 레이어 정보 주입
+        hotspot.set_slide_index(-1, self._project.current_verse_index)
         
-    def _on_hotspot_moved(self, hotspot: Hotspot) -> None:
-        """핫스팟 위치 이동됨"""
-        self._mark_dirty()
-        self._statusbar.showMessage(f"핫스팟 이동됨: #{hotspot.order + 1}")
+        # UI 갱신 헬퍼 (생성 시 선택, 취소 시 해제)
+        def refresh_ui(selected_id=None):
+            self._canvas.select_hotspot(selected_id)
+            if selected_id:
+                self._on_hotspot_selected(hotspot)
+            else:
+                self._update_preview(None)
+            self._canvas.update()
+
+        command = AddHotspotCommand(
+            sheet, hotspot, index,
+            undo_cb=lambda: refresh_ui(None),
+            redo_cb=lambda: refresh_ui(hotspot.id)
+        )
+        self._undo_stack.push(command)
+
+    def _on_hotspot_removed_request(self, hotspot: Hotspot) -> None:
+        """핫스팟 삭제 요청 처리 (Undo 지원)"""
+        sheet = self._canvas._score_sheet
+        if not sheet or not hotspot: return
+        
+        # UI 갱신 헬퍼 (삭제 시 해제, 취소 시 복구 및 선택)
+        def refresh_ui(selected_id=None):
+            self._canvas.select_hotspot(selected_id)
+            if selected_id:
+                self._on_hotspot_selected(hotspot)
+            else:
+                self._update_preview(None)
+            self._canvas.update()
+
+        command = RemoveHotspotCommand(
+            sheet, hotspot,
+            undo_cb=lambda: refresh_ui(hotspot.id),
+            redo_cb=lambda: refresh_ui(None)
+        )
+        self._undo_stack.push(command)
+
+    def _on_hotspot_moved(self, hotspot: Hotspot, old_pos: tuple[int, int], new_pos: tuple[int, int]) -> None:
+        """핫스팟 이동 완료 처리 (Undo 지원)"""
+        command = MoveHotspotCommand(hotspot, old_pos, new_pos, self._canvas.update)
+        self._undo_stack.push(command)
+        self.statusBar().showMessage(f"핫스팟 이동됨: #{hotspot.order + 1}")
     
     # === 슬라이드 미리보기 및 매핑 정보 동기화 ===
     
@@ -993,14 +1059,21 @@ class MainWindow(QMainWindow):
             )
             return
             
-        # 현재 핫스팟의 '현재 절'에 매핑 진행
-        selected_hotspot.set_slide_index(index, self._project.current_verse_index)
+        # 현재 핫스팟의 '현재 절'에 매핑 진행 (Undo 지원)
+        old_slide = selected_hotspot.get_slide_index(self._project.current_verse_index)
+        
+        command = MapSlideCommand(
+            selected_hotspot, 
+            self._project.current_verse_index,
+            old_slide,
+            index,
+            lambda: (self._canvas.update(), self._update_preview(selected_hotspot), self._update_mapped_slides_ui())
+        )
+        self._undo_stack.push(command)
+        
         if not selected_hotspot.lyric:
             selected_hotspot.lyric = f"Slide {index + 1}"
         
-        self._canvas.update()
-        self._update_preview(selected_hotspot)
-        self._update_mapped_slides_ui()
         self.statusBar().showMessage(f"매핑 완료: 슬라이드 {index + 1} → 현재 핫스팟", 3000)
 
     def _update_mapped_slides_ui(self) -> None:
@@ -1044,19 +1117,19 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"해제 완료: {count}개의 핫스팟에서 슬라이드 {index + 1} 연결을 끊었습니다.", 3000)
 
     def _on_unlink_current_hotspot(self) -> None:
-        """현재 선택된 핫스팟의 '현재 절' 슬라이드 매핑만 해제"""
+        """현재 선택된 핫스팟의 '현재 절' 슬라이드 매핑만 해제 (Undo 지원)"""
         hotspot = self._canvas.get_selected_hotspot()
         if hotspot:
-            v_key = str(self._project.current_verse_index)
-            if v_key in hotspot.slide_mappings:
-                del hotspot.slide_mappings[v_key]
-            if self._project.current_verse_index == 0:
-                hotspot.slide_index = -1
-                
-            self._canvas.update()
-            self._update_preview(hotspot)
-            self._update_mapped_slides_ui()
-            self.statusBar().showMessage("현재 절의 매핑을 해제했습니다.", 3000)
+            v_idx = self._project.current_verse_index
+            old_slide = hotspot.get_slide_index(v_idx)
+            
+            if old_slide >= 0:
+                command = MapSlideCommand(
+                    hotspot, v_idx, old_slide, -1,
+                    lambda: (self._canvas.update(), self._update_preview(hotspot), self._update_mapped_slides_ui())
+                )
+                self._undo_stack.push(command)
+                self.statusBar().showMessage("현재 절의 매핑을 해제했습니다.", 3000)
 
     def _update_preview_with_index(self, index: int) -> None:
         """인덱스로 직접 프리뷰 이미지 갱신 (핫스팟 없을 때)"""
