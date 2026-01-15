@@ -149,8 +149,8 @@ class ProjectLauncher(QWidget):
             item.setText(display_text)
             
             # 폰트 설정
-            font = QFont()
-            font.setPointSize(11)
+            font = QFont("Malgun Gothic")
+            font.setPixelSize(14)
             font.setBold(True)
             item.setFont(font)
             

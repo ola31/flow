@@ -4,7 +4,7 @@
 """
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QScrollArea, QMenu
-from PySide6.QtGui import QPixmap, QPainter, QColor, QPen, QMouseEvent, QAction
+from PySide6.QtGui import QPixmap, QPainter, QColor, QPen, QMouseEvent, QAction, QFont
 from PySide6.QtCore import Signal, Qt, QPoint, QRect, QSize
 
 from flow.domain.score_sheet import ScoreSheet
@@ -28,9 +28,9 @@ class ScoreCanvas(QWidget):
     hotspot_removed = Signal(str)  # hotspot_id
     hotspot_moved = Signal(object, tuple, tuple)  # Hotspot, old_pos, new_pos
     
-    HOTSPOT_RADIUS = 16  # 20에서 16으로 축소하여 악보 가독성 향상
-    HOTSPOT_COLOR = QColor(255, 100, 100, 150) # 투명도 증가 (200 -> 150)
-    HOTSPOT_SELECTED_COLOR = QColor(100, 255, 100, 200) # 투명도 증가 (240 -> 200)
+    HOTSPOT_RADIUS = 15
+    HOTSPOT_COLOR = QColor(255, 160, 0, 150)       # 비선택: 선명한 주황 (가시성 + 투명도 밸런스)
+    HOTSPOT_SELECTED_COLOR = QColor(33, 150, 243, 180) # 선택: 브랜드 블루 (투명도 조절)
     
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -116,7 +116,7 @@ class ScoreCanvas(QWidget):
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         
         # 배경
-        painter.fillRect(self.rect(), QColor(40, 40, 40))
+        painter.fillRect(self.rect(), QColor(26, 26, 26))
         
         if not self._score_sheet:
             self._draw_placeholder(painter, "곡을 선택하세요")
@@ -151,6 +151,9 @@ class ScoreCanvas(QWidget):
     def _draw_placeholder(self, painter: QPainter, text: str) -> None:
         """플레이스홀더 텍스트 그리기"""
         painter.setPen(QColor(150, 150, 150))
+        font = QFont("Malgun Gothic", 10)
+        font.setPixelSize(14)
+        painter.setFont(font)
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, text)
     
     def _draw_hotspots(self, painter: QPainter) -> None:
@@ -209,7 +212,8 @@ class ScoreCanvas(QWidget):
             
             # 텍스트 드로잉 (잘림 방지를 위해 범위 확대 및 폰트 설정)
             painter.setPen(Qt.GlobalColor.white)
-            font = painter.font()
+            font = QFont("Malgun Gothic", 10)
+            font.setPixelSize(12)
             font.setBold(True)
             
             # [수정] 레이블 결정 로직: 
@@ -232,9 +236,9 @@ class ScoreCanvas(QWidget):
                 
             if slide_idx >= 0:
                 label = f"{display_name}-{slide_idx + 1}"
-                font.setPointSize(7)
+                font.setPixelSize(10)
             else:
-                font.setPointSize(9)
+                font.setPixelSize(12)
                 
             painter.setFont(font)
                 

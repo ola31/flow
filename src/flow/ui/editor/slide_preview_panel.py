@@ -20,28 +20,51 @@ class SlidePreviewPanel(QWidget):
         self._setup_ui()
         
     def _setup_ui(self) -> None:
+        self.setStyleSheet("background-color: #1a1a1a; ")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(10, 4, 10, 4)
+        layout.setSpacing(4)
         
         # 제목 및 버튼 레이아웃
         header_widget = QWidget()
         header_layout = QHBoxLayout(header_widget)
-        header_layout.setContentsMargins(5, 5, 5, 5)
+        header_layout.setContentsMargins(5, 0, 5, 0)
         
         self._title = QLabel("PPT 슬라이드 (0)")
-        self._title.setStyleSheet("font-weight: bold;")
+        self._title.setStyleSheet("""
+            font-weight: 800; 
+            font-size: 12px; 
+            color: #2196f3;
+            letter-spacing: 0.2px;
+        """)
         header_layout.addWidget(self._title, 1)
         
-        self._btn_load = QPushButton("📁")
-        self._btn_load.setFixedSize(24, 24)
+        self._btn_load = QPushButton("📁 로드")
+        self._btn_load.setFixedSize(70, 24)
+        self._btn_load.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_load.setToolTip("PPT 로드")
         self._btn_load.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_load.setStyleSheet("""
+            QPushButton {
+                background-color: #333; color: #ccc; border: 1px solid #444; border-radius: 4px; font-size: 10px; font-weight: bold;
+            }
+            QPushButton:hover { background-color: #444; color: white; border: 1px solid #2196f3; }
+            QPushButton:disabled { color: #555; background-color: #222; border: 1px solid #333; }
+        """)
         header_layout.addWidget(self._btn_load)
         
-        self._btn_close = QPushButton("❌")
-        self._btn_close.setFixedSize(24, 24)
+        self._btn_close = QPushButton("✕ 닫기")
+        self._btn_close.setFixedSize(70, 24)
+        self._btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_close.setToolTip("PPT 닫기")
         self._btn_close.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_close.setStyleSheet("""
+            QPushButton {
+                background-color: #333; color: #888; border: 1px solid #444; border-radius: 4px; font-size: 10px;
+            }
+            QPushButton:hover { background-color: #444; color: #ff5555; border: 1px solid #ff5555; }
+            QPushButton:disabled { color: #444; background-color: #222; border: 1px solid #333; }
+        """)
         header_layout.addWidget(self._btn_close)
         
         layout.addWidget(header_widget)
@@ -51,31 +74,53 @@ class SlidePreviewPanel(QWidget):
         self._list.setViewMode(QListWidget.ViewMode.IconMode)
         self._list.setFlow(QListWidget.Flow.LeftToRight) # 수평 흐름
         self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn) # 항상 표시
-        self._list.setIconSize(QSize(160, 90))
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self._list.setIconSize(QSize(112, 63))
         self._list.setResizeMode(QListWidget.ResizeMode.Adjust)
-        self._list.setWrapping(False) # [핵심] 다음 줄로 넘어가지 않도록 설정
+        self._list.setWrapping(False)
         self._list.setMovement(QListWidget.Movement.Static)
         self._list.setSpacing(10)
-        self._list.setUniformItemSizes(True) # [성능 최적화]
-        self._list.setHorizontalScrollMode(QListWidget.ScrollMode.ScrollPerPixel) # 부드러운 스크롤
+        self._list.setUniformItemSizes(True)
+        self._list.setHorizontalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self._list.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
-        self._list.setFixedHeight(160)
+        self._list.setFixedHeight(135)
         self._list.setStyleSheet("""
-            QListWidget { background-color: #2a2a2a; border: none; }
-            QListWidget::item { border: 1px solid #444; border-radius: 4px; padding: 2px; }
-            QListWidget::item:selected { background-color: #3d3d3d; border: 2px solid #2196f3; }
+            QListWidget { 
+                background-color: #222; 
+                border: 1px solid #333; 
+                border-radius: 8px;
+                padding: 5px;
+            }
+            QListWidget::item { 
+                background-color: #2a2a2a;
+                border: 1px solid #444; 
+                border-radius: 6px; 
+                padding: 4px; 
+                color: #888;
+                font-size: 10px;
+            }
+            QListWidget::item:hover { 
+                background-color: #333;
+                border: 1px solid #2196f3;
+            }
+            QListWidget::item:selected { 
+                background-color: #2d3d50; 
+                border: 2px solid #2196f3;
+                color: #2196f3;
+                font-weight: bold;
+            }
             
-            /* 스크롤바 스타일링 */
+            /* 스크롤바 스타일링 고도화 */
             QScrollBar:horizontal {
-                height: 10px;
+                height: 12px;
                 background: #1a1a1a;
-                margin: 0px;
+                margin: 2px 10px 2px 10px;
+                border-radius: 4px;
             }
             QScrollBar::handle:horizontal {
-                background: #555;
-                min-width: 20px;
-                border-radius: 5px;
+                background: #444;
+                min-width: 40px;
+                border-radius: 4px;
             }
             QScrollBar::handle:horizontal:hover {
                 background: #2196f3;
@@ -184,7 +229,7 @@ class SlidePreviewPanel(QWidget):
             if item.text() != label:
                 item.setText(label)
             
-            target_color = QtGui.QColor("#1e3a5f") if is_mapped else QtGui.QColor("transparent")
+            target_color = QtGui.QColor("#2a3a4f") if is_mapped else QtGui.QColor("transparent")
             if item.background().color() != target_color:
                 item.setBackground(target_color)
 
@@ -223,7 +268,7 @@ class SlidePreviewPanel(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, i)
             
             if is_mapped:
-                item.setBackground(QtGui.QColor("#1e3a5f"))
+                item.setBackground(QtGui.QColor("#2a3a4f"))
             
             self._list.addItem(item)
             

@@ -34,30 +34,91 @@ class SongListWidget(QWidget):
     
     def _setup_ui(self) -> None:
         """UI 초기화"""
+        self.setStyleSheet("background-color: #1e1e1e; ")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
         
         # 헤더
         header = QLabel("📋 곡 목록")
-        header.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px;")
+        header.setStyleSheet("""
+            font-weight: 800; 
+            font-size: 15px; 
+            color: #2196f3; 
+            padding: 5px 2px;
+            letter-spacing: 0.5px;
+        """)
         layout.addWidget(header)
         
-        # 곡 목록
+        # 곡 목록 (QListWidget 스타일 고도화)
         self._list = QListWidget()
         self._list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
+        self._list.setStyleSheet("""
+            QListWidget {
+                background-color: #252525;
+                border: 1px solid #333;
+                border-radius: 8px;
+                outline: none;
+                padding: 4px;
+            }
+            QListWidget::item {
+                background-color: transparent;
+                border-radius: 6px;
+                padding: 10px 12px;
+                margin-bottom: 2px;
+                color: #ddd;
+            }
+            QListWidget::item:hover {
+                background-color: #333;
+                color: white;
+            }
+            QListWidget::item:selected {
+                background-color: #2a3a4f;
+                color: #2196f3;
+                font-weight: bold;
+                border: 1px solid #2196f3;
+            }
+        """)
         self._list.currentItemChanged.connect(self._on_selection_changed)
-        self._list.itemClicked.connect(self._on_item_clicked) # 클릭 시에도 명시적 호출 추가
+        self._list.itemClicked.connect(self._on_item_clicked)
         layout.addWidget(self._list)
         
         # 버튼들
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(6)
         
         self._add_btn = QPushButton("+ 곡 추가")
+        self._add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._add_btn.setFixedHeight(34)
+        self._add_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196f3;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover { background-color: #1e88e5; }
+            QPushButton:disabled { background-color: #333; color: #666; }
+        """)
         self._add_btn.clicked.connect(self._on_add_clicked)
-        btn_layout.addWidget(self._add_btn)
+        btn_layout.addWidget(self._add_btn, 1)
         
         self._remove_btn = QPushButton("🗑️")
-        self._remove_btn.setMaximumWidth(40)
+        self._remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._remove_btn.setFixedSize(34, 34)
+        self._remove_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #333;
+                color: #888;
+                border: 1px solid #444;
+                border-radius: 6px;
+                font-size: 14px;
+            }
+            QPushButton:hover { background-color: #444; color: #ff4444; border: 1px solid #ff4444; }
+            QPushButton:disabled { background-color: #252525; color: #444; border: 1px solid #333; }
+        """)
         self._remove_btn.clicked.connect(self._on_remove_clicked)
         btn_layout.addWidget(self._remove_btn)
         

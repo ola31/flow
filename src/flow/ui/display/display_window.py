@@ -92,7 +92,7 @@ class DisplayWindow(QWidget):
         """화면 높이에 비례하는 폰트 적용"""
         # 기준 높이를 1080px로 잡고 비율 계산
         screen_height = self.height() or 1080
-        scaled_size = int(base_size * (screen_height / 1080))
+        scaled_size = max(1, int(base_size * (screen_height / 1080)))
         
         font = QFont("Pretendard", scaled_size) # Pretendard 우선 적용
         if not font.exactMatch():
