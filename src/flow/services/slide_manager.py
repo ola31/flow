@@ -73,6 +73,13 @@ class SlideManager(QObject):
         
     def load_pptx(self, path: str | Path):
         """비동기 방식으로 PPTX 로드 시작"""
+        if not path or not str(path).strip():
+            # 빈 경로는 즉시 동기적으로 처리 (초기화)
+            self._pptx_path = None
+            self._slide_count = 0
+            self.load_finished.emit(0)
+            return
+
         if self._load_worker and self._load_worker.isRunning():
             return # 이미 로딩 중이면 무시
             

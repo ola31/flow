@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter,
     QToolBar, QStatusBar, QFileDialog, QMessageBox, QTabWidget,
     QLabel, QFrame, QButtonGroup, QRadioButton, QPushButton,
-    QLineEdit, QTextEdit, QPlainTextEdit
+    QLineEdit, QTextEdit, QPlainTextEdit, QStackedWidget
 )
 from PySide6.QtGui import QAction, QKeySequence, QPixmap, QUndoStack
 from PySide6 import QtGui
@@ -26,8 +26,9 @@ from flow.ui.editor.song_list_widget import SongListWidget
 from flow.ui.editor.score_canvas import ScoreCanvas
 from flow.ui.editor.slide_preview_panel import SlidePreviewPanel
 from flow.ui.display.display_window import DisplayWindow
-from flow.ui.live.live_controller import LiveController
 from flow.services.slide_manager import SlideManager
+from flow.services.config_service import ConfigService
+from flow.ui.project_launcher import ProjectLauncher
 
 
 class MainWindow(QMainWindow):
@@ -39,10 +40,12 @@ class MainWindow(QMainWindow):
         self._project: Project | None = None
         self._project_path: Path | None = None
         self._repo = ProjectRepository(Path.home() / "flow_projects")
+        self._config_service = ConfigService()
         
         # 송출 관련
         self._display_window: DisplayWindow | None = None
         self._slide_manager = SlideManager()
+        from flow.ui.live.live_controller import LiveController
         self._live_controller = LiveController(self, slide_manager=self._slide_manager)
         
         # Undo/Redo 관련
@@ -66,20 +69,43 @@ class MainWindow(QMainWindow):
         # SongListWidget에 메인 윈도우 참조 연결 (경로 획득용)
         self._song_list.set_main_window(self)
         
-        # 앱 시작 시 기본 프로젝트 생성 (파일 다이얼로그 없이)
-        self._create_initial_project()
-        self._toggle_edit_mode()
-    
+        # 앱 시작 시 런처(시작 화면) 표시
+        self._show_launcher()
+
+    def _show_launcher(self):
+        """시작 화면(런처) 표시"""
+        self._stack.setCurrentIndex(0)
+        self._launcher.set_recent_projects(self._config_service.get_recent_projects())
+        self._toolbar.hide()
+        self._statusbar.hide()
+        self.setWindowTitle("Flow - 시작하기")
+
+    def _show_editor(self):
+        """편집/라이브 화면 표시"""
+        self._stack.setCurrentIndex(1)
+        self._toolbar.show()
+        self._statusbar.show()
+        if self._project:
+            self.setWindowTitle(f"Flow - {self._project.name}")
+
     def _setup_ui(self) -> None:
         """UI 초기화"""
         self.setWindowTitle("Flow - 찬양 가사 송출")
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(1000, 700)
         
-        # 중앙 위젯
-        central = QWidget()
-        self.setCentralWidget(central)
+        # 중앙 위젯을 StackedWidget으로 변경
+        self._stack = QStackedWidget()
+        self.setCentralWidget(self._stack)
         
-        main_layout = QVBoxLayout(central)
+        # 1. 런처 화면 (인덱스 0)
+        self._launcher = ProjectLauncher()
+        self._stack.addWidget(self._launcher)
+        
+        # 2. 메인 에디터 화면 (인덱스 1)
+        editor_widget = QWidget()
+        self._stack.addWidget(editor_widget)
+        
+        main_layout = QVBoxLayout(editor_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
@@ -245,9 +271,10 @@ class MainWindow(QMainWindow):
     
     def _setup_toolbar(self) -> None:
         """툴바 설정"""
-        toolbar = QToolBar("메인 툴바")
-        toolbar.setMovable(False)
-        self.addToolBar(toolbar)
+        self._toolbar = QToolBar("메인 툴바")
+        self._toolbar.setMovable(False)
+        self.addToolBar(self._toolbar)
+        toolbar = self._toolbar
         
         # 파일 메뉴
         new_action = QAction("📄 새 프로젝트", self)
@@ -272,6 +299,11 @@ class MainWindow(QMainWindow):
         save_as_action.triggered.connect(self._save_project_as)
         toolbar.addAction(save_as_action)
         self._save_as_action = save_as_action
+        
+        close_project_action = QAction("🏠 프로젝트 닫기", self)
+        close_project_action.triggered.connect(self._close_current_project)
+        toolbar.addAction(close_project_action)
+        self._close_project_action = close_project_action
         
         toolbar.addSeparator()
         
@@ -332,6 +364,11 @@ class MainWindow(QMainWindow):
     
     def _connect_signals(self) -> None:
         """시그널 연결"""
+        # 런처 시그널
+        self._launcher.project_selected.connect(self._open_project_by_path)
+        self._launcher.new_project_requested.connect(self._new_project)
+        self._launcher.open_project_requested.connect(self._open_project)
+        
         # 곡 목록 시그널
         self._song_list.song_selected.connect(self._on_song_selected)
         self._song_list.song_added.connect(self._on_song_added)
@@ -394,20 +431,14 @@ class MainWindow(QMainWindow):
             self._slide_preview.refresh_slides()
             
             self.setWindowTitle(f"Flow - {self._project.name}")
+            self._config_service.add_recent_project(str(self._project_path))
             self._clear_dirty() # 새 프로젝트는 깨끗한 상태
-            self._statusbar.showMessage(f"새 프로젝트가 생성되었습니다: {project_dir}")
+            self._show_editor() # 에디터 화면으로 전환
             self._toggle_edit_mode()
+            self._statusbar.showMessage(f"새 프로젝트가 생성되었습니다: {project_dir}")
         except Exception as e:
             QMessageBox.critical(self, "오류", f"프로젝트 폴더를 생성할 수 없습니다:\n{e}")
 
-    def _create_initial_project(self) -> None:
-        """앱 시작 시 조용히 기본 프로젝트 생성"""
-        self._project = Project(name="새 프로젝트")
-        self._project_path = None
-        self._song_list.set_project(self._project)
-        self._canvas.set_score_sheet(None)
-        self._slide_preview.refresh_slides()
-        self.setWindowTitle("Flow - 새 프로젝트")
     
     def _open_project(self) -> None:
         """프로젝트 열기"""
@@ -445,13 +476,56 @@ class MainWindow(QMainWindow):
             if self._project.score_sheets:
                 first_sheet = self._project.score_sheets[0]
                 self._on_song_selected(first_sheet)
-                # 곡 목록 UI에서 첫 번째 항목 선택 표시
                 self._song_list._list.setCurrentRow(0)
             else:
                 self._canvas.set_score_sheet(None)
             
             self.setWindowTitle(f"Flow - {self._project.name}")
-            self._clear_dirty() # 로드 직후는 깨끗한 상태
+            self._config_service.add_recent_project(str(self._project_path))
+            self._clear_dirty()
+            self._show_editor()
+            self._toggle_edit_mode()
+            self._statusbar.showMessage(f"프로젝트를 열었습니다: {self._project.name}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"프로젝트를 열 수 없습니다:\n{e}")
+
+    def _open_project_by_path(self, path_str: str) -> None:
+        """지정된 경로의 프로젝트를 직접 열기"""
+        path = Path(path_str)
+        if not path.exists():
+            QMessageBox.warning(self, "오류", "해당 프로젝트 파일이 존재하지 않습니다.")
+            self._config_service.remove_recent_project(path_str)
+            self._launcher.set_recent_projects(self._config_service.get_recent_projects())
+            return
+            
+        try:
+            self._project = self._repo.load(path)
+            self._project_path = path
+            
+            # 곡 목록 및 UI 갱신 (기존 _open_project 로직과 유사)
+            self._song_list.set_project(self._project)
+            v_idx = self._project.current_verse_index
+            self._verse_group.button(v_idx).setChecked(True)
+            self._canvas.set_verse_index(v_idx)
+            self._update_mapped_slides_ui()
+            
+            if self._project.pptx_path:
+                self._slide_manager.load_pptx(self._project.pptx_path)
+            else:
+                self._slide_preview.refresh_slides()
+
+            if self._project.score_sheets:
+                self._on_song_selected(self._project.score_sheets[0])
+                self._song_list._list.setCurrentRow(0)
+            else:
+                self._canvas.set_score_sheet(None)
+            
+            # 최근 목록 업데이트 및 에디터 표시
+            self._config_service.add_recent_project(path_str)
+            self._clear_dirty()
+            self._show_editor()
+            self._toggle_edit_mode()
             self._statusbar.showMessage(f"프로젝트를 열었습니다: {self._project.name}")
             
         except Exception as e:
@@ -636,6 +710,7 @@ class MainWindow(QMainWindow):
         self._open_action.setEnabled(editable)
         self._save_action.setEnabled(editable)
         self._save_as_action.setEnabled(editable)
+        self._close_project_action.setEnabled(editable)
         self._load_ppt_action.setEnabled(editable)
         self._undo_action.setEnabled(editable)
         self._redo_action.setEnabled(editable)
@@ -679,6 +754,40 @@ class MainWindow(QMainWindow):
                 event.ignore()
         else:
             event.accept()
+
+    def _close_current_project(self) -> None:
+        """현재 프로젝트를 닫고 시작 화면으로 회귀"""
+        if self._is_dirty:
+            reply = QMessageBox.question(
+                self, "저장 확인",
+                "저장되지 않은 변경사항이 있습니다.\n닫기 전에 저장하시겠습니까?",
+                QMessageBox.StandardButton.Save | 
+                QMessageBox.StandardButton.Discard | 
+                QMessageBox.StandardButton.Cancel
+            )
+            
+            if reply == QMessageBox.StandardButton.Save:
+                self._save_project()
+            elif reply == QMessageBox.StandardButton.Cancel:
+                return
+
+        # 상태 초기화
+        self._project = None
+        self._project_path = None
+        self._song_list.set_project(None)
+        self._canvas.set_score_sheet(None)
+        
+        # PPT 조작 중지 및 UI 초기화
+        self._slide_manager.stop_watching()
+        self._slide_manager.load_pptx("")
+        self._slide_preview.refresh_slides()
+        self._preview_image.hide()
+        self._preview_text.setText("선택된 슬라이드가 없습니다.")
+        
+        self._undo_stack.clear()
+        self._clear_dirty() # 런처로 돌아갈 때는 dirty 표시 제거
+        
+        self._show_launcher()
 
     # === PPT 비동기 로딩 핸들러 ===
     

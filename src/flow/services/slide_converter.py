@@ -65,6 +65,8 @@ class OnlyOfficeSlideConverter(SlideConverter):
         return "ONLYOFFICE (standalone)"
 
     def convert_slide(self, pptx_path: Path, index: int) -> QImage:
+        if not pptx_path:
+            return QImage(1280, 720, QImage.Format.Format_RGB32)
         mtime = pptx_path.stat().st_mtime
         pptx_hash = hashlib.md5(f"oo_v1_{str(pptx_path.resolve())}_{mtime}".encode()).hexdigest()
         pptx_cache_dir = self._cache_dir / pptx_hash
@@ -137,6 +139,8 @@ class WindowsSlideConverter(SlideConverter):
         return self._has_pp
 
     def convert_slide(self, pptx_path: Path, index: int) -> QImage:
+        if not pptx_path:
+            return QImage(1280, 720, QImage.Format.Format_RGB32)
         mtime = pptx_path.stat().st_mtime
         pptx_hash = hashlib.md5(f"win_v2_{str(pptx_path.resolve())}_{mtime}".encode()).hexdigest()
         pptx_cache_dir = self._cache_dir / pptx_hash
@@ -211,6 +215,8 @@ class LinuxSlideConverter(SlideConverter):
 
 def _convert_with_libreoffice(pptx_path: Path, index: int, cache_dir: Path, soffice_cmd: str) -> QImage:
     """LibreOffice를 사용한 공통 변환 로직"""
+    if not pptx_path:
+        return QImage(1280, 720, QImage.Format.Format_RGB32)
     mtime = pptx_path.stat().st_mtime
     pptx_hash = hashlib.md5(f"lo_v2_{str(pptx_path.resolve())}_{mtime}".encode()).hexdigest()
     pptx_cache_dir = cache_dir / pptx_hash
