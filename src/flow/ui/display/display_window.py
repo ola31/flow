@@ -116,13 +116,25 @@ class DisplayWindow(QWidget):
         
         if image:
             from PySide6.QtGui import QPixmap
+            # QImage -> QPixmap 변환
             pixmap = QPixmap.fromImage(image)
-            # 라벨 크기에 맞춰 이미지 스케일링
-            self._lyric_label.setPixmap(pixmap.scaled(
-                self.size(),
+            
+            # [화질 개선] High-DPI 디스플레이 대응
+            ratio = self.devicePixelRatioF()
+            # 윈도우의 실제 픽셀 크기에 맞춰 스케일링
+            target_size = self.size() * ratio
+            
+            scaled_pixmap = pixmap.scaled(
+                target_size,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
-            ))
+            )
+            # 배율 정보 주입하여 QLabel이 올바른 크기로 그리게 함
+            scaled_pixmap.setDevicePixelRatio(ratio)
+            
+            self._lyric_label.setPixmap(scaled_pixmap)
+            # setScaledContents(True)는 화질을 떨어뜨릴 수 있으므로 False로 유지 (이미 수동 스케일링함)
+            self._lyric_label.setScaledContents(False)
         else:
             self._lyric_label.setPixmap(QtGui.QPixmap())
 

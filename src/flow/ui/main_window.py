@@ -657,17 +657,17 @@ class MainWindow(QMainWindow):
     def _on_ppt_load_started(self) -> None:
         """PPT 로딩 시작"""
         self._statusbar.showMessage("📽 PPT 변환 중... 잠시만 기다려주세요.", 0) # 0은 무한 지속
-        self._slide_preview.setEnabled(False) # 로딩 중 조작 방지
+        self._slide_preview.show_loading() # 로딩 오버레이 표시
         
     def _on_ppt_load_finished(self, count: int) -> None:
         """PPT 로딩 완료"""
-        self._slide_preview.setEnabled(True)
+        self._slide_preview.hide_loading() # 로딩 오버레이 숨김
         self._slide_preview.refresh_slides()
         self._statusbar.showMessage(f"✅ PPT 로드 완료 ({count} 슬라이드)", 3000)
         
     def _on_ppt_load_error(self, message: str) -> None:
         """PPT 로딩 에러"""
-        self._slide_preview.setEnabled(True)
+        self._slide_preview.hide_loading() # 로딩 오버레이 숨김
         self._slide_preview.refresh_slides()
         QMessageBox.warning(self, "PPT 로딩 오류", message)
         self._statusbar.showMessage("❌ PPT 로드 실패", 3000)

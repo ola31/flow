@@ -91,6 +91,45 @@ class SlidePreviewPanel(QWidget):
         
         layout.addWidget(self._list)
         
+        # [NEW] 로딩 오버레이 레이아웃 (목록 위에 겹치게 배치)
+        self._loading_overlay = QWidget(self._list)
+        overlay_layout = QVBoxLayout(self._loading_overlay)
+        
+        self._loading_label = QLabel("📽 PPT 변환 및 이미지 생성 중...\n잠시만 기다려주세요.")
+        self._loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loading_label.setStyleSheet("""
+            QLabel {
+                color: #2196f3;
+                font-weight: bold;
+                background-color: rgba(30, 30, 30, 200);
+                border-radius: 10px;
+                padding: 20px;
+                font-size: 13px;
+            }
+        """)
+        overlay_layout.addWidget(self._loading_label)
+        self._loading_overlay.hide() # 초기에는 숨김
+        
+    def resizeEvent(self, event) -> None:
+        """창 크기 변경 시 로딩 오버레이 크기 조정"""
+        super().resizeEvent(event)
+        if hasattr(self, '_loading_overlay'):
+            self._loading_overlay.resize(self._list.size())
+
+    def show_loading(self, message: str = None) -> None:
+        """로딩 오버레이 표시"""
+        if message:
+            self._loading_label.setText(message)
+        self._loading_overlay.resize(self._list.size())
+        self._loading_overlay.show()
+        self._loading_overlay.raise_()
+        self._list.setEnabled(False)
+
+    def hide_loading(self) -> None:
+        """로딩 오버레이 숨김"""
+        self._loading_overlay.hide()
+        self._list.setEnabled(True)
+
     def wheelEvent(self, event) -> None:
         """마우스 휠 이벤트를 수평 스크롤로 변환 (감도 개선)"""
         if self._list.underMouse():

@@ -110,7 +110,9 @@ class ScoreCanvas(QWidget):
     def paintEvent(self, event) -> None:
         """그리기"""
         painter = QPainter(self)
+        # Antialiasing과 SmoothPixmapTransform 모두 활성화하여 최상의 화질 보장
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         
         # 배경
         painter.fillRect(self.rect(), QColor(40, 40, 40))
@@ -120,18 +122,25 @@ class ScoreCanvas(QWidget):
             return
         
         if self._pixmap:
-            # [화질 개선] 윈도우 크기에 맞춰 미리 고품질 스케일링
-            if self._scaled_pixmap is None or self.size() != self._last_size:
+            # [화질 개선] High-DPI(고배율) 디스플레이 대응
+            # logical size가 아닌 physical size(실제 픽셀)로 스케일링하여 선명도 유지
+            ratio = self.devicePixelRatioF()
+            target_size = self.size() * ratio
+            
+            if self._scaled_pixmap is None or target_size != self._last_size:
                 self._scaled_pixmap = self._pixmap.scaled(
-                    self.size(),
+                    target_size,
                     Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.SmoothTransformation
                 )
-                self._last_size = self.size()
+                # Qt가 내부적으로 배율을 인식하게 설정
+                self._scaled_pixmap.setDevicePixelRatio(ratio)
+                self._last_size = target_size
             
-            x = (self.width() - self._scaled_pixmap.width()) // 2
-            y = (self.height() - self._scaled_pixmap.height()) // 2
-            painter.drawPixmap(x, y, self._scaled_pixmap)
+            # 중앙 배치 계산 (SetDevicePixelRatio 덕분에 logical 좌표로 그리면 됨)
+            x = (self.width() - self._scaled_pixmap.width() / ratio) // 2
+            y = (self.height() - self._scaled_pixmap.height() / ratio) // 2
+            painter.drawPixmap(int(x), int(y), self._scaled_pixmap)
         else:
             self._draw_placeholder(painter, f"악보: {self._score_sheet.name}\n(이미지를 추가하세요)")
         

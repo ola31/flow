@@ -39,3 +39,9 @@ temp_slides/
 # IDEs
 .vscode/
 .idea/
+
+# Binaries
+bin/
+bin_bk/
+
+assets/fonts/

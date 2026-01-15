@@ -8,7 +8,7 @@ from pptx.exc import PackageNotFoundError
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import sys
-from flow.services.slide_converter import SlideConverter, LinuxSlideConverter, WindowsSlideConverter
+from flow.services.slide_converter import SlideConverter, create_slide_converter
 
 class SlideLoadError(Exception):
     """PPTX 로드 실패 예외"""
@@ -67,12 +67,7 @@ class SlideManager(QObject):
         super().__init__()
         self._pptx_path: Path | None = None
         self._slide_count: int = 0
-        if converter:
-            self._converter = converter
-        elif sys.platform == "win32":
-            self._converter = WindowsSlideConverter()
-        else:
-            self._converter = LinuxSlideConverter()
+        self._converter = converter or create_slide_converter()
         self._observer = None
         self._load_worker = None
         
@@ -89,6 +84,8 @@ class SlideManager(QObject):
 
     def _do_load_pptx(self, path: str | Path) -> int:
         """실제 로딩 로직 (백그라운드 스레드에서 호출됨)"""
+        import time
+        start_time = time.time()
         p = Path(path).resolve() if path and str(path).strip() else None
         
         # 최적화: 이미 같은 파일이 로드되어 있다면 즉시 반환
@@ -98,15 +95,22 @@ class SlideManager(QObject):
         self._pptx_path = p
         
         if p and p.is_file():
+            engine_info = self._converter.get_engine_name()
+            print(f"[SlideManager] PPT 로드 시작: {p.name} (엔진: {engine_info})")
             try:
                 prs = Presentation(str(p))
                 self._slide_count = len(prs.slides)
-                
-                # [강력 최적화] 리눅스 환경 등에서 변환이 느린 경우, 
-                # 로딩 시점에 미리 변환 엔진을 구동하여 캐시를 생성함.
-                # 이 코드는 PPTLoadWorker(별도 스레드)에서 실행되므로 UI가 멈추지 않음.
+
+                # 모든 슬라이드 이미지를 미리 변환 (백그라운드 스레드)
+                # 사용자 체감: 슬라이드 리스트가 다 채워져야 로딩 완료임
                 if self._slide_count > 0:
-                    self.get_slide_image(0) 
+                    for i in range(self._slide_count):
+                        self.get_slide_image(i)
+                        if (i + 1) % 5 == 0 or i + 1 == self._slide_count:
+                             print(f"[SlideManager] 이미지 생성 중... ({i + 1}/{self._slide_count})")
+                
+                elapsed = time.time() - start_time
+                print(f"[SlideManager] PPT 로드 완료: {self._slide_count} 슬라이드 전체 변환됨 (총 소요 시간: {elapsed:.2f}초)")
                     
             except PackageNotFoundError:
                 self._slide_count = 0
