@@ -816,6 +816,9 @@ class MainWindow(QMainWindow):
                 self._canvas.select_hotspot(None)
                 self._update_preview(None)
                 self._live_controller.set_preview(None)
+        
+        # [추가] 절이 바뀌면 슬라이드 링크 표시도 갱신
+        self._update_mapped_slides_ui()
             
         self._statusbar.showMessage(f"{verse_index + 1 if verse_index < 5 else '후렴'}을(를) 선택했습니다.", 1000)
 
@@ -1374,31 +1377,42 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "매핑 제한", f"이 버튼은 타 레이어에서 생성되었습니다.\n{v_name}에서 작업하시려면 해당 레이어로 이동하거나 새 버튼을 만들어 주세요.")
             return
 
-        # 1:1 매핑 체크: 이 슬라이드가 이미 다른 곳에 매핑되어 있는지 확인
+        # 1:1 매핑 체크: 이 슬라이드가 "현재 절"에서 이미 다른 곳에 매핑되어 있는지 확인
+        # (다른 절에서는 같은 슬라이드가 매핑되어 있어도 무관)
         existing_info = None
+        current_verse = self._project.current_verse_index
+        current_verse_key = str(current_verse)
+        
         for sheet in self._project.score_sheets:
             ordered_hotspots = sheet.get_ordered_hotspots()
             for i, hotspot in enumerate(ordered_hotspots):
-                # 모든 절 매핑을 검사
-                for v_idx_str, s_idx in hotspot.slide_mappings.items():
-                    if s_idx == index:
-                        if hotspot != selected_hotspot:
-                            v_idx = int(v_idx_str)
-                            v_name = f"{v_idx + 1}절" if v_idx < 5 else "후렴"
-                            existing_info = {
-                                "sheet_name": sheet.name,
-                                "order": i + 1,
-                                "verse": v_name,
-                                "lyric": hotspot.lyric or "가사 없음"
-                            }
-                            break
-                if existing_info: break
+                # 현재 절의 매핑만 검사
+                if current_verse_key in hotspot.slide_mappings:
+                    s_idx = hotspot.slide_mappings[current_verse_key]
+                    if s_idx == index and hotspot != selected_hotspot:
+                        v_name = f"{current_verse + 1}절" if current_verse < 5 else "후렴"
+                        existing_info = {
+                            "sheet_name": sheet.name,
+                            "order": i + 1,
+                            "verse": v_name,
+                            "lyric": hotspot.lyric or "텍스트 없음"
+                        }
+                        break
+                # 하위 호환: verse 0인 경우 slide_index 필드도 체크
+                elif current_verse == 0 and hotspot.slide_index == index and hotspot != selected_hotspot:
+                    existing_info = {
+                        "sheet_name": sheet.name,
+                        "order": i + 1,
+                        "verse": "1절",
+                        "lyric": hotspot.lyric or "텍스트 없음"
+                    }
+                    break
             if existing_info: break
         
         if existing_info:
             QMessageBox.warning(
                 self, "매핑 중복",
-                f"슬라이드 {index + 1}은(는) 이미 다른 곳에 매핑되어 있습니다.\n\n"
+                f"슬라이드 {index + 1}은(는) 현재 절에서 이미 다른 곳에 매핑되어 있습니다.\n\n"
                 f"📍 곡명: {existing_info['sheet_name']}\n"
                 f"📍 위치: {existing_info['verse']}의 {existing_info['order']}번 버튼 ({existing_info['lyric']})\n\n"
                 "먼저 해당 위치의 매핑을 해제한 후 다시 시도해 주세요."
