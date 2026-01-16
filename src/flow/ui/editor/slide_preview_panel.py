@@ -1,7 +1,8 @@
 """SlidePreviewPanel - PPT 슬라이드 목록을 썸네일로 표시하는 패널"""
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, 
-                             QListWidget, QListWidgetItem, QLabel, QPushButton)
+                             QListWidget, QListWidgetItem, QLabel, QPushButton,
+                             QProgressBar)
 from PySide6.QtCore import Qt, Signal, QSize
 from PySide6 import QtGui
 from PySide6.QtGui import QPixmap, QIcon
@@ -139,20 +140,75 @@ class SlidePreviewPanel(QWidget):
         # [NEW] 로딩 오버레이 레이아웃 (목록 위에 겹치게 배치)
         self._loading_overlay = QWidget(self._list)
         overlay_layout = QVBoxLayout(self._loading_overlay)
+        overlay_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        self._loading_label = QLabel("📽 PPT 변환 및 이미지 생성 중...\n잠시만 기다려주세요.")
+        # 엔진 정보 라벨
+        self._engine_label = QLabel("📽 PPT 변환 엔진")
+        self._engine_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._engine_label.setStyleSheet("""
+            QLabel {
+                color: #888;
+                font-size: 10px;
+                background: transparent;
+            }
+        """)
+        overlay_layout.addWidget(self._engine_label)
+        
+        # 메인 로딩 라벨
+        self._loading_label = QLabel("이미지 생성 중...")
         self._loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._loading_label.setStyleSheet("""
             QLabel {
                 color: #2196f3;
                 font-weight: bold;
-                background-color: rgba(30, 30, 30, 200);
-                border-radius: 10px;
-                padding: 20px;
+                background-color: transparent;
                 font-size: 13px;
             }
         """)
         overlay_layout.addWidget(self._loading_label)
+        
+        # 프로그레스 바
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setMinimum(0)
+        self._progress_bar.setMaximum(100)
+        self._progress_bar.setValue(0)
+        self._progress_bar.setFixedWidth(200)
+        self._progress_bar.setFixedHeight(16)
+        self._progress_bar.setStyleSheet("""
+            QProgressBar {
+                background-color: #333;
+                border: 1px solid #444;
+                border-radius: 6px;
+                text-align: center;
+                color: white;
+                font-size: 10px;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #2196f3, stop:1 #64b5f6);
+                border-radius: 5px;
+            }
+        """)
+        overlay_layout.addWidget(self._progress_bar, 0, Qt.AlignmentFlag.AlignCenter)
+        
+        # 진행률 텍스트 (예: "12 / 28 슬라이드")
+        self._progress_text = QLabel("0 / 0 슬라이드")
+        self._progress_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._progress_text.setStyleSheet("""
+            QLabel {
+                color: #aaa;
+                font-size: 11px;
+                background: transparent;
+            }
+        """)
+        overlay_layout.addWidget(self._progress_text)
+        
+        self._loading_overlay.setStyleSheet("""
+            QWidget {
+                background-color: rgba(30, 30, 30, 230);
+                border-radius: 10px;
+            }
+        """)
         self._loading_overlay.hide() # 초기에는 숨김
         
     def resizeEvent(self, event) -> None:
@@ -165,10 +221,27 @@ class SlidePreviewPanel(QWidget):
         """로딩 오버레이 표시"""
         if message:
             self._loading_label.setText(message)
+        else:
+            self._loading_label.setText("이미지 생성 중...")
+        
+        # 프로그레스 바 초기화
+        self._progress_bar.setValue(0)
+        self._progress_text.setText("준비 중...")
+        self._engine_label.setText("📽 PPT 변환 엔진")
+        
         self._loading_overlay.resize(self._list.size())
         self._loading_overlay.show()
         self._loading_overlay.raise_()
         self._list.setEnabled(False)
+
+    def update_progress(self, current: int, total: int, engine_name: str) -> None:
+        """진행률 업데이트"""
+        if total > 0:
+            percent = int((current / total) * 100)
+            self._progress_bar.setValue(percent)
+            self._progress_text.setText(f"{current} / {total} 슬라이드")
+            self._engine_label.setText(f"📽 엔진: {engine_name}")
+            self._loading_label.setText("이미지 생성 중...")
 
     def hide_loading(self) -> None:
         """로딩 오버레이 숨김"""

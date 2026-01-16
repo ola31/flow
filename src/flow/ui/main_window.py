@@ -629,6 +629,7 @@ class MainWindow(QMainWindow):
         self._slide_manager.load_started.connect(self._on_ppt_load_started)
         self._slide_manager.load_finished.connect(self._on_ppt_load_finished)
         self._slide_manager.load_error.connect(self._on_ppt_load_error)
+        self._slide_manager.load_progress.connect(self._on_ppt_load_progress)
         
         # 프로젝트 변경 감지 시그널 (SongListWidget)
         self._song_list.song_added.connect(self._on_song_added)
@@ -1061,6 +1062,11 @@ class MainWindow(QMainWindow):
         """PPT 로딩 시작"""
         self._statusbar.showMessage("📽 PPT 변환 중... 잠시만 기다려주세요.", 0) # 0은 무한 지속
         self._slide_preview.show_loading() # 로딩 오버레이 표시
+    
+    def _on_ppt_load_progress(self, current: int, total: int, engine_name: str) -> None:
+        """PPT 로딩 진행률 업데이트"""
+        self._slide_preview.update_progress(current, total, engine_name)
+        self._statusbar.showMessage(f"📽 이미지 생성 중... ({current}/{total}) - 엔진: {engine_name}", 0)
         
     def _on_ppt_load_finished(self, count: int) -> None:
         """PPT 로딩 완료"""

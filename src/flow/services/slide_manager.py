@@ -39,8 +39,9 @@ from PySide6.QtCore import QObject, Signal, QThread
 
 class PPTLoadWorker(QThread):
     """PPT 로딩을 백그라운드에서 수행하는 워커"""
-    finished = Signal(int) # 슬라이드 개수
-    error = Signal(str)    # 에러 메시지
+    finished = Signal(int)          # 슬라이드 개수
+    error = Signal(str)             # 에러 메시지
+    progress = Signal(int, int, str)  # 진행률 (current, total, engine_name)
     
     def __init__(self, manager: 'SlideManager', path: str | Path):
         super().__init__()
@@ -49,11 +50,13 @@ class PPTLoadWorker(QThread):
         
     def run(self):
         try:
-            # 시간 측정을 위해 살짝 대기 (필요시)
-            count = self.manager._do_load_pptx(self.path)
+            count = self.manager._do_load_pptx(self.path, progress_callback=self._emit_progress)
             self.finished.emit(count)
         except Exception as e:
             self.error.emit(str(e))
+    
+    def _emit_progress(self, current: int, total: int, engine_name: str):
+        self.progress.emit(current, total, engine_name)
 
 class SlideManager(QObject):
     """PPTX 파일을 로드하고 슬라이드 이미지를 관리함"""
@@ -62,6 +65,7 @@ class SlideManager(QObject):
     load_started = Signal()         # 로딩 시작
     load_finished = Signal(int)     # 로딩 완료 (슬라이드 수)
     load_error = Signal(str)        # 로딩 에러
+    load_progress = Signal(int, int, str)  # 진행률 (current, total, engine_name)
     
     def __init__(self, converter: SlideConverter = None) -> None:
         super().__init__()
@@ -87,9 +91,10 @@ class SlideManager(QObject):
         self._load_worker = PPTLoadWorker(self, path)
         self._load_worker.finished.connect(self.load_finished.emit)
         self._load_worker.error.connect(self.load_error.emit)
+        self._load_worker.progress.connect(self.load_progress.emit)  # 진행률 연결
         self._load_worker.start()
 
-    def _do_load_pptx(self, path: str | Path) -> int:
+    def _do_load_pptx(self, path: str | Path, progress_callback=None) -> int:
         """실제 로딩 로직 (백그라운드 스레드에서 호출됨)"""
         import time
         start_time = time.time()
@@ -109,10 +114,12 @@ class SlideManager(QObject):
                 self._slide_count = len(prs.slides)
 
                 # 모든 슬라이드 이미지를 미리 변환 (백그라운드 스레드)
-                # 사용자 체감: 슬라이드 리스트가 다 채워져야 로딩 완료임
                 if self._slide_count > 0:
                     for i in range(self._slide_count):
                         self.get_slide_image(i)
+                        # 진행률 콜백 호출
+                        if progress_callback:
+                            progress_callback(i + 1, self._slide_count, engine_info)
                         if (i + 1) % 5 == 0 or i + 1 == self._slide_count:
                              print(f"[SlideManager] 이미지 생성 중... ({i + 1}/{self._slide_count})")
                 
