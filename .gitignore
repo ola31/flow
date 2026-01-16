@@ -45,3 +45,4 @@ bin/
 bin_bk/
 
 assets/fonts/
+*.zip
