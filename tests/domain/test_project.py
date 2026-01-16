@@ -26,17 +26,17 @@ class TestProjectCreation:
         assert project1.id != project2.id
     
     def test_new_project_has_no_score_sheets(self):
-        """새 프로젝트에는 악보가 없음"""
+        """새 프로젝트에는 시트가 없음"""
         project = Project(name="테스트")
         
         assert len(project.score_sheets) == 0
 
 
 class TestProjectScoreSheetManagement:
-    """프로젝트 악보 관리 테스트"""
+    """프로젝트 시트 관리 테스트"""
     
     def test_add_score_sheet(self):
-        """악보 추가"""
+        """시트 추가"""
         project = Project(name="테스트")
         sheet = ScoreSheet(name="주 품에 품으소서")
         
@@ -46,7 +46,7 @@ class TestProjectScoreSheetManagement:
         assert project.score_sheets[0] == sheet
     
     def test_add_multiple_score_sheets(self):
-        """여러 악보 추가"""
+        """여러 시트 추가"""
         project = Project(name="테스트")
         project.add_score_sheet(ScoreSheet(name="곡1"))
         project.add_score_sheet(ScoreSheet(name="곡2"))
@@ -55,7 +55,7 @@ class TestProjectScoreSheetManagement:
         assert len(project.score_sheets) == 3
     
     def test_remove_score_sheet(self):
-        """악보 제거"""
+        """시트 제거"""
         project = Project(name="테스트")
         sheet = ScoreSheet(name="삭제할 곡")
         project.add_score_sheet(sheet)
@@ -65,7 +65,7 @@ class TestProjectScoreSheetManagement:
         assert len(project.score_sheets) == 0
     
     def test_find_score_sheet_by_id(self):
-        """ID로 악보 찾기"""
+        """ID로 시트 찾기"""
         project = Project(name="테스트")
         sheet = ScoreSheet(name="찾을 곡")
         project.add_score_sheet(sheet)
@@ -75,7 +75,7 @@ class TestProjectScoreSheetManagement:
         assert found == sheet
     
     def test_reorder_score_sheets(self):
-        """악보 순서 변경"""
+        """시트 순서 변경"""
         project = Project(name="테스트")
         sheet1 = ScoreSheet(name="곡1")
         sheet2 = ScoreSheet(name="곡2")
@@ -95,7 +95,7 @@ class TestProjectNavigation:
     """프로젝트 네비게이션 테스트"""
     
     def test_get_current_score_sheet(self):
-        """현재 악보 가져오기"""
+        """현재 시트 가져오기"""
         project = Project(name="테스트")
         sheet = ScoreSheet(name="현재곡")
         project.add_score_sheet(sheet)
@@ -106,7 +106,7 @@ class TestProjectNavigation:
         assert current == sheet
     
     def test_next_score_sheet(self):
-        """다음 악보로 이동"""
+        """다음 시트로 이동"""
         project = Project(name="테스트")
         project.add_score_sheet(ScoreSheet(name="곡1"))
         project.add_score_sheet(ScoreSheet(name="곡2"))
@@ -117,7 +117,7 @@ class TestProjectNavigation:
         assert project.current_sheet_index == 1
     
     def test_previous_score_sheet(self):
-        """이전 악보로 이동"""
+        """이전 시트로 이동"""
         project = Project(name="테스트")
         project.add_score_sheet(ScoreSheet(name="곡1"))
         project.add_score_sheet(ScoreSheet(name="곡2"))
@@ -128,7 +128,7 @@ class TestProjectNavigation:
         assert project.current_sheet_index == 0
     
     def test_next_at_end_stays(self):
-        """마지막 악보에서 다음은 유지"""
+        """마지막 시트에서 다음은 유지"""
         project = Project(name="테스트")
         project.add_score_sheet(ScoreSheet(name="곡1"))
         project.current_sheet_index = 0

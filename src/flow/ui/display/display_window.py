@@ -1,6 +1,6 @@
 """송출창 (Display Window)
 
-두 번째 모니터에 전체화면으로 표시되는 가사 전용 창
+두 번째 모니터에 전체화면으로 표시되는 슬라이드 전용 창
 """
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QApplication
@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt, Signal
 class DisplayWindow(QWidget):
     """송출창
     
-    두 번째 모니터에서 전체화면으로 가사를 표시합니다.
+    두 번째 모니터에서 전체화면으로 슬라이드를 표시합니다.
     OBS에서 윈도우 캡처 또는 크로마키로 사용할 수 있습니다.
     
     Signals:
@@ -102,7 +102,7 @@ class DisplayWindow(QWidget):
         self._lyric_label.setFont(font)
     
     def show_lyric(self, text: str) -> None:
-        """가사 표시"""
+        """텍스트 표시"""
         from PySide6.QtGui import QPixmap
         self._current_lyric = text
         self._lyric_label.setText(text)
@@ -147,7 +147,7 @@ class DisplayWindow(QWidget):
             self._apply_scaled_font(72) # 기본 크기 72pt 기준 재계산
     
     def clear(self) -> None:
-        """가사 및 이미지 지우기"""
+        """텍스트 및 이미지 지우기"""
         self._current_lyric = ""
         self._lyric_label.clear()
         self._lyric_label.setPixmap(QPixmap())

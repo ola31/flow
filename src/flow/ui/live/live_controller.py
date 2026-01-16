@@ -13,12 +13,12 @@ class LiveController(QObject):
     """라이브 컨트롤러
     
     Preview-Live 2단계 송출을 관리합니다.
-    - Preview: 다음에 송출될 가사 미리보기
-    - Live: 현재 송출 중인 가사
+    - Preview: 다음에 송출될 슬라이드 미리보기
+    - Live: 현재 송출 중인 슬라이드
     
     Signals:
-        preview_changed: Preview 가사가 변경됨 (str)
-        live_changed: Live 가사가 변경됨 (str)
+        preview_changed: Preview 내용이 변경됨 (str)
+        live_changed: Live 내용이 변경됨 (str)
     """
     
     preview_changed = Signal(str)
@@ -76,7 +76,7 @@ class LiveController(QObject):
                 self.slide_changed.emit(image)
     
     def clear_live(self) -> None:
-        """Live 가사 지우기"""
+        """Live 내용 지우기"""
         self._live_hotspot = None
         self._live_slide_index = -1
         self.live_changed.emit("")

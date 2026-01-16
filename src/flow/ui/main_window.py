@@ -115,7 +115,7 @@ class MainWindow(QMainWindow):
 
     def _setup_ui(self) -> None:
         """UI 초기화"""
-        self.setWindowTitle("Flow - 찬양 가사 송출")
+        self.setWindowTitle("Flow - 슬라이드 송출")
         self.setMinimumSize(840, 600)
         
         # 중앙 위젯을 StackedWidget으로 변경

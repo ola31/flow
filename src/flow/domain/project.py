@@ -1,6 +1,6 @@
 """Project(프로젝트) 도메인 모델
 
-여러 악보(곡)를 관리하는 프로젝트 루트 엔티티.
+여러 시트를 관리하는 프로젝트 루트 엔티티.
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ class Project:
     """프로젝트 (예배 세션)
     
     Attributes:
-        name: 프로젝트 이름 (예: "2026-01-12 주일예배")
-        score_sheets: 악보 목록
-        current_sheet_index: 현재 선택된 악보 인덱스
+        name: 프로젝트 이름
+        score_sheets: 시트 목록
+        current_sheet_index: 현재 선택된 시트 인덱스
         id: 고유 식별자 (자동 생성)
     """
     
@@ -31,11 +31,11 @@ class Project:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     
     def add_score_sheet(self, sheet: ScoreSheet) -> None:
-        """악보 추가"""
+        """시트 추가"""
         self.score_sheets.append(sheet)
     
     def remove_score_sheet(self, sheet_id: str) -> bool:
-        """악보 제거"""
+        """시트 제거"""
         for i, s in enumerate(self.score_sheets):
             if s.id == sheet_id:
                 self.score_sheets.pop(i)
@@ -46,14 +46,14 @@ class Project:
         return False
     
     def find_score_sheet_by_id(self, sheet_id: str) -> ScoreSheet | None:
-        """ID로 악보 찾기"""
+        """ID로 시트 찾기"""
         for s in self.score_sheets:
             if s.id == sheet_id:
                 return s
         return None
     
     def move_score_sheet(self, sheet_id: str, new_index: int) -> bool:
-        """악보 순서 변경"""
+        """시트 순서 변경"""
         for i, s in enumerate(self.score_sheets):
             if s.id == sheet_id:
                 sheet = self.score_sheets.pop(i)
@@ -63,20 +63,20 @@ class Project:
         return False
     
     def get_current_score_sheet(self) -> ScoreSheet | None:
-        """현재 악보 반환"""
+        """현재 시트 반환"""
         if 0 <= self.current_sheet_index < len(self.score_sheets):
             return self.score_sheets[self.current_sheet_index]
         return None
     
     def next_score_sheet(self) -> bool:
-        """다음 악보로 이동"""
+        """다음 시트로 이동"""
         if self.current_sheet_index + 1 < len(self.score_sheets):
             self.current_sheet_index += 1
             return True
         return False
     
     def previous_score_sheet(self) -> bool:
-        """이전 악보로 이동"""
+        """이전 시트로 이동"""
         if self.current_sheet_index > 0:
             self.current_sheet_index -= 1
             return True

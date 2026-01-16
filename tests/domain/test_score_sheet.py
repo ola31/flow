@@ -1,4 +1,4 @@
-"""ScoreSheet(악보) 도메인 모델 테스트
+"""ScoreSheet(시트) 도메인 모델 테스트
 
 TDD RED 단계: 실패하는 테스트 먼저 작성
 """
@@ -10,22 +10,22 @@ from flow.domain.hotspot import Hotspot
 
 
 class TestScoreSheetCreation:
-    """악보 생성 테스트"""
+    """시트 생성 테스트"""
     
     def test_create_score_sheet_with_name(self):
-        """이름으로 악보 생성"""
+        """이름으로 시트 생성"""
         sheet = ScoreSheet(name="주 품에 품으소서")
         
         assert sheet.name == "주 품에 품으소서"
     
     def test_create_score_sheet_with_image_path(self):
-        """이미지 경로로 악보 생성"""
+        """이미지 경로로 시트 생성"""
         sheet = ScoreSheet(name="은혜", image_path="/images/grace.jpg")
         
         assert sheet.image_path == "/images/grace.jpg"
     
     def test_score_sheet_has_unique_id(self):
-        """악보는 고유 ID를 가짐"""
+        """시트는 고유 ID를 가짐"""
         sheet1 = ScoreSheet(name="곡1")
         sheet2 = ScoreSheet(name="곡2")
         
@@ -33,10 +33,10 @@ class TestScoreSheetCreation:
 
 
 class TestScoreSheetHotspotManagement:
-    """악보 핫스팟 관리 테스트"""
+    """시트 핫스팟 관리 테스트"""
     
     def test_empty_score_sheet_has_no_hotspots(self):
-        """빈 악보에는 핫스팟이 없음"""
+        """빈 시트에는 핫스팟이 없음"""
         sheet = ScoreSheet(name="테스트")
         
         assert len(sheet.hotspots) == 0
@@ -90,7 +90,7 @@ class TestScoreSheetHotspotManagement:
 
 
 class TestScoreSheetNavigation:
-    """악보 내 핫스팟 네비게이션 테스트"""
+    """시트 내 핫스팟 네비게이션 테스트"""
     
     def test_get_ordered_hotspots(self):
         """순서대로 정렬된 핫스팟 목록"""
@@ -141,7 +141,7 @@ class TestScoreSheetNavigation:
 
 
 class TestScoreSheetSerialization:
-    """악보 직렬화 테스트"""
+    """시트 직렬화 테스트"""
     
     def test_to_dict(self):
         """딕셔너리로 변환"""
@@ -158,7 +158,7 @@ class TestScoreSheetSerialization:
         """딕셔너리에서 생성"""
         data = {
             "id": "test-sheet-id",
-            "name": "복원된 악보",
+            "name": "복원된 시트",
             "image_path": "/images/restored.jpg",
             "hotspots": [
                 {"id": "h1", "x": 100, "y": 200, "order": 0, "lyric": "가사"}
@@ -168,5 +168,5 @@ class TestScoreSheetSerialization:
         sheet = ScoreSheet.from_dict(data)
         
         assert sheet.id == "test-sheet-id"
-        assert sheet.name == "복원된 악보"
+        assert sheet.name == "복원된 시트"
         assert len(sheet.hotspots) == 1

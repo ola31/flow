@@ -33,23 +33,23 @@ class TestHotspotCreation:
 
 
 class TestHotspotLyricMapping:
-    """핫스팟-가사 매핑 테스트"""
+    """핫스팟-텍스트 매핑 테스트"""
     
     def test_hotspot_has_empty_lyric_by_default(self):
-        """기본 가사는 빈 문자열"""
+        """기본 텍스트는 빈 문자열"""
         hotspot = Hotspot(x=100, y=200)
         
         assert hotspot.lyric == ""
     
     def test_set_lyric_text(self):
-        """가사 텍스트 설정"""
+        """텍스트 설정"""
         hotspot = Hotspot(x=100, y=200)
         hotspot.lyric = "주 품에 품으소서"
         
         assert hotspot.lyric == "주 품에 품으소서"
     
     def test_set_multiline_lyric(self):
-        """여러 줄 가사 설정"""
+        """여러 줄 텍스트 설정"""
         hotspot = Hotspot(x=100, y=200)
         hotspot.lyric = "주 품에 품으소서\n내 주를 늘 섬기리"
         

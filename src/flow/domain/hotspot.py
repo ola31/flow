@@ -1,6 +1,6 @@
 """핫스팟(Hotspot) 도메인 모델
 
-악보 위의 특정 위치를 나타내며, 해당 위치에 가사가 매핑됨.
+시트 위의 특정 위치를 나타내며, 해당 위치에 슬라이드가 매핑됨.
 """
 
 from __future__ import annotations
@@ -12,13 +12,13 @@ from typing import Any
 
 @dataclass
 class Hotspot:
-    """악보 위의 핫스팟 (버튼)
+    """시트 위의 핫스팟 (버튼)
     
     Attributes:
         x: X 좌표 (픽셀)
         y: Y 좌표 (픽셀)
         order: 표시 순서 (0부터 시작)
-        lyric: 연결된 가사 텍스트
+        lyric: 연결된 텍스트
         slide_mappings: 절별 슬라이드 매핑 (str(verse_index) -> slide_index)
         id: 고유 식별자 (자동 생성)
     """
@@ -33,7 +33,7 @@ class Hotspot:
     
     def get_slide_index(self, verse_index: int = 0) -> int:
         """특정 절에 매핑된 슬라이드 인덱스 반환"""
-        # 1. 명시적 가사 매핑 확인
+        # 1. 명시적 슬라이드 매핑 확인
         v_key = str(verse_index)
         if v_key in self.slide_mappings:
             return self.slide_mappings[v_key]

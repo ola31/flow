@@ -1,6 +1,6 @@
-"""ScoreSheet(악보) 도메인 모델
+"""ScoreSheet(시트) 도메인 모델
 
-하나의 찬양곡을 나타내며, 악보 이미지와 핫스팟들을 포함함.
+하나의 시트를 나타내며, 이미지와 핫스팟들을 포함함.
 """
 
 from __future__ import annotations
@@ -14,11 +14,11 @@ from flow.domain.hotspot import Hotspot
 
 @dataclass
 class ScoreSheet:
-    """악보 (찬양곡)
+    """시트 (슬라이드 그룹)
     
     Attributes:
-        name: 악보/곡 이름
-        image_path: 악보 이미지 파일 경로
+        name: 시트 이름
+        image_path: 시트 이미지 파일 경로
         hotspots: 핫스팟 목록
         id: 고유 식별자 (자동 생성)
     """
