@@ -726,7 +726,7 @@ class MainWindow(QMainWindow):
             self._config_service.add_recent_project(str(self._project_path))
             self._clear_dirty()
             self._show_editor()
-            self._toggle_edit_mode()
+            self._toggle_read_mode()
             self._statusbar.showMessage(f"프로젝트를 열었습니다: {self._project.name}")
             
         except Exception as e:
@@ -767,7 +767,7 @@ class MainWindow(QMainWindow):
             self._config_service.add_recent_project(path_str)
             self._clear_dirty()
             self._show_editor()
-            self._toggle_edit_mode()
+            self._toggle_read_mode()
             self._statusbar.showMessage(f"프로젝트를 열었습니다: {self._project.name}")
             
         except Exception as e:
@@ -972,12 +972,14 @@ class MainWindow(QMainWindow):
     
     def _set_project_editable(self, editable: bool) -> None:
         """프로젝트 편집 관련 UI 요소들 활성/비활성 제어"""
-        # 툴바 액션
-        self._new_action.setEnabled(editable)
-        self._open_action.setEnabled(editable)
-        self._save_action.setEnabled(editable)
-        self._save_as_action.setEnabled(editable)
-        self._close_project_action.setEnabled(editable)
+        # 툴바 액션 - 파일 관리 관련은 항상 활성화
+        self._new_action.setEnabled(True)
+        self._open_action.setEnabled(True)
+        self._save_action.setEnabled(True)
+        self._save_as_action.setEnabled(True)
+        self._close_project_action.setEnabled(True)
+        
+        # 편집 관련 액션만 제어
         self._load_ppt_action.setEnabled(editable)
         self._undo_action.setEnabled(editable)
         self._redo_action.setEnabled(editable)

@@ -108,7 +108,7 @@ class ProjectLauncher(QWidget):
                 border-radius: 6px;
                 margin-bottom: 6px;
                 padding: 12px;
-                color: #fff; /* 글씨를 더 밝게 하여 가독성 증대 */
+                color: #fff;
             }
             QListWidget::item:hover {
                 background-color: #3d3d3d;
@@ -117,6 +117,23 @@ class ProjectLauncher(QWidget):
             QListWidget::item:selected {
                 background-color: #444;
                 border: 2px solid #2196f3;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: #2a2a2a;
+                width: 8px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #444;
+                min-height: 20px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #555;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
             }
         """)
         self.recent_list.itemDoubleClicked.connect(self._on_item_double_clicked)

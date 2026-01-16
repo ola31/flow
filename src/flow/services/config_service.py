@@ -33,29 +33,53 @@ class ConfigService:
             print(f"[Config] 설정 저장 실패: {e}")
 
     def get_recent_projects(self) -> list[str]:
-        """최근 프로젝트 경로 목록 반환 (존재하는 파일만)"""
+        """최근 프로젝트 경로 목록 반환 (존재하는 파일만 표시하지만 목록에서 강제 삭제는 자제)"""
+        self.load() # 최신 상태 로드
         recent = self._config.get("recent_projects", [])
-        # 실제로 존재하는 파일만 필터링
+        # 노출할 때는 존재하는 것만 리턴하되, 원본 데이터(self._config)는 보존하여 
+        # 일시적인 네트워크 드라이브 단절 등으로 인한 데이터 유실 방지
         valid_recent = [p for p in recent if Path(p).exists()]
-        if len(valid_recent) != len(recent):
-            self._config["recent_projects"] = valid_recent
-            self.save()
         return valid_recent
 
     def add_recent_project(self, path: str):
         """최근 프로젝트 목록에 추가"""
-        path = str(Path(path).resolve())
+        if not path:
+            return
+            
+        # 경로 정규화 (대소문자 및 슬래시 통일)
+        try:
+            path = str(Path(path).absolute()).replace("/", "\\")
+        except:
+            path = str(path).replace("/", "\\")
+            
+        # 파일이 실제로 존재할 때만 추가
+        if not Path(path).exists():
+            return
+
+        self.load() # 다른 인스턴스에서 추가했을 수 있으므로 먼저 로드
         recent = self._config.get("recent_projects", [])
-        if path in recent:
-            recent.remove(path)
-        recent.insert(0, path)
+        
+        # 중복 제거 (대소문자 구분 없이 체크)
+        cleaned_recent = []
+        for p in recent:
+            if p.lower() != path.lower():
+                cleaned_recent.append(p)
+        
+        # 목록 맨 앞에 추가
+        cleaned_recent.insert(0, path)
+        
         # 최대 10개까지 유지
         self._config["recent_projects"] = recent[:10]
         self.save()
 
     def remove_recent_project(self, path: str):
         """최근 프로젝트 목록에서 제거"""
+        self.load()
         recent = self._config.get("recent_projects", [])
-        if path in recent:
-            recent.remove(path)
+        
+        # 대소문자 구분 없이 제거
+        new_recent = [p for p in recent if p.lower() != path.lower()]
+        
+        if len(new_recent) != len(recent):
+            self._config["recent_projects"] = new_recent
             self.save()
