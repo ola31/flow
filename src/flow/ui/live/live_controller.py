@@ -59,9 +59,16 @@ class LiveController(QObject):
             self._live_slide_index = -1
             self.live_changed.emit(self._live_hotspot.lyric)
             
-            # 슬라이드 이미지가 있다면 송출
-            if self._slide_manager and self._live_hotspot.slide_index >= 0:
-                image = self._slide_manager.get_slide_image(self._live_hotspot.slide_index)
+            # [수정] 현재 절(Verse)에 맞는 슬라이드 인덱스 구득
+            v_idx = self._project.current_verse_index if self._project else 0
+            slide_idx = self._live_hotspot.get_slide_index(v_idx)
+            
+            # 현재 절 매핑이 없더라도 후렴(5) 매핑이 있다면 활용 (범용 내비게이션 대응)
+            if slide_idx < 0:
+                slide_idx = self._live_hotspot.get_slide_index(5)
+
+            if self._slide_manager and slide_idx >= 0:
+                image = self._slide_manager.get_slide_image(slide_idx)
                 self.slide_changed.emit(image)
             else:
                 self.slide_changed.emit(None)
@@ -86,8 +93,14 @@ class LiveController(QObject):
         """현재 Live 상태를 다시 송출 (이미 열린 창 동기화용)"""
         if self._live_hotspot:
             self.live_changed.emit(self._live_hotspot.lyric)
-            if self._slide_manager and self._live_hotspot.slide_index >= 0:
-                image = self._slide_manager.get_slide_image(self._live_hotspot.slide_index)
+            
+            v_idx = self._project.current_verse_index if self._project else 0
+            slide_idx = self._live_hotspot.get_slide_index(v_idx)
+            if slide_idx < 0:
+                slide_idx = self._live_hotspot.get_slide_index(5)
+
+            if self._slide_manager and slide_idx >= 0:
+                image = self._slide_manager.get_slide_image(slide_idx)
                 self.slide_changed.emit(image)
         elif self._live_slide_index >= 0:
             self.live_changed.emit(f"Slide {self._live_slide_index + 1}")

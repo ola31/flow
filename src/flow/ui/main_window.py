@@ -660,6 +660,7 @@ class MainWindow(QMainWindow):
         project_dir = p_base
         self._project_path = project_dir / "project.json"
         self._project = Project(name=project_dir.name)
+        self._live_controller.set_project(self._project)
         
         try:
             # 폴더 생성 및 저장
@@ -696,6 +697,7 @@ class MainWindow(QMainWindow):
         try:
             self._project = self._repo.load(Path(file_path))
             self._project_path = Path(file_path)
+            self._live_controller.set_project(self._project)
             
             # 1. 곡 목록 갱신
             self._song_list.set_project(self._project)
@@ -744,6 +746,7 @@ class MainWindow(QMainWindow):
         try:
             self._project = self._repo.load(path)
             self._project_path = path
+            self._live_controller.set_project(self._project)
             
             # 곡 목록 및 UI 갱신 (기존 _open_project 로직과 유사)
             self._song_list.set_project(self._project)
@@ -1602,119 +1605,64 @@ class MainWindow(QMainWindow):
         current_sheet = self._project.get_current_score_sheet()
         selected_id = getattr(self._canvas, '_selected_hotspot_id', None)
         
-        # 방향키: 핫스팟 탐색 시스템 (현재 모드 내에서만 순환)
-        if key == Qt.Key.Key_Right:
+        # 방향키: 핫스팟 탐색 시스템 (현재 레이어 내 가시적 핫스팟 순환)
+        if key in (Qt.Key.Key_Right, Qt.Key.Key_Left):
             target = None
             if current_sheet:
                 v_idx = self._project.current_verse_index
                 ordered = current_sheet.get_ordered_hotspots()
                 
-                # 탐색 대상(eligible) 결정 및 정렬 규칙: (레이어 간 물리적/논리적 분리 엄격 적용)
+                # 핫스팟 분류
                 chorus_ids = [h.id for h in ordered if ("5" in h.slide_mappings or h.get_slide_index(5) >= 0)]
+                v_hotspots = [h for h in ordered if h.id not in chorus_ids]
+                c_hotspots = [h for h in ordered if h.id in chorus_ids]
                 
+                # 현재 모드(v_idx)에서 보이는 핫스팟 목록 구성
                 if v_idx < 5:
-                    # 1~5절 모드: 오직 절 전용 버튼(숫자)들만 탐색하고 순환함
-                    eligible = [h for h in ordered if h.id not in chorus_ids]
+                    # 1~5절 모드: 숫자 버튼(절)과 알파벳 버튼(후렴)이 모두 보이므로 전체 탐색
+                    all_eligible = v_hotspots + c_hotspots
                 else:
-                    # 후렴 모드: 오직 후렴 전용 버튼(ABC)들만 탐색하고 순환함
-                    eligible = [h for h in ordered if h.id in chorus_ids]
+                    # 후렴 모드: 알파벳 버튼(후렴)만 보이므로 후렴만 탐색
+                    all_eligible = c_hotspots
                 
-                if not eligible:
+                if not all_eligible:
                     event.accept()
                     return
-
+                
+                # 현재 선택된 핫스팟의 탐색 목록 내 인덱스 찾기
                 if selected_id:
-                    # 현재 가사의 순서 찾기
                     cur_idx = -1
-                    for i, h in enumerate(eligible):
+                    for i, h in enumerate(all_eligible):
                         if h.id == selected_id:
                             cur_idx = i
                             break
                     
-                    if cur_idx != -1 and cur_idx < len(eligible) - 1:
-                        # 1. 다음 버튼으로 이동
-                        target = eligible[cur_idx + 1]
+                    if cur_idx != -1:
+                        if key == Qt.Key.Key_Right:
+                            target_idx = (cur_idx + 1) % len(all_eligible)
+                        else:
+                            target_idx = (cur_idx - 1) % len(all_eligible)
+                        target = all_eligible[target_idx]
                     else:
-                        # 2. 마지막이면 해당 모드의 처음으로 순환 (다른 레이어로 점프 금지)
-                        target = eligible[0]
+                        # 선택된 게 목록에 없으면 첫 번째/마지막 버튼 선택
+                        target = all_eligible[0] if key == Qt.Key.Key_Right else all_eligible[-1]
                 else:
-                    # 선택된 게 없으면 해당 모드의 첫 번째 버튼
-                    target = eligible[0]
+                    # 선택된 게 없으면 첫 번째/마지막 버튼 선택
+                    target = all_eligible[0] if key == Qt.Key.Key_Right else all_eligible[-1]
             
             if target:
+                # [수정] 레이어 자동 전환 로직 제거 (사용자 요청: 현재 모드 유지)
                 self._canvas.select_hotspot(target.id)
                 self._on_hotspot_selected(target)
                 
                 # 레이블 이름 판별 (상태바 표시용)
                 label = ""
-                # 어떤 버튼인지에 따라 A, B, C 또는 1, 2, 3 판별
-                chorus_ids = [h.id for h in ordered if ("5" in h.slide_mappings or h.get_slide_index(5) >= 0)]
                 if target.id in chorus_ids:
                     c_idx = chorus_ids.index(target.id)
                     label = chr(65 + c_idx) if c_idx < 26 else str(c_idx + 1)
                 else:
-                    v_ids = [h.id for h in ordered if h.id not in chorus_ids]
-                    v_num = v_ids.index(target.id) + 1 if target.id in v_ids else "?"
-                    label = str(v_num)
-                
-                display_v = "후렴" if v_idx == 5 else f"{v_idx + 1}절"
-                self.statusBar().showMessage(f"탐색({display_v}): {label}번 가사", 1000)
-                event.accept()
-                return
-            event.accept()
-            return
-
-        elif key == Qt.Key.Key_Left:
-            target = None
-            if current_sheet:
-                v_idx = self._project.current_verse_index
-                ordered = current_sheet.get_ordered_hotspots()
-                
-                # 탐색 대상(eligible) 결정 및 정렬 규칙:
-                chorus_ids = [h.id for h in ordered if ("5" in h.slide_mappings or h.get_slide_index(5) >= 0)]
-                
-                if v_idx < 5:
-                    # 1~5절 모드: 오직 절 전용 버튼(숫자)들만 탐색함
-                    eligible = [h for h in ordered if h.id not in chorus_ids]
-                else:
-                    # 후렴 모드: 후렴 전용 버튼(ABC)들만 탐색함
-                    eligible = [h for h in ordered if h.id in chorus_ids]
-                
-                if not eligible:
-                    event.accept()
-                    return
-
-                if selected_id:
-                    # 현재 가사의 순서 찾기
-                    cur_idx = -1
-                    for i, h in enumerate(eligible):
-                        if h.id == selected_id:
-                            cur_idx = i
-                            break
-                    
-                    if cur_idx > 0:
-                        # 1. 이전 버튼으로 이동
-                        target = eligible[cur_idx - 1]
-                    else:
-                        # 2. 처음이면 해당 모드의 마지막으로 순환 (다른 레이어로 점프 금지)
-                        target = eligible[-1]
-                else:
-                    # 선택된 게 없으면 해당 모드의 마지막 버튼
-                    target = eligible[-1]
-            
-            if target:
-                self._canvas.select_hotspot(target.id)
-                self._on_hotspot_selected(target)
-                
-                # 레이블 이름 판별 (상태바 표시용)
-                label = ""
-                chorus_ids = [h.id for h in ordered if ("5" in h.slide_mappings or h.get_slide_index(5) >= 0)]
-                if target.id in chorus_ids:
-                    c_idx = chorus_ids.index(target.id)
-                    label = chr(65 + c_idx) if c_idx < 26 else str(c_idx + 1)
-                else:
-                    v_ids = [h.id for h in ordered if h.id not in chorus_ids]
-                    v_num = v_ids.index(target.id) + 1 if target.id in v_ids else "?"
+                    v_ids = [h for h in all_eligible if h.id not in chorus_ids]
+                    v_num = v_ids.index(target) + 1 if target in v_ids else "?"
                     label = str(v_num)
                 
                 display_v = "후렴" if v_idx == 5 else f"{v_idx + 1}절"
