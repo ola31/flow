@@ -556,6 +556,11 @@ class MainWindow(QMainWindow):
         
         add_sep(row2)
         
+        self._read_mode_action = QAction("📖 읽기 모드", self)
+        self._read_mode_action.setCheckable(True)
+        self._read_mode_action.triggered.connect(self._toggle_read_mode)
+        create_tool_btn(self._read_mode_action, row2)
+        
         self._edit_mode_action = QAction("✏️ 편집 모드", self)
         self._edit_mode_action.setCheckable(True)
         self._edit_mode_action.setChecked(True)
@@ -879,8 +884,29 @@ class MainWindow(QMainWindow):
     
     # === 모드 전환 ===
     
+    def _toggle_read_mode(self) -> None:
+        """읽기 모드 토글 - 모든 편집 비활성화, 보기만 가능"""
+        self._read_mode_action.setChecked(True)
+        self._edit_mode_action.setChecked(False)
+        self._live_mode_action.setChecked(False)
+        self._canvas.set_edit_mode(False)
+        
+        # 모든 편집 기능 비활성화
+        self._set_project_editable(False)
+        
+        # Live 패널 숨기기
+        self._live_panel.hide()
+        
+        # 송출 비활성화
+        if self._display_window and self._display_window.isVisible():
+            self._toggle_display()
+        self._display_action.setEnabled(False)
+        
+        self._statusbar.showMessage("읽기 모드 - 보기 전용")
+    
     def _toggle_edit_mode(self) -> None:
         """편집 모드 토글"""
+        self._read_mode_action.setChecked(False)
         self._edit_mode_action.setChecked(True)
         self._live_mode_action.setChecked(False)
         self._canvas.set_edit_mode(True)
@@ -900,6 +926,7 @@ class MainWindow(QMainWindow):
     
     def _toggle_live_mode(self) -> None:
         """라이브 모드 토글"""
+        self._read_mode_action.setChecked(False)
         self._edit_mode_action.setChecked(False)
         self._live_mode_action.setChecked(True)
         self._canvas.set_edit_mode(False)
@@ -1114,6 +1141,10 @@ class MainWindow(QMainWindow):
     
     def _on_hotspot_created_request(self, x: int, y: int, index: int | None = None) -> None:
         """핫스팟 생성 요청 처리 (Undo 지원)"""
+        # 읽기 모드에서는 생성 불가
+        if self._read_mode_action.isChecked():
+            return
+            
         sheet = self._canvas._score_sheet
         if not sheet: return
         
@@ -1140,6 +1171,10 @@ class MainWindow(QMainWindow):
 
     def _on_hotspot_removed_request(self, hotspot: Hotspot) -> None:
         """핫스팟 삭제 요청 처리 (Undo 지원)"""
+        # 읽기 모드에서는 삭제 불가
+        if self._read_mode_action.isChecked():
+            return
+            
         sheet = self._canvas._score_sheet
         if not sheet or not hotspot: return
         
@@ -1161,6 +1196,12 @@ class MainWindow(QMainWindow):
 
     def _on_hotspot_moved(self, hotspot: Hotspot, old_pos: tuple[int, int], new_pos: tuple[int, int]) -> None:
         """핫스팟 이동 완료 처리 (Undo 지원)"""
+        # 읽기 모드에서는 이동 불가 (위치 복원)
+        if self._read_mode_action.isChecked():
+            hotspot.x, hotspot.y = old_pos
+            self._canvas.update()
+            return
+            
         command = MoveHotspotCommand(hotspot, old_pos, new_pos, self._canvas.update)
         self._undo_stack.push(command)
         self.statusBar().showMessage(f"핫스팟 이동됨: #{hotspot.order + 1}")
@@ -1366,9 +1407,14 @@ class MainWindow(QMainWindow):
         self._slide_click_timer.stop()
         self._pending_slide_index = -1
         
+        # [추가] 읽기 모드에서는 매핑 불가
+        if self._read_mode_action.isChecked():
+            QMessageBox.information(self, "읽기 모드", "읽기 모드에서는 슬라이드를 매핑할 수 없습니다.\n편집 모드로 전환해주세요.")
+            return
+        
         selected_hotspot = self._canvas.get_selected_hotspot()
         if not selected_hotspot:
-            QMessageBox.information(self, "매핑 안내", "슬라이드를 매핑하려면 먼저 악보에서 핫스팟을 선택하세요.")
+            QMessageBox.information(self, "매핑 안내", "슬라이드를 매핑하려면 먼저 시트에서 핫스팟을 선택하세요.")
             return
 
         # [추가] 현재 모드에서 편집 가능한 버튼인지 확인 (타 레이어 전용 버튼 보호)
@@ -1455,6 +1501,11 @@ class MainWindow(QMainWindow):
         """특정 슬라이드가 매핑된 모든 곳에서 해제"""
         if not self._project:
             return
+        
+        # 읽기 모드에서는 해제 불가
+        if self._read_mode_action.isChecked():
+            QMessageBox.information(self, "읽기 모드", "읽기 모드에서는 매핑을 해제할 수 없습니다.")
+            return
             
         count = 0
         for sheet in self._project.score_sheets:
@@ -1478,6 +1529,10 @@ class MainWindow(QMainWindow):
 
     def _on_unlink_current_hotspot(self) -> None:
         """현재 선택된 핫스팟의 '현재 절' 슬라이드 매핑만 해제 (Undo 지원)"""
+        # 읽기 모드에서는 해제 불가
+        if self._read_mode_action.isChecked():
+            return
+            
         hotspot = self._canvas.get_selected_hotspot()
         if hotspot:
             v_idx = self._project.current_verse_index
