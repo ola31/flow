@@ -40,9 +40,21 @@ class ScoreCanvas(QWidget):
         self._edit_mode = True
         self._scaled_pixmap: QPixmap | None = None # 캐시된 스케일 이미지
         self._last_size = QSize(0, 0)
+        self._scale_x = 1.0
+        self._scale_y = 1.0
+        self._offset_x = 0
+        self._offset_y = 0
         self._verse_index = 0 # 현재 선택된 절 (UI 표시용)
         
-        self.setMinimumSize(200, 150)
+        # UI 리소스 캐시
+        self._font_main = QFont("Malgun Gothic", 10)
+        self._font_main.setPixelSize(12)
+        self._font_main.setBold(True)
+        self._font_small = QFont("Malgun Gothic", 10)
+        self._font_small.setPixelSize(10)
+        self._font_small.setBold(True)
+        self._font_placeholder = QFont("Malgun Gothic", 10)
+        self._font_placeholder.setPixelSize(14)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         
@@ -137,11 +149,17 @@ class ScoreCanvas(QWidget):
                 # Qt가 내부적으로 배율을 인식하게 설정
                 self._scaled_pixmap.setDevicePixelRatio(ratio)
                 self._last_size = target_size
+                
+                # 좌표 변환을 위한 캐시 업데이트
+                sw = self._scaled_pixmap.width() / ratio
+                sh = self._scaled_pixmap.height() / ratio
+                self._scale_x = sw / self._pixmap.width()
+                self._scale_y = sh / self._pixmap.height()
+                self._offset_x = (self.width() - sw) // 2
+                self._offset_y = (self.height() - sh) // 2
             
             # 중앙 배치 계산 (SetDevicePixelRatio 덕분에 logical 좌표로 그리면 됨)
-            x = (self.width() - self._scaled_pixmap.width() / ratio) // 2
-            y = (self.height() - self._scaled_pixmap.height() / ratio) // 2
-            painter.drawPixmap(int(x), int(y), self._scaled_pixmap)
+            painter.drawPixmap(int(self._offset_x), int(self._offset_y), self._scaled_pixmap)
         else:
             self._draw_placeholder(painter, f"악보: {self._score_sheet.name}\n(이미지를 추가하세요)")
         
@@ -151,9 +169,7 @@ class ScoreCanvas(QWidget):
     def _draw_placeholder(self, painter: QPainter, text: str) -> None:
         """플레이스홀더 텍스트 그리기"""
         painter.setPen(QColor(150, 150, 150))
-        font = QFont("Malgun Gothic", 10)
-        font.setPixelSize(14)
-        painter.setFont(font)
+        painter.setFont(self._font_placeholder)
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, text)
     
     def _draw_hotspots(self, painter: QPainter) -> None:
@@ -180,9 +196,9 @@ class ScoreCanvas(QWidget):
                 chorus_counter += 1
                 
         # 2. 핫스팟 그리기 루프
+        v_idx = self._verse_index
         for i, hotspot in enumerate(ordered_hotspots):
             # 레이어 기반 편집 상태 판별
-            v_idx = self._verse_index
             is_selected = (hotspot.id == self._selected_hotspot_id)
             is_editable = self.is_hotspot_editable(hotspot, v_idx)
             
@@ -191,7 +207,10 @@ class ScoreCanvas(QWidget):
                 continue
                 
             # 좌표 변환 (이미지 좌표 → 위젯 좌표)
-            pos = self._image_to_widget_coords(hotspot.x, hotspot.y)
+            pos = QPoint(
+                int(hotspot.x * self._scale_x + self._offset_x),
+                int(hotspot.y * self._scale_y + self._offset_y)
+            )
             
             # 모든 버튼을 보이게 하되, 타 레이어 버튼은 외곽선 스타일로 '편집 잠금' 표시
             if is_selected:
@@ -212,9 +231,6 @@ class ScoreCanvas(QWidget):
             
             # 텍스트 드로잉 (잘림 방지를 위해 범위 확대 및 폰트 설정)
             painter.setPen(Qt.GlobalColor.white)
-            font = QFont("Malgun Gothic", 10)
-            font.setPixelSize(12)
-            font.setBold(True)
             
             # [수정] 레이블 결정 로직: 
             # - 후렴 버튼으로 식별된 경우: 미리 계산된 알파벳(A, B, C...) 유지
@@ -236,11 +252,9 @@ class ScoreCanvas(QWidget):
                 
             if slide_idx >= 0:
                 label = f"{display_name}-{slide_idx + 1}"
-                font.setPixelSize(10)
+                painter.setFont(self._font_small)
             else:
-                font.setPixelSize(12)
-                
-            painter.setFont(font)
+                painter.setFont(self._font_main)
                 
             # 원 안의 중앙에 텍스트 배치
             text_rect = QRect(
@@ -256,50 +270,27 @@ class ScoreCanvas(QWidget):
         if not self._pixmap:
             return QPoint(img_x, img_y)
         
-        # 스케일 계산
-        scaled = self._pixmap.scaled(
-            self.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation
-        )
-        
-        scale_x = scaled.width() / self._pixmap.width()
-        scale_y = scaled.height() / self._pixmap.height()
-        
-        offset_x = (self.width() - scaled.width()) // 2
-        offset_y = (self.height() - scaled.height()) // 2
-        
         return QPoint(
-            int(img_x * scale_x + offset_x),
-            int(img_y * scale_y + offset_y)
+            int(img_x * self._scale_x + self._offset_x),
+            int(img_y * self._scale_y + self._offset_y)
         )
     
     def _widget_to_image_coords(self, widget_x: int, widget_y: int) -> tuple[int, int] | None:
         """위젯 좌표를 이미지 좌표로 변환"""
-        if not self._pixmap:
+        if not self._pixmap or self._scale_x == 0 or self._scale_y == 0:
             return widget_x, widget_y
         
-        scaled = self._pixmap.scaled(
-            self.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation
-        )
+        # 이미지 영역 밖 클릭 체크 (캐시된 오프셋 및 스케일 사용)
+        img_w = self._pixmap.width()
+        img_h = self._pixmap.height()
         
-        offset_x = (self.width() - scaled.width()) // 2
-        offset_y = (self.height() - scaled.height()) // 2
+        rel_x = (widget_x - self._offset_x) / self._scale_x
+        rel_y = (widget_y - self._offset_y) / self._scale_y
         
-        # 이미지 영역 밖 클릭 체크
-        if (widget_x < offset_x or widget_x >= offset_x + scaled.width() or
-            widget_y < offset_y or widget_y >= offset_y + scaled.height()):
+        if rel_x < 0 or rel_x >= img_w or rel_y < 0 or rel_y >= img_h:
             return None
         
-        scale_x = self._pixmap.width() / scaled.width()
-        scale_y = self._pixmap.height() / scaled.height()
-        
-        return (
-            int((widget_x - offset_x) * scale_x),
-            int((widget_y - offset_y) * scale_y)
-        )
+        return int(rel_x), int(rel_y)
     
     def keyPressEvent(self, event) -> None:
         """키보드 이벤트 - Delete/Backspace로 핫스팟 삭제"""
