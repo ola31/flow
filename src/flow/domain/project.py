@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from flow.domain.score_sheet import ScoreSheet
+
+if TYPE_CHECKING:
+    from flow.domain.song import Song
 
 
 @dataclass
@@ -18,7 +21,8 @@ class Project:
     
     Attributes:
         name: 프로젝트 이름
-        score_sheets: 시트 목록
+        score_sheets: 시트 목록 (레거시, 하위 호환용)
+        selected_songs: 선택된 곡 목록 (새 구조)
         current_sheet_index: 현재 선택된 시트 인덱스
         id: 고유 식별자 (자동 생성)
     """
@@ -26,6 +30,7 @@ class Project:
     name: str
     pptx_path: str = ""
     score_sheets: list[ScoreSheet] = field(default_factory=list)
+    selected_songs: list['Song'] = field(default_factory=list)  # 새 구조
     current_sheet_index: int = 0
     current_verse_index: int = 0 # 0=1절, 1=2절, 2=3절, 3=4절, 4=5절, 5=후렴
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
