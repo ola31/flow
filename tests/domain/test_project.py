@@ -137,6 +137,16 @@ class TestProjectNavigation:
         
         assert project.current_sheet_index == 0  # 유지됨
 
+    def test_verse_index_defaults_to_zero(self):
+        """기본 절 인덱스는 0 (1절)"""
+        project = Project(name="Test")
+        assert project.current_verse_index == 0
+
+    def test_pptx_path_default_is_empty(self):
+        """기본 PPT 경로가 비어 있는지 확인"""
+        project = Project(name="Test")
+        assert project.pptx_path == ""
+
 
 class TestProjectSerialization:
     """프로젝트 직렬화 테스트"""
@@ -144,6 +154,8 @@ class TestProjectSerialization:
     def test_to_dict(self):
         """딕셔너리로 변환"""
         project = Project(name="테스트 프로젝트")
+        project.pptx_path = "C:/Slides/Service.pptx"
+        project.current_verse_index = 5
         sheet = ScoreSheet(name="곡1")
         sheet.add_hotspot(Hotspot(x=100, y=200, lyric="가사"))
         project.add_score_sheet(sheet)
@@ -151,6 +163,8 @@ class TestProjectSerialization:
         data = project.to_dict()
         
         assert data["name"] == "테스트 프로젝트"
+        assert data["pptx_path"] == "C:/Slides/Service.pptx"
+        assert data["current_verse_index"] == 5
         assert len(data["score_sheets"]) == 1
         assert len(data["score_sheets"][0]["hotspots"]) == 1
     
@@ -159,7 +173,9 @@ class TestProjectSerialization:
         data = {
             "id": "project-123",
             "name": "복원된 프로젝트",
+            "pptx_path": "/home/user/presentation.pptx",
             "current_sheet_index": 1,
+            "current_verse_index": 2,
             "score_sheets": [
                 {"id": "s1", "name": "곡1", "image_path": "", "hotspots": []},
                 {"id": "s2", "name": "곡2", "image_path": "", "hotspots": []}
@@ -170,5 +186,7 @@ class TestProjectSerialization:
         
         assert project.id == "project-123"
         assert project.name == "복원된 프로젝트"
+        assert project.pptx_path == "/home/user/presentation.pptx"
         assert len(project.score_sheets) == 2
         assert project.current_sheet_index == 1
+        assert project.current_verse_index == 2

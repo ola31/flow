@@ -46,15 +46,19 @@ class ConfigService:
         if not path:
             return
             
-        # 경로 정규화 (절대 경로 및 슬래시 통일)
+        # 1. 먼저 문자열 수준에서 정규화 (백슬래시 -> 슬래시)
+        # 윈도우에서 복사한 경로가 리눅스 환경으로 넘어왔을 때를 대비
+        clean_path = str(path).replace("\\", "/")
+        
+        # 2. 절대 경로화 및 표준 포맷(POSIX) 변환
         try:
-            path_obj = Path(path).resolve()
+            path_obj = Path(clean_path).resolve()
             path_str = path_obj.as_posix()
         except Exception:
-            path_str = str(path).replace("\\", "/")
+            path_str = clean_path
             path_obj = Path(path_str)
             
-        # 파일이 실제로 존재할 때만 추가
+        # 3. 파일이 실제로 존재할 때만 추가
         if not path_obj.exists():
             return
 

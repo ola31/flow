@@ -73,6 +73,44 @@ class TestHotspotOrder:
         assert hotspot.order == 0
 
 
+class TestHotspotSlideMapping:
+    """핫스팟-슬라이드 매핑 테스트 (절별 매핑 포함)"""
+    
+    def test_default_slide_index_is_minus_one(self):
+        """기본 슬라이드 인덱스는 -1 (매핑 없음)"""
+        hotspot = Hotspot(x=100, y=200)
+        assert hotspot.get_slide_index(verse_index=0) == -1
+        assert hotspot.get_slide_index(verse_index=1) == -1
+
+    def test_set_slide_index_for_verse_1(self):
+        """1절(0) 슬라이드 매핑 설정"""
+        hotspot = Hotspot(x=100, y=200)
+        hotspot.set_slide_index(slide_index=5, verse_index=0)
+        
+        assert hotspot.get_slide_index(verse_index=0) == 5
+        assert hotspot.slide_index == 5  # 하위 호환성 확인
+
+    def test_set_slide_index_for_different_verses(self):
+        """여러 절에 각각 다른 슬라이드 매핑"""
+        hotspot = Hotspot(x=100, y=200)
+        hotspot.set_slide_index(10, verse_index=0) # 1절
+        hotspot.set_slide_index(11, verse_index=1) # 2절
+        hotspot.set_slide_index(12, verse_index=5) # 후렴
+        
+        assert hotspot.get_slide_index(0) == 10
+        assert hotspot.get_slide_index(1) == 11
+        assert hotspot.get_slide_index(5) == 12
+        assert hotspot.get_slide_index(2) == -1 # 매핑 안 된 곳은 -1
+
+    def test_slide_mappings_dictionary_key_type(self):
+        """slide_mappings의 키는 항상 문자열이어야 함 (JSON 호환성)"""
+        hotspot = Hotspot(x=100, y=200)
+        hotspot.set_slide_index(7, verse_index=3)
+        
+        assert "3" in hotspot.slide_mappings
+        assert hotspot.slide_mappings["3"] == 7
+
+
 class TestHotspotSerialization:
     """핫스팟 직렬화 테스트 (JSON 저장용)"""
     
@@ -80,6 +118,7 @@ class TestHotspotSerialization:
         """딕셔너리로 변환"""
         hotspot = Hotspot(x=100, y=200, order=1)
         hotspot.lyric = "가사 테스트"
+        hotspot.set_slide_index(9, verse_index=1)
         
         data = hotspot.to_dict()
         
@@ -87,6 +126,7 @@ class TestHotspotSerialization:
         assert data["y"] == 200
         assert data["order"] == 1
         assert data["lyric"] == "가사 테스트"
+        assert data["slide_mappings"]["1"] == 9
         assert "id" in data
     
     def test_from_dict(self):
@@ -96,7 +136,9 @@ class TestHotspotSerialization:
             "x": 150,
             "y": 250,
             "order": 2,
-            "lyric": "복원된 가사"
+            "lyric": "복원된 가사",
+            "slide_index": 5,
+            "slide_mappings": {"0": 5, "1": 6}
         }
         
         hotspot = Hotspot.from_dict(data)
@@ -104,5 +146,6 @@ class TestHotspotSerialization:
         assert hotspot.id == "test-id-123"
         assert hotspot.x == 150
         assert hotspot.y == 250
-        assert hotspot.order == 2
+        assert hotspot.get_slide_index(0) == 5
+        assert hotspot.get_slide_index(1) == 6
         assert hotspot.lyric == "복원된 가사"
