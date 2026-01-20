@@ -1000,6 +1000,7 @@ class MainWindow(QMainWindow):
         
         # 편집 관련 액션만 제어
         self._load_ppt_action.setEnabled(editable)
+        self._manage_songs_action.setEnabled(editable)  # 곡 관리 버튼
         self._undo_action.setEnabled(editable)
         self._redo_action.setEnabled(editable)
         
