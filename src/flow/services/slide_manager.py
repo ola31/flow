@@ -170,3 +170,85 @@ class SlideManager(QObject):
             # 비동기적으로 멈추도록 (로딩 딜레이 방지)
             self._observer = None
 
+    
+    # === 다중 PPT (곡별) 지원 메서드 ===
+    
+    def load_songs(self, songs: list):
+        """
+        여러 곡의 PPT를 순서대로 로드
+        
+        Args:
+            songs: Song 객체 리스트
+        """
+        self._songs = songs
+        self._slide_offsets = {}
+        self._total_slide_count = 0
+        
+        offset = 0
+        for song in songs:
+            if song.has_slides:
+                # 각 곡의 슬라이드 개수 확인
+                try:
+                    prs = Presentation(str(song.slides_path))
+                    count = len(prs.slides)
+                    song.set_slide_count(count)
+                    
+                    self._slide_offsets[song.name] = offset
+                    offset += count
+                except Exception as e:
+                    print(f"⚠️  곡 PPT 로드 실패: {song.name} - {e}")
+                    song.set_slide_count(0)
+        
+        self._total_slide_count = offset
+        print(f"[SlideManager] 다중 PPT 로드 완료: {len(songs)}개 곡, 총 {self._total_slide_count}개 슬라이드")
+    
+    def global_to_local(self, global_index: int) -> tuple[str, int]:
+        """
+        전역 인덱스를 (곡 이름, 곡 내 인덱스)로 변환
+        
+        Args:
+            global_index: 전체 슬라이드 중 인덱스
+            
+        Returns:
+            (song_name, local_index) 튜플
+        """
+        for song in self._songs:
+            offset = self._slide_offsets.get(song.name, 0)
+            count = song.get_slide_count()
+            
+            if offset <= global_index < offset + count:
+                return (song.name, global_index - offset)
+        
+        raise ValueError(f"Invalid global index: {global_index}")
+    
+    def local_to_global(self, song_name: str, local_index: int) -> int:
+        """
+        (곡 이름, 곡 내 인덱스)를 전역 인덱스로 변환
+        
+        Args:
+            song_name: 곡 이름
+            local_index: 곡 내 슬라이드 인덱스
+            
+        Returns:
+            전역 슬라이드 인덱스
+        """
+        offset = self._slide_offsets.get(song_name)
+        if offset is None:
+            raise ValueError(f"Song not found: {song_name}")
+        
+        return offset + local_index
+    
+    def get_song_slide_image(self, song_name: str, local_index: int):
+        """
+        특정 곡의 슬라이드 이미지 반환
+        
+        Args:
+            song_name: 곡 이름
+            local_index: 곡 내 슬라이드 인덱스
+        """
+        # 해당 곡 찾기
+        song = next((s for s in self._songs if s.name == song_name), None)
+        if not song or not song.has_slides:
+            raise ValueError(f"Song not found or has no slides: {song_name}")
+        
+        return self._converter.convert_slide(song.slides_path, local_index)
