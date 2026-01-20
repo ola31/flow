@@ -25,7 +25,7 @@ class ProjectRepository:
         self.base_path = Path(base_path)
     
     def save(self, project: Project, file_path: Path | str | None = None) -> Path:
-        """프로젝트 저장 (상대 경로 변환 포함)"""
+        """프로젝트 저장 (새 구조 및 레거시 구조 모두 지원)"""
         if file_path:
             file_path = Path(file_path).resolve()
             file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -35,7 +35,57 @@ class ProjectRepository:
         
         project_dir = file_path.parent
         
-        # 딕셔너리 변환 시 경로들을 상대 경로로 시도
+        # 새 구조 감지: selected_songs가 있으면 새 구조로 저장
+        if project.selected_songs:
+            self._save_new_structure(project, file_path, project_dir)
+        else:
+            # 레거시 구조로 저장
+            self._save_legacy_structure(project, file_path, project_dir)
+        
+        return file_path
+    
+    def _save_new_structure(self, project: Project, file_path: Path, project_dir: Path) -> None:
+        """새 구조로 저장 (곡별 폴더)"""
+        songs_dir = project_dir / "songs"
+        songs_dir.mkdir(exist_ok=True)
+        
+        # 1. 각 곡별 song.json 저장
+        selected_songs_data = []
+        for song in project.selected_songs:
+            song_dir = project_dir / song.folder
+            song_dir.mkdir(parents=True, exist_ok=True)
+            
+            # song.json 저장
+            song_data = {
+                "name": song.name,
+                "sheet": song.score_sheet.to_dict() if song.score_sheet else None
+            }
+            
+            song_json_path = song_dir / "song.json"
+            with open(song_json_path, "w", encoding="utf-8-sig") as f:
+                json.dump(song_data, f, ensure_ascii=False, indent=2)
+            
+            # project.json에 저장할 곡 정보
+            selected_songs_data.append({
+                "name": song.name,
+                "order": song.order,
+                "folder": str(song.folder)
+            })
+        
+        # 2. project.json 저장
+        project_data = {
+            "id": project.id,
+            "name": project.name,
+            "selected_songs": selected_songs_data,
+            "current_sheet_index": project.current_sheet_index,
+            "current_verse_index": project.current_verse_index
+        }
+        
+        with open(file_path, "w", encoding="utf-8-sig") as f:
+            json.dump(project_data, f, ensure_ascii=False, indent=2)
+    
+    def _save_legacy_structure(self, project: Project, file_path: Path, project_dir: Path) -> None:
+        """레거시 구조로 저장 (단일 JSON)"""
         data = project.to_dict()
         
         # PPT 경로 처리
@@ -49,8 +99,6 @@ class ProjectRepository:
         
         with open(file_path, "w", encoding="utf-8-sig") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        
-        return file_path
     
     def _try_make_relative(self, path_str: str, base_dir: Path) -> str:
         """경로를 기준 디렉토리에 대한 상대 경로로 변환 시도"""
@@ -63,14 +111,65 @@ class ProjectRepository:
         return path_str
 
     def load(self, file_path: Path | str) -> Project:
-        """프로젝트 로드 (경로 복구 로직 포함)"""
+        """프로젝트 로드 (새 구조 및 레거시 구조 자동 감지)"""
         file_path = Path(file_path).resolve()
         project_dir = file_path.parent
         
         with open(file_path, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
+        
+        # 새 구조 감지: selected_songs 필드 존재 여부
+        if "selected_songs" in data:
+            return self._load_new_structure(data, project_dir)
+        else:
+            return self._load_legacy_structure(data, project_dir)
+    
+    def _load_new_structure(self, data: dict[str, Any], project_dir: Path) -> Project:
+        """새 구조 로드 (곡별 폴더)"""
+        from flow.domain.song import Song
+        from flow.domain.score_sheet import ScoreSheet
+        
+        # 1. 각 곡 로드
+        selected_songs = []
+        for song_info in data.get("selected_songs", []):
+            song_folder = project_dir / song_info["folder"]
+            song_json_path = song_folder / "song.json"
             
-        # 1. 딕셔너리 데이터의 상대 경로들을 절대 경로로 복구
+            if not song_json_path.exists():
+                print(f"⚠️  곡 파일 없음: {song_json_path}")
+                continue
+            
+            # song.json 로드
+            with open(song_json_path, "r", encoding="utf-8-sig") as f:
+                song_data = json.load(f)
+            
+            # ScoreSheet 복원
+            sheet_data = song_data.get("sheet")
+            score_sheet = ScoreSheet.from_dict(sheet_data) if sheet_data else ScoreSheet()
+            
+            # Song 객체 생성
+            song = Song(
+                name=song_info["name"],
+                folder=Path(song_info["folder"]),
+                score_sheet=score_sheet,
+                order=song_info.get("order", 0)
+            )
+            selected_songs.append(song)
+        
+        # 2. Project 객체 생성
+        project = Project(
+            id=data["id"],
+            name=data["name"],
+            selected_songs=selected_songs,
+            current_sheet_index=data.get("current_sheet_index", 0),
+            current_verse_index=data.get("current_verse_index", 0)
+        )
+        
+        return project
+    
+    def _load_legacy_structure(self, data: dict[str, Any], project_dir: Path) -> Project:
+        """레거시 구조 로드 (단일 JSON)"""
+        # 상대 경로들을 절대 경로로 복구
         if data.get("pptx_path"):
             data["pptx_path"] = self._resolve_path(data["pptx_path"], project_dir)
             
