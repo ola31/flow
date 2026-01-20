@@ -549,6 +549,13 @@ class MainWindow(QMainWindow):
         self._load_ppt_action.triggered.connect(self._on_load_ppt)
         create_tool_btn(self._load_ppt_action, row1)
         
+        # 곡 관리 버튼 추가
+        self._manage_songs_action = QAction("🎵 곡 관리", self)
+        self._manage_songs_action.setToolTip("곡 추가/제거/관리")
+        self._manage_songs_action.setEnabled(False)
+        self._manage_songs_action.triggered.connect(self._manage_songs)
+        create_tool_btn(self._manage_songs_action, row1)
+        
         row1.addStretch()
         
         # --- 2단: 뷰 제어 및 모드 전환 ---
