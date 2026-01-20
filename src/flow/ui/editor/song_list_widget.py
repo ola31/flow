@@ -5,9 +5,10 @@
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
-    QPushButton, QLabel, QFileDialog, QInputDialog, QMessageBox
+    QPushButton, QLabel, QFileDialog, QInputDialog, QMessageBox, QMenu
 )
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtGui import QAction
+from PySide6.QtCore import Signal, Qt, QPoint
 
 from flow.domain.project import Project
 from flow.domain.score_sheet import ScoreSheet
@@ -30,6 +31,7 @@ class SongListWidget(QWidget):
         super().__init__(parent)
         self._project: Project | None = None
         self._main_window = None # 메인 윈도우 참조 보관
+        self._editable = True # [복구] 편집 가능 상태 보관
         self._setup_ui()
     
     def _setup_ui(self) -> None:
@@ -81,6 +83,8 @@ class SongListWidget(QWidget):
         """)
         self._list.currentItemChanged.connect(self._on_selection_changed)
         self._list.itemClicked.connect(self._on_item_clicked)
+        self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._list.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self._list)
         
         # 버튼들
@@ -135,6 +139,7 @@ class SongListWidget(QWidget):
         
     def set_editable(self, editable: bool) -> None:
         """편집 모드 활성/비활성 제어"""
+        self._editable = editable # [복구] 상태 보관
         self._add_btn.setEnabled(editable)
         self._remove_btn.setEnabled(editable)
         
@@ -225,6 +230,9 @@ class SongListWidget(QWidget):
         sheet = self._project.find_score_sheet_by_id(sheet_id)
         if sheet:
             self.song_selected.emit(sheet)
+            # [복구] 포커스 반환
+            if self._main_window:
+                self._main_window.setFocus()
     
     def _on_add_clicked(self) -> None:
         """곡 추가 버튼 클릭"""
@@ -285,3 +293,30 @@ class SongListWidget(QWidget):
             self._project.remove_score_sheet(sheet_id)
             self.refresh_list()
             self.song_removed.emit(sheet_id)
+
+    def _on_context_menu(self, pos: QPoint) -> None:
+        """[복구] 우클릭 컨텍스트 메뉴"""
+        if not self._editable: return
+        item = self._list.itemAt(pos)
+        if not item: return
+        menu = QMenu(self)
+        rename_action = QAction("📝 이름 변경", self)
+        rename_action.triggered.connect(lambda: self._on_rename_clicked(item))
+        menu.addAction(rename_action)
+        menu.addSeparator()
+        remove_action = QAction("🗑️ 삭제", self)
+        remove_action.triggered.connect(self._on_remove_clicked)
+        menu.addAction(remove_action)
+        menu.exec(self._list.mapToGlobal(pos))
+
+    def _on_rename_clicked(self, item: QListWidgetItem) -> None:
+        """[복구] 곡 이름 변경"""
+        if not self._project: return
+        sheet_id = item.data(Qt.ItemDataRole.UserRole)
+        sheet = self._project.find_score_sheet_by_id(sheet_id)
+        if not sheet: return
+        new_name, ok = QInputDialog.getText(self, "곡 이름 변경", "새 이름을 입력하세요:", text=sheet.name)
+        if ok and new_name.strip():
+            sheet.name = new_name.strip()
+            self.refresh_list()
+            self.song_selected.emit(sheet)

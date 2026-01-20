@@ -3,7 +3,7 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, 
                              QListWidget, QListWidgetItem, QLabel, QPushButton,
                              QProgressBar)
-from PySide6.QtCore import Qt, Signal, QSize
+from PySide6.QtCore import Qt, Signal, QSize, QEvent
 from PySide6 import QtGui
 from PySide6.QtGui import QPixmap, QIcon
 from flow.services.slide_manager import SlideManager
@@ -18,6 +18,7 @@ class SlidePreviewPanel(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._slide_manager = None
+        self._editable = True # [복구] 편집 가능 상태 보관
         self._setup_ui()
         
     def _setup_ui(self) -> None:
@@ -130,8 +131,9 @@ class SlidePreviewPanel(QWidget):
                 width: 0px;
             }
         """)
-        self._list.itemClicked.connect(self._on_item_clicked)
         self._list.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self._list.itemClicked.connect(self._on_item_clicked)
+        self._list.currentItemChanged.connect(self._on_current_item_changed)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._show_context_menu)
         
@@ -267,6 +269,7 @@ class SlidePreviewPanel(QWidget):
         
     def set_editable(self, editable: bool) -> None:
         """편집 모드 활성/비활성 제어"""
+        self._editable = editable
         self._btn_load.setEnabled(editable)
         # 닫기 버튼은 PPT가 로드된 경우에만 활성화되어야 하므로 추가 조건 확인
         has_ppt = self._slide_manager and self._slide_manager._pptx_path is not None
@@ -345,6 +348,12 @@ class SlidePreviewPanel(QWidget):
             
             self._list.addItem(item)
             
+    def _on_current_item_changed(self, current: QListWidgetItem, previous: QListWidgetItem) -> None:
+        """방향키 등을 통한 선택 변경 대응"""
+        if current:
+            index = current.data(Qt.ItemDataRole.UserRole)
+            self.slide_selected.emit(index)
+
     def _on_item_clicked(self, item: QListWidgetItem) -> None:
         index = item.data(Qt.ItemDataRole.UserRole)
         self.slide_selected.emit(index)
@@ -358,6 +367,7 @@ class SlidePreviewPanel(QWidget):
 
     def _show_context_menu(self, pos) -> None:
         """우측 클릭 컨텍스트 메뉴 표시"""
+        if not self._editable: return # [복구] 비편집 모드 차단
         item = self._list.itemAt(pos)
         if not item:
             return

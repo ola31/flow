@@ -14,8 +14,11 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QAction, QKeySequence, QPixmap, QUndoStack
 from PySide6 import QtGui
-from PySide6.QtCore import Qt, QTimer
-from flow.ui.undo_commands import AddHotspotCommand, RemoveHotspotCommand, MoveHotspotCommand, MapSlideCommand
+from PySide6.QtCore import Qt, QTimer, QEvent
+from flow.ui.undo_commands import (
+    AddHotspotCommand, RemoveHotspotCommand, MoveHotspotCommand, 
+    MapSlideCommand, UnlinkAllSlidesCommand
+)
 
 from flow.domain.project import Project
 from flow.domain.score_sheet import ScoreSheet
@@ -69,6 +72,7 @@ class MainWindow(QMainWindow):
         
         # SongListWidget에 메인 윈도우 참조 연결 (경로 획득용)
         self._song_list.set_main_window(self)
+        self._song_list._list.installEventFilter(self) # [추가] 곡 목록 키 전역 필터
         
         # Windows 타이틀바 다크 모드 적용
         self._apply_dark_title_bar()
@@ -150,6 +154,7 @@ class MainWindow(QMainWindow):
         self._slide_preview.slide_selected.connect(self._on_slide_selected)
         self._slide_preview.slide_double_clicked.connect(self._on_slide_double_clicked)
         self._slide_preview.slide_unlink_all_requested.connect(self._on_slide_unlink_all_requested)
+        self._slide_preview._list.installEventFilter(self) # [추가] 슬라이드 목록 키 전역 필터
         # 패널 내부의 로드/닫기 버튼 연동
         self._slide_preview._btn_load.clicked.connect(self._on_load_ppt)
         self._slide_preview._btn_close.clicked.connect(self._on_close_ppt)
@@ -586,11 +591,14 @@ class MainWindow(QMainWindow):
         undo_action.setShortcut(QKeySequence.Undo)
         create_tool_btn(undo_action, row2, icon_only=False)
         self._undo_action = undo_action
+        self.addAction(undo_action) # [추가] 툴바 외 윈도우 단축키 활성화를 위함
         
         redo_action = self._undo_stack.createRedoAction(self, "↪️ 다시 실행")
-        redo_action.setShortcut(QKeySequence.Redo)
+        # [수정] 일부 리눅스 환경에서 Redo 표준 키가 Ctrl+Y가 아닐 수 있으므로 명시적 추가
+        redo_action.setShortcuts([QKeySequence.Redo, QtGui.QKeySequence("Ctrl+Y")])
         create_tool_btn(redo_action, row2, icon_only=False)
         self._redo_action = redo_action
+        self.addAction(redo_action) # [추가] 윈도우 단축키 활성화
         
         row2.addStretch()
         
@@ -619,6 +627,7 @@ class MainWindow(QMainWindow):
         self._canvas.hotspot_removed_request.connect(self._on_hotspot_removed_request)
         self._canvas.hotspot_selected.connect(self._on_hotspot_selected)
         self._canvas.hotspot_moved.connect(self._on_hotspot_moved)
+        self._canvas.hotspot_unmap_request.connect(self._on_hotspot_unmap_request)
         
         # 라이브 컨트롤러 시그널 - 메인 윈도우 및 송출창 업데이트
         self._live_controller.live_changed.connect(self._on_live_changed)
@@ -1109,6 +1118,18 @@ class MainWindow(QMainWindow):
                 self._slide_preview.refresh_slides()
             
         self._statusbar.showMessage(f"곡 선택: {sheet.name}")
+        
+        # [복구] 곡 전환 시 항상 1절(Layer 1)로 시작하도록 초기화
+        if self._project and self._project.current_verse_index != 0:
+            self._on_verse_changed(0)
+            # UI(버튼 그룹) 동기화
+            btn = self._verse_group.button(0)
+            if btn:
+                btn.setChecked(True)
+
+        # [복구] 절별 매핑 상태 업데이트
+        self._update_verse_buttons_state()
+
         self._update_preview(None)
         
         # 최적화: PPT가 새로 로드된 경우에만 매핑 UI 전체 갱신
@@ -1172,6 +1193,7 @@ class MainWindow(QMainWindow):
             else:
                 self._update_preview(None)
             self._canvas.update()
+            self._update_verse_buttons_state() # [추가] 핫스팟 생성 시 절 버튼 상태 갱신
 
         command = AddHotspotCommand(
             sheet, hotspot, index,
@@ -1197,6 +1219,7 @@ class MainWindow(QMainWindow):
             else:
                 self._update_preview(None)
             self._canvas.update()
+            self._update_verse_buttons_state() # [추가] 핫스팟 삭제 시 절 버튼 상태 갱신
 
         command = RemoveHotspotCommand(
             sheet, hotspot,
@@ -1484,7 +1507,7 @@ class MainWindow(QMainWindow):
             self._project.current_verse_index,
             old_slide,
             index,
-            lambda: (self._canvas.update(), self._update_preview(selected_hotspot), self._update_mapped_slides_ui())
+            lambda: (self._canvas.update(), self._update_preview(selected_hotspot), self._update_mapped_slides_ui(), self._update_verse_buttons_state())
         )
         self._undo_stack.push(command)
         
@@ -1509,7 +1532,7 @@ class MainWindow(QMainWindow):
         self._slide_preview.set_mapped_slides(mapped_indices)
 
     def _on_slide_unlink_all_requested(self, index: int) -> None:
-        """특정 슬라이드가 매핑된 모든 곳에서 해제"""
+        """특정 슬라이드가 매핑된 모든 곳에서 해제 (Undo 지원)"""
         if not self._project:
             return
         
@@ -1518,25 +1541,54 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "읽기 모드", "읽기 모드에서는 매핑을 해제할 수 없습니다.")
             return
             
-        count = 0
-        for sheet in self._project.score_sheets:
-            for hotspot in sheet.hotspots:
-                # 모든 절 매핑에서 해당 슬라이드 제거
-                keys_to_remove = [k for k, v in hotspot.slide_mappings.items() if v == index]
-                for k in keys_to_remove:
-                    del hotspot.slide_mappings[k]
-                    count += 1
-                # 하위 호환 필드도 체크
-                if hotspot.slide_index == index:
-                    hotspot.slide_index = -1
-                    count += 1
+        command = UnlinkAllSlidesCommand(
+            self._project, index,
+            lambda: (
+                self._canvas.update(), 
+                self._update_mapped_slides_ui(),
+                self._update_preview(self._canvas.get_selected_hotspot()),
+                self._update_verse_buttons_state()
+            )
+        )
+        self._undo_stack.push(command)
         
+        count = len(command.affected_items)
         if count > 0:
-            self._canvas.update()
-            self._update_mapped_slides_ui()
-            # 현재 선택된 핫스팟의 프리뷰도 갱신될 수 있도록 처리
-            self._update_preview(self._canvas.get_selected_hotspot())
-            self.statusBar().showMessage(f"해제 완료: {count}개의 핫스팟에서 슬라이드 {index + 1} 연결을 끊었습니다.", 3000)
+            self.statusBar().showMessage(f"해제 완료: {count}개의 핫스팟에서 슬라이드 {index + 1} 연결을 끊었습니다. (Ctrl+Z 가능)", 3000)
+        else:
+            self.statusBar().showMessage("해당 슬라이드가 매핑된 핫스팟이 없습니다.", 2000)
+
+    def _update_verse_buttons_state(self) -> None:
+        """[복구] 현재 시트의 각 절별 매핑 존재 여부를 확인하여 버튼 스타일 업데이트"""
+        if not self._project: return
+        sheet = self._project.get_current_score_sheet()
+        if not sheet: return
+        for i in range(6):
+            has_mapping = any(h.get_slide_index(i) >= 0 for h in sheet.hotspots)
+            btn = self._verse_group.button(i)
+            if not btn: continue
+            style = """
+                QPushButton { background-color: #333; border: 1px solid #444; border-radius: 4px; color: #888; font-size: 10px; font-weight: bold; }
+                QPushButton:hover { background-color: #444; color: white; }
+                QPushButton:checked { background-color: #2a3a4f; color: #2196f3; font-weight: 900; border: 1px solid #2196f3; }
+            """
+            if has_mapping:
+                style = style.replace("border: 1px solid #444;", "border: 1px solid #2196f3;")
+                style = style.replace("color: #888;", "color: #eee;")
+            btn.setStyleSheet(style)
+
+    def _on_hotspot_unmap_request(self, hotspot: Hotspot) -> None:
+        """[복구] 특정 핫스팟의 현재 절 매핑 해제 (Undo 지원)"""
+        if self._read_mode_action.isChecked(): return
+        v_idx = self._project.current_verse_index
+        old_slide = hotspot.get_slide_index(v_idx)
+        if old_slide >= 0:
+            command = MapSlideCommand(
+                hotspot, v_idx, old_slide, -1,
+                lambda: (self._canvas.update(), self._update_preview(hotspot), self._update_mapped_slides_ui(), self._update_verse_buttons_state())
+            )
+            self._undo_stack.push(command)
+            self.statusBar().showMessage("매핑을 해제했습니다.", 2000)
 
     def _on_unlink_current_hotspot(self) -> None:
         """현재 선택된 핫스팟의 '현재 절' 슬라이드 매핑만 해제 (Undo 지원)"""
@@ -1572,6 +1624,16 @@ class MainWindow(QMainWindow):
     # === 키보드 이벤트 ===
     
 
+    def eventFilter(self, watched, event) -> bool:
+        """자식 위젯(리스트 등)의 특정 키 이벤트를 메인 창에서 가로채기 위한 필터"""
+        if event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            # 엔터 키나 숫자 키(1-6)인 경우 MainWindow의 핸들러를 직접 실행하고 이벤트 중단
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) or (Qt.Key.Key_1 <= key <= Qt.Key.Key_6):
+                self.keyPressEvent(event)
+                return True
+        return super().eventFilter(watched, event)
+
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         """키보드 이벤트 핸들러"""
         if not self._project:
@@ -1581,6 +1643,18 @@ class MainWindow(QMainWindow):
         key = event.key()
         focused = self.focusWidget()
         
+        # [복구] 엔터 키 즉시 송출 보완
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if self._pending_slide_index >= 0:
+                self._slide_click_timer.stop()
+                self._execute_slide_navigation()
+                
+            if self._live_mode_action.isChecked() or not isinstance(focused, (QLineEdit, QTextEdit, QPlainTextEdit)):
+                self._live_controller.send_to_live()
+                self.statusBar().showMessage("라이브 송출 실행", 1000)
+                event.accept()
+                return
+
         # 숫자키 1-6 (상단 숫자키): 절(Verse) 즉시 전환
         verse_idx = -1
         if Qt.Key.Key_1 <= key <= Qt.Key.Key_6:
@@ -1593,6 +1667,8 @@ class MainWindow(QMainWindow):
             if btn:
                 btn.setChecked(True)
             self.statusBar().showMessage(f"레이어 전환: {verse_idx + 1 if verse_idx < 5 else '후렴'}", 1000)
+            # [복구] 포커스 강제 이동으로 점프 방지
+            self._canvas.setFocus() 
             event.accept()
             return
         
@@ -1673,10 +1749,8 @@ class MainWindow(QMainWindow):
             return
             
         elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            # 엔터: 라이브 송출
-            self._live_controller.send_to_live()
-            self._statusbar.showMessage("🔴 LIVE 송출!", 2000)
-            event.accept()
+            # 엔터: 중복 방지 (위에서 이미 처리됨)
+            event.ignore()
             return
             
         elif key == Qt.Key.Key_Escape:
