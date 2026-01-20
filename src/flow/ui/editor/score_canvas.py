@@ -27,6 +27,7 @@ class ScoreCanvas(QWidget):
     hotspot_selected = Signal(object)  # Hotspot
     hotspot_removed = Signal(str)  # hotspot_id
     hotspot_moved = Signal(object, tuple, tuple)  # Hotspot, old_pos, new_pos
+    hotspot_unmap_request = Signal(object)        # [복구] Hotspot
     
     HOTSPOT_RADIUS = 15
     HOTSPOT_COLOR = QColor(255, 160, 0, 150)       # 비선택: 선명한 주황 (가시성 + 투명도 밸런스)
@@ -334,8 +335,11 @@ class ScoreCanvas(QWidget):
             self.update()
         
         elif event.button() == Qt.MouseButton.RightButton and clicked_hotspot:
-            # 우클릭 컨텍스트 메뉴
-            self._show_context_menu(pos, clicked_hotspot)
+            # [복구] 편집 모드에서만 우클릭 메뉴 허용
+            if self._edit_mode:
+                self._show_context_menu(pos, clicked_hotspot)
+            else:
+                event.ignore()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """마우스 이동 (드래그 처리)"""
@@ -419,6 +423,13 @@ class ScoreCanvas(QWidget):
             delete_action = QAction("🗑️ 삭제", self)
             delete_action.triggered.connect(lambda: self._delete_hotspot(hotspot))
             menu.addAction(delete_action)
+            
+            # [복구] 매핑 해제 기능 추가 (현재 절 매핑이 있는 경우에만)
+            if hotspot.get_slide_index(self._verse_index) >= 0:
+                menu.addSeparator()
+                unmap_action = QAction("🔌 매핑 해제", self)
+                unmap_action.triggered.connect(lambda: self.hotspot_unmap_request.emit(hotspot))
+                menu.addAction(unmap_action)
         
         menu.exec(self.mapToGlobal(pos))
     
