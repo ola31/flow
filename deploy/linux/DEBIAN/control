@@ -1,0 +1,9 @@
+Package: flow
+Version: 0.1.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: Flow Team <contact@flow.example>
+Description: Slide Presentation for Worship
+ Flow provides a professional and intuitive UI for worship slide presentation.
+ It supports PDF, PPTX, and image-based scores.

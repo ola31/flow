@@ -16,7 +16,9 @@
   - `pdf2image` + `LibreOffice`: PPT를 고화질 이미지로 변환 (리눅스 호환성 중요).
   - `pytest`: 테스트 프레임워크.
 - **Build**: PyInstaller (Windows용 `.exe` 타겟).
-- **Deployment Strategy**: 실행 속도 최적화를 위해 **`--onedir` (폴더 방식)** + **Splash Screen** 조합을 권장합니다.
+- **Deployment Strategy**: 
+  - **Windows**: 실행 속도 최적화를 위해 **`--onedir` (폴더 방식)** + **Splash Screen** 조합의 `.exe` 패키징을 권장합니다.
+  - **Linux**: 별도의 바이너리 패키징 없이, Python 환경에서 직접 실행(`python -m flow.main`)하는 방식을 지향합니다.
 
 ## 🎨 디자인 미학 및 스타일 가이드 (Design Aesthetics)
 
@@ -68,24 +70,29 @@
 - **함정**: 숫자키(1~6)로 절을 바꾸면, 현재 Live로 나가고 있는 슬라이드도 **해당 절의 매핑된 슬라이드로 즉시 교체**되어야 합니다.
 - **누락 주의**: 단순히 내부 변수만 바꾸고 Live 화면을 갱신하지 않는 실수가 잦습니다. `LiveController.sync_live()`가 이 역할을 수행하니 절대 누락하지 마십시오.
 
-### 3. 경로 처리의 지옥 (The Windows-Separator Trap)
+### 4. 경로 처리의 지옥 (The Windows-Separator Trap)
 - **함정**: 파이썬의 `str(Path)`는 실행 환경에 따라 `\`를 반환합니다. 리눅스 서버나 빌드 환경에서 이 경로가 DB나 JSON에 저장되면 나중에 인지하지 못합니다.
 - **방어**: 파일 시스템과 소통하는 모든 문자열은 반드시 `.as_posix()`를 사용하여 `/`로 통일하십시오. `ConfigService.add_recent_project` 로직을 참고하여 정규화되지 않은 경로는 시스템에 발을 들이지 못하게 하십시오.
 
-### 3. 스레딩과 UI 블로킹 (The PPT Conversion Trap)
+### 5. 스레딩과 UI 블로킹 (The PPT Conversion Trap)
 - **함정**: PPT 변환(특히 LibreOffice 연동)은 매우 무거운 작업입니다. UI 스레드에서 이를 호출하면 앱이 '응답 없음' 상태에 빠집니다.
 - **방어**: `SlideManager`와 `SlideConverter`의 상호작용을 확인하십시오. 긴 작업은 반드시 별도 스레드에서 처리하고 시그널로 결과를 받아 UI를 업데이트해야 합니다.
 
-### 4. 절(Verse) 매핑의 비밀 번호
+### 6. 프로그램적 UI 업데이트와 시그널 루프 (Programmatic UI Signals)
+- **함정**: 코드에서 특정 UI 항목(예: 리스트의 현재 행)을 직접 선택할 때, 해당 위젯의 시그널(예: `currentRowChanged`)이 발생하여 의도치 않은 비즈니스 로직(내비게이션 등)이 실행될 수 있습니다.
+- **방어**: 내비게이션이나 동기화 목적으로 UI를 프로그램적으로 업데이트할 때는 반드시 `blockSignals(True)` / `blockSignals(False)`를 사용하여 불필요한 연쇄 반응을 차단하십시오.
+  - 관련 사례: `SlidePreviewPanel.select_slide`에서 슬라이드를 선택할 때 메인 윈도우의 절 전환 로직이 실행되지 않도록 차단함.
+
+### 7. 절(Verse) 매핑의 비밀 번호
 - **도메인 지식**: `current_verse_index` 값의 의미를 정확히 파악하십시오.
   - `0~4`: 0절~4절 (사용자 UI상 1절~5절)
   - `5`: **후렴(Chorus)** - 가장 빈번하게 사용되며, 특정 절 매핑이 없을 때 폴백(Fallback)으로 사용되는 논리적 종착지입니다.
 - **로직**: `Hotspot.get_slide_index(5)`는 내비게이션 실패 시의 마지막 안전장치입니다.
 
-### 5. 폴더 방식(`--onedir`) 배포 시 유지보수
-- **삭제**: 앱이 설치된(압축 해제된) 폴더 전체를 삭제하기만 하면 됩니다. 별도의 레지스트리 처리가 없으므로 폴더 삭제가 곧 언인스톨입니다.
-- **업데이트**: 기존 폴더의 파일들을 새 버전 파일로 덮어쓰거나, 폴더 자체를 교체합니다. 
-- **주의**: 사용자 데이터(설정 파일 등)는 보통 사용자의 홈 디렉토리(`.flow/config.json`)에 저장되므로 폴더 교체 시에도 유지되도록 설계되어 있습니다.
+### 8. 인스톨러 및 배포 엔지니어링
+- **Windows**: `deploy/windows/FlowInstaller.iss`를 통해 프로페셔널한 설치 파일(`.exe`) 제작.
+- **Linux**: 별도의 패키징(deb/rpm)보다는 가상 환경(`venv`) 구축 후 직접 실행하거나, `pip install -e .`를 통한 개발 모드 실행을 권장합니다. (시스템 통합이 필요한 경우에만 `install.sh` 참고)
+- **원칙**: 일반 사용자는 Windows 버전(`exe`)을 사용하며, 개발자나 리눅스 숙련자는 소스 코드를 직접 제어합니다.
 
 ---
 

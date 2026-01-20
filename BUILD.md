@@ -125,9 +125,28 @@ pyinstaller Flow.spec --noconfirm
 - `dist/Flow/` 폴더를 소스로 지정하여 설치 경로(`Program Files`)와 바로가기를 생성하는 스크립트를 작성할 수 있습니다.
 - 설치 후 **삭제(Uninstall)** 및 **업데이트(Update)**가 제어판을 통해 관리됩니다.
 
-### 2. 업데이트 전략
-- 새로운 버전을 인스톨러로 배포하면, 기존 설치 경로의 파일들을 자동으로 교체합니다.
-- 사용자 설정은 홈 디렉토리(`.flow/`)에 남으므로 안전합니다.
+### 2. Linux (Native Packages & AppImage)
+
+| 배포 방식 | 플랫폼 | 명령어 |
+|-----------|--------|--------|
+| **.deb** | Debian/Ubuntu | `./deploy/linux/build_deb.sh` |
+| **.rpm** | Fedora/RHEL | `./deploy/linux/build_rpm.sh` |
+| **AppImage** | 모든 배포판 | `./deploy/linux/build_appimage.sh` |
+| **Install Script** | 로컬 시스템 통합 | `./deploy/linux/install.sh` |
+
+#### 설치 방법
+```bash
+# Ubuntu/Debian (.deb)
+sudo dpkg -i dist/flow_0.1.0_amd64.deb
+
+# Fedora/CentOS/RHEL (.rpm)
+sudo dnf install dist/x86_64/flow-0.1.0-1.x86_64.rpm
+```
+
+### 3. 업데이트 및 삭제 전략
+- **Windows**: 제어판 '프로그램 추가/제거'에서 삭제하거나, 새 인스톨러 실행 시 자동으로 업데이트됩니다.
+- **Linux(Package)**: `apt`나 `dnf`를 통해 시스템 수준에서 깔끔하게 관리됩니다.
+- **Linux(Script)**: `deploy/linux/install.sh`를 다시 실행하면 최신 코드로 교체됩니다.
 
 ## 문제 해결 및 주의사항
 
