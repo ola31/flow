@@ -1781,3 +1781,31 @@ class MainWindow(QMainWindow):
             self._statusbar.showMessage("슬라이드 목록을 표시합니다.", 2000)
         else:
             self._statusbar.showMessage("슬라이드 목록을 숨겼습니다. (Ctrl+H)", 2000)
+    
+    def _manage_songs(self):
+        """곡 관리 다이얼로그 표시"""
+        if not self._project or not self._project_path:
+            return
+        
+        from flow.ui.song_manager_dialog import SongManagerDialog
+        
+        dialog = SongManagerDialog(
+            self._project_path.parent,
+            self._project.selected_songs,
+            self
+        )
+        dialog.songs_changed.connect(self._on_songs_changed)
+        dialog.exec()
+    
+    def _on_songs_changed(self):
+        """곡 목록 변경 시"""
+        # 프로젝트 저장
+        self._save_project()
+        
+        # SlideManager 재로드
+        if self._project.selected_songs:
+            self._slide_manager.load_songs(self._project.selected_songs)
+        
+        # UI 업데이트
+        self._statusbar.showMessage("곡 목록이 업데이트되었습니다.", 3000)
+        self._mark_dirty()
