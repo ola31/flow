@@ -278,7 +278,9 @@ class SlidePreviewPanel(QWidget):
     def select_slide(self, index: int) -> None:
         """특정 인덱스의 슬라이드를 선택하고 목록 중앙으로 스크롤"""
         if 0 <= index < self._list.count():
+            self._list.blockSignals(True)
             self._list.setCurrentRow(index)
+            self._list.blockSignals(False)
             item = self._list.item(index)
             from PySide6.QtWidgets import QAbstractItemView
             self._list.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
