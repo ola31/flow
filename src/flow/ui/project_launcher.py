@@ -109,6 +109,7 @@ class ProjectLauncher(QWidget):
                 margin-bottom: 6px;
                 padding: 12px;
                 color: #fff;
+                border: 1px solid transparent;
             }
             QListWidget::item:hover {
                 background-color: #3d3d3d;
@@ -116,7 +117,7 @@ class ProjectLauncher(QWidget):
             }
             QListWidget::item:selected {
                 background-color: #444;
-                border: 2px solid #2196f3;
+                border: 1px solid #2196f3;
             }
             QScrollBar:vertical {
                 border: none;
@@ -137,6 +138,8 @@ class ProjectLauncher(QWidget):
             }
         """)
         self.recent_list.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self.recent_list.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.recent_list.setWordWrap(True)
         recent_layout.addWidget(self.recent_list)
         
         content_layout.addWidget(recent_panel, 1)
@@ -159,10 +162,8 @@ class ProjectLauncher(QWidget):
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, p_path)
             
-            # HTML을 사용할 수 없으므로 텍스트 줄바꿈과 공백으로 가독성 조절
-            # 대신 나중에 필요 시스템 폰트 등을 고려해 MainWindow에서 delegate를 쓸 수도 있지만,
-            # 여기서는 스타일시트와 텍스트 조합으로 최선 처리
-            display_text = f"▶ {name}\n   {p_path}"
+            # 불필요한 기호 제거 및 깔끔한 텍스트 구성
+            display_text = f"{name}\n{p_path}"
             item.setText(display_text)
             
             # 폰트 설정

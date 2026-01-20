@@ -46,30 +46,29 @@ class ConfigService:
         if not path:
             return
             
-        # 경로 정규화 (대소문자 및 슬래시 통일)
+        # 경로 정규화 (절대 경로 및 슬래시 통일)
         try:
-            path = str(Path(path).absolute()).replace("/", "\\")
-        except:
-            path = str(path).replace("/", "\\")
+            path_obj = Path(path).resolve()
+            path_str = path_obj.as_posix()
+        except Exception:
+            path_str = str(path).replace("\\", "/")
+            path_obj = Path(path_str)
             
         # 파일이 실제로 존재할 때만 추가
-        if not Path(path).exists():
+        if not path_obj.exists():
             return
 
         self.load() # 다른 인스턴스에서 추가했을 수 있으므로 먼저 로드
         recent = self._config.get("recent_projects", [])
         
-        # 중복 제거 (대소문자 구분 없이 체크)
-        cleaned_recent = []
-        for p in recent:
-            if p.lower() != path.lower():
-                cleaned_recent.append(p)
+        # 중복 제거 (대소문자 구분 없이 체크하여 윈도우/리눅스 포괄 대응)
+        cleaned_recent = [p for p in recent if p.lower() != path_str.lower()]
         
         # 목록 맨 앞에 추가
-        cleaned_recent.insert(0, path)
+        cleaned_recent.insert(0, path_str)
         
-        # 최대 10개까지 유지
-        self._config["recent_projects"] = recent[:10]
+        # 최대 10개까지 유지 및 저장
+        self._config["recent_projects"] = cleaned_recent[:10]
         self.save()
 
     def remove_recent_project(self, path: str):
