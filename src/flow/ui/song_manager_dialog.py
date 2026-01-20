@@ -109,7 +109,7 @@ class SongManagerDialog(QDialog):
         song = Song(
             name=name,
             folder=Path("songs") / name,
-            score_sheet=ScoreSheet(),
+            score_sheet=ScoreSheet(name=name),  # name 인자 추가
             order=len(self.selected_songs) + 1
         )
         self.selected_songs.append(song)
@@ -163,7 +163,7 @@ class SongManagerDialog(QDialog):
             song_data = json.load(f)
         
         sheet_data = song_data.get("sheet")
-        score_sheet = ScoreSheet.from_dict(sheet_data) if sheet_data else ScoreSheet()
+        score_sheet = ScoreSheet.from_dict(sheet_data) if sheet_data else ScoreSheet(name=song_name)  # name 인자 추가
         
         song = Song(
             name=song_name,
