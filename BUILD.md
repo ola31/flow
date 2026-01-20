@@ -99,20 +99,38 @@ pyinstaller --name Flow --windowed --onefile --add-binary "bin/poppler/*;bin/pop
 pyinstaller --name Flow --windowed --onefile --add-data "assets;assets" --add-binary "bin;bin" --noconfirm src/flow/main.py
 ```
 
-## spec 파일 사용 (고급)
+## 권장 빌드 방법 (추천)
 
-반복적인 빌드를 위해 `.spec` 파일을 생성하고 수정할 수 있습니다:
-
-1. 먼저 기본 빌드를 실행하면 `Flow.spec` 파일이 생성됩니다.
-2. 필요에 따라 spec 파일을 수정합니다.
-3. 이후 빌드 시:
+우리는 실행 속도 최적화를 위해 **`.spec` 파일을 이용한 폴더 방식(`--onedir`)** 빌드를 권장합니다. 로딩 화면(Splash Screen)과 리소스 파일이 이 설정에 포함되어 있습니다.
 
 ```powershell
-pyinstaller Flow.spec
+# 1. 가상환경 활성화
+.venv\Scripts\activate
+
+# 2. spec 파일을 이용한 빌드
+pyinstaller Flow.spec --noconfirm
 ```
 
-## 배포 시 주의사항
+### 빌드 결과물
+빌드 완료 후 `dist/Flow/` 폴더가 생성됩니다. 그 안의 `Flow.exe`가 실행 파일이며, 이 폴더 전체가 프로그램의 '내용물'입니다.
 
-1. 빌드는 배포 대상과 동일한 Windows 버전에서 수행하는 것이 좋습니다.
-2. `--onefile` 옵션은 시작 시간이 다소 느려질 수 있습니다.
-3. 백신 프로그램이 exe 파일을 오탐지할 수 있으니 예외 처리가 필요할 수 있습니다.
+---
+
+## 인스톨러(Installer) 제작 및 배포
+
+폴더 통째로 사용자에게 주는 대신, 하나의 깔끔한 **설치 파일(`Setup.exe`)**로 만들고 싶다면 외부 도구를 사용하세요.
+
+### 1. Inno Setup (권장)
+- 가장 널리 쓰이는 무료 설치 프로그램 제작 도구입니다.
+- `dist/Flow/` 폴더를 소스로 지정하여 설치 경로(`Program Files`)와 바로가기를 생성하는 스크립트를 작성할 수 있습니다.
+- 설치 후 **삭제(Uninstall)** 및 **업데이트(Update)**가 제어판을 통해 관리됩니다.
+
+### 2. 업데이트 전략
+- 새로운 버전을 인스톨러로 배포하면, 기존 설치 경로의 파일들을 자동으로 교체합니다.
+- 사용자 설정은 홈 디렉토리(`.flow/`)에 남으므로 안전합니다.
+
+## 문제 해결 및 주의사항
+
+1. **로딩 화면 미출력**: `assets/splash.png` 파일이 있는지 확인하세요.
+2. **실행 속도**: `--onedir` 방식은 처음 실행 시 압축 해제가 없어 매우 빠릅니다.
+3. **보안 소프트웨어**: 빌드된 exe가 백신에 의해 차단될 수 있으므로, 인스톨러로 배포하고 디지털 서명을 하는 것이 좋습니다.
