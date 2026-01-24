@@ -168,7 +168,7 @@ class SongListWidget(QWidget):
             self._list.blockSignals(False)
             return
         
-        for i, sheet in enumerate(self._project.score_sheets):
+        for i, sheet in enumerate(self._project.all_score_sheets):
             item = QListWidgetItem(sheet.name)
             item.setData(Qt.ItemDataRole.UserRole, sheet.id)
             
@@ -179,7 +179,7 @@ class SongListWidget(QWidget):
             self._list.addItem(item)
         
         # 현재 곡 선택
-        if self._project.score_sheets:
+        if self._project.all_score_sheets:
             self._list.setCurrentRow(self._project.current_sheet_index)
         
         self._list.blockSignals(False)
@@ -263,7 +263,7 @@ class SongListWidget(QWidget):
         self.refresh_list()
         
         # 새로 추가된 곡 선택
-        self._list.setCurrentRow(len(self._project.score_sheets) - 1)
+        self._list.setCurrentRow(len(self._project.all_score_sheets) - 1)
         
         self.song_added.emit(sheet)
     

@@ -48,3 +48,9 @@ class Song:
     def has_sheets(self) -> bool:
         """악보 폴더가 존재하는지 확인"""
         return self.sheets_dir and self.sheets_dir.exists()
+
+    def shift_indices(self, offset: int) -> None:
+        """이 곡의 모든 핫스팟 인덱스 이동"""
+        if self.score_sheet:
+            for h in self.score_sheet.hotspots:
+                h.shift_indices(offset)

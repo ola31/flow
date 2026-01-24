@@ -139,13 +139,26 @@ class SlideManager(QObject):
     
     def get_slide_count(self) -> int:
         """현재 로드된 슬라이드 개수 반환"""
+        if self._total_slide_count > 0:
+            return self._total_slide_count
         return self._slide_count
     
     def get_slide_image(self, index: int):
-        """특정 슬라이드의 이미지를 반환"""
-        if self._converter:
-            return self._converter.convert_slide(self._pptx_path, index)
-        raise RuntimeError("이미지 변환기가 설정되지 않았습니다.")
+        """특정 슬라이드의 이미지를 반환 (전역 인덱스 사용)"""
+        if not self._converter:
+            raise RuntimeError("이미지 변환기가 설정되지 않았습니다.")
+            
+        if self._total_slide_count > 0:
+            # 다중 곡 모드: 전역 인덱스를 로컬로 변환하여 로드
+            try:
+                song_name, local_index = self.global_to_local(index)
+                return self.get_song_slide_image(song_name, local_index)
+            except Exception as e:
+                print(f"⚠️ [SlideManager] 전역 인덱스 변환 실패: {index} - {e}")
+                return None
+        
+        # 단일 곡 모드 (레거시)
+        return self._converter.convert_slide(self._pptx_path, index)
 
     def start_watching(self, path: str | Path = None):
         """파일 변경 감시 시작"""
@@ -252,3 +265,7 @@ class SlideManager(QObject):
             raise ValueError(f"Song not found or has no slides: {song_name}")
         
         return self._converter.convert_slide(song.slides_path, local_index)
+
+    def get_song_offset(self, song_name: str) -> int:
+        """특정 곡의 시작 오프셋 반환"""
+        return self._slide_offsets.get(song_name, 0)

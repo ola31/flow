@@ -50,6 +50,15 @@ class Hotspot:
         if verse_index == 0:
             self.slide_index = slide_index
 
+    def shift_indices(self, offset: int) -> None:
+        """모든 슬라이드 인덱스를 오프셋만큼 이동 (전역/로컬 변환용)"""
+        if self.slide_index != -1:
+            self.slide_index += offset
+        
+        for k in self.slide_mappings:
+            if self.slide_mappings[k] != -1:
+                self.slide_mappings[k] += offset
+
     def to_dict(self) -> dict[str, Any]:
         """딕셔너리로 변환 (JSON 직렬화용)"""
         return {
