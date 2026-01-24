@@ -771,13 +771,18 @@ class MainWindow(QMainWindow):
             self._canvas.set_verse_index(v_idx)
             self._update_mapped_slides_ui()
             
-            if self._project.pptx_path:
+            if self._project.selected_songs:
+                self._slide_manager.load_songs(self._project.selected_songs)
+                # 전역 인덱스로 변환
+                self._globalize_project_indices()
+            elif self._project.pptx_path:
                 self._slide_manager.load_pptx(self._project.pptx_path)
             else:
                 self._slide_preview.refresh_slides()
 
-            if self._project.score_sheets:
-                self._on_song_selected(self._project.score_sheets[0])
+            sheets = self._project.all_score_sheets
+            if sheets:
+                self._on_song_selected(sheets[0])
                 self._song_list._list.setCurrentRow(0)
             else:
                 self._canvas.set_score_sheet(None)
@@ -809,11 +814,20 @@ class MainWindow(QMainWindow):
             self._project_path = Path(file_path)
 
         try:
+            # 저장 전 로컬 인덱스로 변환
+            self._localize_project_indices()
+            
             self._project_path = self._repo.save(self._project, self._project_path)
+            
+            # 다시 전역 인덱스로 원복
+            self._globalize_project_indices()
+            
             self.setWindowTitle(f"Flow - {self._project.name}")
             self._undo_stack.setClean() # 저장 시점 기록
             self._statusbar.showMessage(f"프로젝트가 저장되었습니다: {self._project_path.name}")
         except Exception as e:
+            # 에러 발생 시에도 원복 시도
+            self._globalize_project_indices()
             QMessageBox.critical(self, "오류", f"프로젝트를 저장할 수 없습니다:\n{e}")
 
     def _on_undo_stack_clean_changed(self, is_clean: bool) -> None:
@@ -1109,21 +1123,27 @@ class MainWindow(QMainWindow):
         """곡 선택됨"""
         self._canvas.set_score_sheet(sheet)
         
-        # PPT 로드 (곡별 PPT가 없으면 프로젝트 전역 PPT 사용)
-        ppt_to_load = (sheet.pptx_path or self._project.pptx_path)
-        ppt_to_load = str(Path(ppt_to_load).resolve()) if ppt_to_load else ""
-        
-        # 최적화: 현재 로드된 PPT와 동일하다면 새로고침 생략
-        current_ppt = str(self._slide_manager._pptx_path.resolve()) if self._slide_manager._pptx_path else ""
-        
-        if ppt_to_load != current_ppt:
-            if ppt_to_load:
-                self._slide_manager.load_pptx(ppt_to_load)
-                self._slide_manager.start_watching(ppt_to_load)
-            else:
-                self._slide_manager.load_pptx("")
-                self._slide_manager.stop_watching()
-                self._slide_preview.refresh_slides()
+        # PPT 로드 (다중 곡 모드인 경우 생략 - 이미 load_songs로 로드됨)
+        ppt_to_load = ""
+        current_ppt = ""
+        if self._project and self._project.selected_songs:
+            pass # 변수 선언 유지 (아래 if문 호환용)
+        else:
+            # 레거시 단일 PPT 모드
+            ppt_to_load = (sheet.pptx_path or self._project.pptx_path)
+            ppt_to_load = str(Path(ppt_to_load).resolve()) if ppt_to_load else ""
+            
+            # 최적화: 현재 로드된 PPT와 동일하다면 새로고침 생략
+            current_ppt = str(self._slide_manager._pptx_path.resolve()) if self._slide_manager._pptx_path else ""
+            
+            if ppt_to_load != current_ppt:
+                if ppt_to_load:
+                    self._slide_manager.load_pptx(ppt_to_load)
+                    self._slide_manager.start_watching(ppt_to_load)
+                else:
+                    self._slide_manager.load_pptx("")
+                    self._slide_manager.stop_watching()
+                    self._slide_preview.refresh_slides()
             
         self._statusbar.showMessage(f"곡 선택: {sheet.name}")
         
@@ -1140,9 +1160,8 @@ class MainWindow(QMainWindow):
 
         self._update_preview(None)
         
-        # 최적화: PPT가 새로 로드된 경우에만 매핑 UI 전체 갱신
-        # 단순 곡 전환 시에는 프로젝트 전체 매핑 세트가 바뀌지 않으므로 호출할 필요 없음
-        if ppt_to_load != current_ppt:
+        # 최적화: PPT가 새로 로드된 경우 또는 다중 곡 모드에서 곡이 전환된 경우 매핑 UI 전체 갱신
+        if (ppt_to_load != current_ppt) or (self._project and self._project.selected_songs):
             self._update_mapped_slides_ui()
     
     def _on_song_added(self, sheet: ScoreSheet) -> None:
@@ -1806,14 +1825,41 @@ class MainWindow(QMainWindow):
         dialog.exec()
     
     def _on_songs_changed(self):
-        """곡 목록 변경 시"""
-        # 프로젝트 저장
+        """곡 목록 변경 시 (추가/삭제/순서변경 등)"""
+        # 1. 일단 현재 상태 저장 (이 안에서 localize(old) -> save -> globalize(old) 가 일어남)
         self._save_project()
         
-        # SlideManager 재로드
+        # 2. 다시 로컬화 (현재 SlideManager의 오프셋 기준 - 아직 old 오프셋)
+        self._localize_project_indices()
+        
+        # 3. SlideManager 갱신 (오프셋 갱신)
         if self._project.selected_songs:
             self._slide_manager.load_songs(self._project.selected_songs)
+            # 4. 새로운 오프셋 기준으로 다시 전역화
+            self._globalize_project_indices()
         
         # UI 업데이트
+        self._song_list.refresh_list()
+        self._on_song_selected(self._project.get_current_score_sheet())
         self._statusbar.showMessage("곡 목록이 업데이트되었습니다.", 3000)
         self._mark_dirty()
+
+    def _globalize_project_indices(self):
+        """프로젝트의 모든 핫스팟 인덱스를 로컬에서 전역으로 변환"""
+        if not self._project or not self._project.selected_songs:
+            return
+            
+        for song in self._project.selected_songs:
+            offset = self._slide_manager.get_song_offset(song.name)
+            if offset > 0:
+                song.shift_indices(offset)
+                
+    def _localize_project_indices(self):
+        """프로젝트의 모든 핫스팟 인덱스를 전역에서 로컬로 변환"""
+        if not self._project or not self._project.selected_songs:
+            return
+            
+        for song in self._project.selected_songs:
+            offset = self._slide_manager.get_song_offset(song.name)
+            if offset > 0:
+                song.shift_indices(-offset)
