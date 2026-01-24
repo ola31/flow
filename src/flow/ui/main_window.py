@@ -800,42 +800,41 @@ class MainWindow(QMainWindow):
         except Exception as e:
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "오류", f"프로젝트를 열 수 없습니다:\n{e}")
-{e}")
     def _save_project(self) -> None:
-    """프로젝트 저장"""
-    if not self._project:
-        return
-    
-    # 저장 경로가 없거나 처음 저장하는 경우 이름/위치 묻기
-    if not self._project_path:
-        from PySide6.QtWidgets import QFileDialog
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "프로젝트 저장",
-            str(self._repo.base_path / f"{self._project.name}.json"),
-            "Flow 프로젝트 (*.json)"
-        )
-        if not file_path:
+        """프로젝트 저장"""
+        if not self._project:
             return
-        from pathlib import Path
-        self._project_path = Path(file_path)
+        
+        # 저장 경로가 없거나 처음 저장하는 경우 이름/위치 묻기
+        if not self._project_path:
+            from PySide6.QtWidgets import QFileDialog
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "프로젝트 저장",
+                str(self._repo.base_path / f"{self._project.name}.json"),
+                "Flow 프로젝트 (*.json)"
+            )
+            if not file_path:
+                return
+            from pathlib import Path
+            self._project_path = Path(file_path)
 
-    try:
-        # 저장 전 로컬 인덱스로 변환
-        self._localize_project_indices()
-        
-        self._project_path = self._repo.save(self._project, self._project_path)
-        
-        # 다시 전역 인덱스로 원복
-        self._globalize_project_indices()
-        
-        self.setWindowTitle(f"Flow - {self._project.name}")
-        self._undo_stack.setClean() # 저장 시점 기록
-        self._statusbar.showMessage(f"프로젝트가 저장되었습니다: {self._project_path.name}")
-    except Exception as e:
-        # 에러 발생 시에도 원복 시도
-        self._globalize_project_indices()
-        from PySide6.QtWidgets import QMessageBox
-        QMessageBox.critical(self, "오류", f"프로젝트를 저장할 수 없습니다:
+        try:
+            # 저장 전 로컬 인덱스로 변환
+            self._localize_project_indices()
+            
+            self._project_path = self._repo.save(self._project, self._project_path)
+            
+            # 다시 전역 인덱스로 원복
+            self._globalize_project_indices()
+            
+            self.setWindowTitle(f"Flow - {self._project.name}")
+            self._undo_stack.setClean() # 저장 시점 기록
+            self._statusbar.showMessage(f"프로젝트가 저장되었습니다: {self._project_path.name}")
+        except Exception as e:
+            # 에러 발생 시에도 원복 시도
+            self._globalize_project_indices()
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "오류", f"프로젝트를 저장할 수 없습니다:\n{e}")
 {e}")
     def _on_undo_stack_clean_changed(self, is_clean: bool) -> None:
         """Undo 스택 상태에 따른 dirty 표시 업데이트"""
