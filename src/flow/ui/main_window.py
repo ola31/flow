@@ -835,7 +835,6 @@ class MainWindow(QMainWindow):
             self._globalize_project_indices()
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "오류", f"프로젝트를 저장할 수 없습니다:\n{e}")
-{e}")
     def _on_undo_stack_clean_changed(self, is_clean: bool) -> None:
         """Undo 스택 상태에 따른 dirty 표시 업데이트"""
         if is_clean:
@@ -1125,7 +1124,7 @@ class MainWindow(QMainWindow):
 
     # === 이벤트 핸들러 ===
     
-        def _on_song_selected(self, sheet: ScoreSheet) -> None:
+    def _on_song_selected(self, sheet: ScoreSheet) -> None:
         """곡 선택됨"""
         from pathlib import Path
         base_path = self._get_song_base_path(sheet)
@@ -1834,8 +1833,7 @@ class MainWindow(QMainWindow):
         )
         dialog.songs_changed.connect(self._on_songs_changed)
         dialog.exec()
-    
-        def _on_songs_changed(self):
+    def _on_songs_changed(self):
         """곡 목록 변경 시 (추가/삭제/순서변경 등)"""
         # 1. 일단 현재 상태 저장
         self._save_project()
@@ -1854,13 +1852,14 @@ class MainWindow(QMainWindow):
         self._on_song_selected(self._project.get_current_score_sheet())
         self._statusbar.showMessage("곡 목록이 업데이트되었습니다.", 3000)
         self._mark_dirty()
-    def _get_song_base_path(self, sheet) -> "Path | None":
+
+    def _get_song_base_path(self, sheet: ScoreSheet) -> "Path | None":
         """ScoreSheet이 속한 곡의 베이스 경로 반환"""
         if not self._project or not self._project_path:
             return None
             
         if self._project.selected_songs:
-            # 다중 곡 모드에서 해당 시트의 곡 찾기 (sheet: ScoreSheet)
+            # 다중 곡 모드에서 해당 시트의 곡 찾기
             song = next((s for s in self._project.selected_songs if s.score_sheet.id == sheet.id), None)
             if song:
                 return self._project_path.parent / song.folder
