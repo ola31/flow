@@ -55,10 +55,10 @@ class ProjectRepository:
             song_dir = project_dir / song.folder
             song_dir.mkdir(parents=True, exist_ok=True)
             
-            # song.json 저장
+            # song.json 저장 (다중 시트 지원)
             song_data = {
                 "name": song.name,
-                "sheet": song.score_sheet.to_dict() if song.score_sheet else None
+                "sheets": [s.to_dict() for s in song.score_sheets]
             }
             
             song_json_path = song_dir / "song.json"
@@ -143,16 +143,21 @@ class ProjectRepository:
             with open(song_json_path, "r", encoding="utf-8-sig") as f:
                 song_data = json.load(f)
             
-            # ScoreSheet 복원
-            sheet_data = song_data.get("sheet")
-            score_sheet = ScoreSheet.from_dict(sheet_data) if sheet_data else ScoreSheet()
+            # ScoreSheet 목록 복원 (다중 시트 호환)
+            score_sheets = []
+            if "sheets" in song_data:
+                score_sheets = [ScoreSheet.from_dict(s) for s in song_data["sheets"]]
+            elif "sheet" in song_data and song_data["sheet"]:
+                # 레거시 단일 시트 호환
+                score_sheets = [ScoreSheet.from_dict(song_data["sheet"])]
             
-            # Song 객체 생성
+            # Song 객체 생성 (프로젝트 경로 포함)
             song = Song(
                 name=song_info["name"],
                 folder=Path(song_info["folder"]),
-                score_sheet=score_sheet,
-                order=song_info.get("order", 0)
+                score_sheets=score_sheets,
+                order=song_info.get("order", 0),
+                project_dir=project_dir
             )
             selected_songs.append(song)
         
@@ -192,13 +197,27 @@ class ProjectRepository:
         if abs_p.exists():
             return str(abs_p)
             
-        # 2. 파일이 이동된 경우: 프로젝트 폴더 내에서 파일명만으로 검색 (Fallback)
+        # [NEW] 3. sheet <-> sheets 폴더명 불일치 및 서브폴더 검색 강화
         filename = p.name
-        fallback_p = project_dir / filename
-        if fallback_p.exists():
-            return str(fallback_p)
+        # 3.1 명시적인 폴더명 교체 시도
+        alt_path_str = path_str
+        if "sheets/" in alt_path_str:
+            alt_path_str = alt_path_str.replace("sheets/", "sheet/")
+        elif "sheet/" in alt_path_str:
+            alt_path_str = alt_path_str.replace("sheet/", "sheets/")
             
-        # 3. 그래도 없으면 원래 경로 반환 (UI에서 '찾을 수 없음' 표시용)
+        if alt_path_str != path_str:
+            alt_abs_p = (project_dir / Path(alt_path_str)).resolve()
+            if alt_abs_p.exists():
+                return str(alt_abs_p)
+        
+        # 3.2 서브폴더(sheet, sheets) 직접 확인
+        for sub in ["sheet", "sheets"]:
+            sub_p = (project_dir / sub / filename).resolve()
+            if sub_p.exists():
+                return str(sub_p)
+
+        # 4. 그래도 없으면 원래 경로 반환 (UI에서 '찾을 수 없음' 표시용)
         return str(p)
     
     def list_projects(self) -> list[Path]:

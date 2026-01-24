@@ -1,22 +1,129 @@
-"""곡 목록 사이드바 위젯
+"""곡 목록 위젯
 
-편집/라이브 모드에서 공통으로 사용되는 곡 목록 UI
+곡과 악보 페이지를 계층적으로 표시하고 관리하는 UI
 """
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
-    QPushButton, QLabel, QFileDialog, QInputDialog, QMessageBox, QMenu
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QTreeWidget, QTreeWidgetItem, QMenu, QMessageBox, QFileDialog, QInputDialog,
+    QTreeWidgetItemIterator
 )
-from PySide6.QtGui import QAction
 from PySide6.QtCore import Signal, Qt, QPoint
+from PySide6.QtGui import QAction, QColor
 
 from flow.domain.project import Project
 from flow.domain.score_sheet import ScoreSheet
 
 
+class CustomTreeWidget(QTreeWidget):
+    """드래그 앤 드롭 제어가 가능한 커스텀 트리 위젯"""
+
+    def __init__(self, parent_widget, parent=None):
+        super().__init__(parent)
+        self.parent_widget = parent_widget  # SongListWidget 참조
+
+    def dragEnterEvent(self, event):
+        """드래그 시작 - 편집 모드 체크"""
+        if not self.parent_widget._editable:
+            event.ignore()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        """드래그 이동 중 - 잘못된 드롭 위치 차단"""
+        if not self.parent_widget._editable:
+            event.ignore()
+            return
+
+        source_item = self.currentItem()
+        if not source_item:
+            event.ignore()
+            return
+
+        target_item = self.itemAt(event.position().toPoint())
+        if not target_item:
+            super().dragMoveEvent(event)
+            return
+
+        source_data = source_item.data(0, Qt.ItemDataRole.UserRole)
+        target_data = target_item.data(0, Qt.ItemDataRole.UserRole)
+
+        # 시트를 드래그하는 경우
+        if isinstance(source_data, ScoreSheet):
+            # 타겟이 시트인 경우 - 같은 부모를 가진 경우에만 허용
+            if isinstance(target_data, ScoreSheet):
+                source_parent = source_item.parent()
+                target_parent = target_item.parent()
+
+                if source_parent != target_parent:
+                    event.ignore()
+                    return
+            # 타겟이 곡인 경우 - 소스의 부모 곡과 같은 경우에만 허용
+            elif hasattr(target_data, 'score_sheets'):
+                source_parent = source_item.parent()
+                if source_parent != target_item:
+                    event.ignore()
+                    return
+
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        """드롭 이벤트 - 시트는 같은 곡 내에서만 이동 가능"""
+        # 편집 모드가 아니면 드롭 거부
+        if not self.parent_widget._editable:
+            event.ignore()
+            return
+
+        source_item = self.currentItem()
+
+        if not source_item:
+            event.ignore()
+            return
+
+        # 드롭 위치 계산
+        target_item = self.itemAt(event.position().toPoint())
+
+        source_data = source_item.data(0, Qt.ItemDataRole.UserRole)
+
+        # 시트(ScoreSheet)를 드래그하는 경우
+        if isinstance(source_data, ScoreSheet):
+            source_parent = source_item.parent()
+
+            if target_item:
+                target_data = target_item.data(0, Qt.ItemDataRole.UserRole)
+
+                # 타겟이 시트인 경우
+                if isinstance(target_data, ScoreSheet):
+                    target_parent = target_item.parent()
+
+                    # 같은 곡 내에서만 이동 허용
+                    if source_parent != target_parent:
+                        event.ignore()
+                        QMessageBox.warning(self.parent_widget, "이동 제한", "시트는 같은 곡 내에서만 순서를 변경할 수 있습니다.")
+                        return
+                # 타겟이 곡인 경우
+                elif hasattr(target_data, 'score_sheets'):
+                    # 소스의 부모 곡과 타겟 곡이 같은 경우에만 허용
+                    if source_parent != target_item:
+                        event.ignore()
+                        QMessageBox.warning(self.parent_widget, "이동 제한", "시트는 같은 곡 내에서만 순서를 변경할 수 있습니다.")
+                        return
+            else:
+                # 빈 공간으로 드롭 시도 - 거부
+                event.ignore()
+                return
+
+        # 기본 드롭 처리
+        super().dropEvent(event)
+
+        # 드롭 후 데이터 모델 업데이트 및 구조 검증
+        self.parent_widget._update_order_after_drop()
+        self.parent_widget._validate_tree_structure()
+
+
 class SongListWidget(QWidget):
-    """곡 목록 사이드바
-    
+    """곡 목록 사이드바 (계층 구조)
+
     Signals:
         song_selected: 곡이 선택되었을 때 (ScoreSheet)
         song_added: 새 곡이 추가되었을 때 (ScoreSheet)
@@ -31,67 +138,73 @@ class SongListWidget(QWidget):
         super().__init__(parent)
         self._project: Project | None = None
         self._main_window = None # 메인 윈도우 참조 보관
-        self._editable = True # [복구] 편집 가능 상태 보관
+        self._editable = True 
         self._setup_ui()
     
     def _setup_ui(self) -> None:
-        """UI 초기화"""
-        self.setStyleSheet("background-color: #1e1e1e; ")
+        """UI 초기화 (Tree View 기반)"""
+        self.setStyleSheet("background-color: #1a1a1a; ")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(10)
         
         # 헤더
         header = QLabel("📋 곡 목록")
         header.setStyleSheet("""
             font-weight: 800; 
-            font-size: 15px; 
+            font-size: 14px; 
             color: #2196f3; 
-            padding: 5px 2px;
+            padding: 4px 4px;
             letter-spacing: 0.5px;
         """)
         layout.addWidget(header)
         
-        # 곡 목록 (QListWidget 스타일 고도화)
-        self._list = QListWidget()
-        self._list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
-        self._list.setStyleSheet("""
-            QListWidget {
-                background-color: #252525;
+        # 곡 트리 (CustomTreeWidget으로 드래그 앤 드롭 제약 적용)
+        self._tree = CustomTreeWidget(self)
+        self._tree.setHeaderHidden(True)
+        self._tree.setIndentation(15)
+        self._tree.setDragEnabled(True)
+        self._tree.setAcceptDrops(True)
+        self._tree.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
+        
+        # [추가] 화살표 아이콘 숨기기 (곡 자체 클릭으로 토글하므로 필요 없음)
+        self._tree.setRootIsDecorated(False)
+        
+        self._tree.setStyleSheet("""
+            QTreeWidget {
+                background-color: #222;
                 border: 1px solid #333;
-                border-radius: 8px;
+                border-radius: 6px;
                 outline: none;
                 padding: 4px;
             }
-            QListWidget::item {
-                background-color: transparent;
-                border-radius: 6px;
-                padding: 10px 12px;
-                margin-bottom: 2px;
-                color: #ddd;
+            QTreeWidget::item {
+                height: 38px;
+                color: #ccc;
+                border-bottom: 1px solid #2a2a2a;
             }
-            QListWidget::item:hover {
-                background-color: #333;
+            QTreeWidget::item:hover {
+                background-color: #2a2a2a;
                 color: white;
             }
-            QListWidget::item:selected {
-                background-color: #2a3a4f;
+            QTreeWidget::item:selected {
+                background-color: #203040;
                 color: #2196f3;
                 font-weight: bold;
-                border: 1px solid #2196f3;
             }
         """)
-        self._list.currentItemChanged.connect(self._on_selection_changed)
-        self._list.itemClicked.connect(self._on_item_clicked)
-        self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._list.customContextMenuRequested.connect(self._on_context_menu)
-        layout.addWidget(self._list)
+        
+        self._tree.currentItemChanged.connect(self._on_selection_changed)
+        self._tree.itemClicked.connect(self._on_item_clicked)
+        self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tree.customContextMenuRequested.connect(self._on_context_menu)
+        layout.addWidget(self._tree)
         
         # 버튼들
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(6)
         
-        self._add_btn = QPushButton("+ 곡 추가")
+        self._add_btn = QPushButton("+ 곡 추가 / 관리")
         self._add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._add_btn.setFixedHeight(34)
         self._add_btn.setStyleSheet("""
@@ -101,7 +214,7 @@ class SongListWidget(QWidget):
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
-                font-size: 12px;
+                font-size: 11px;
             }
             QPushButton:hover { background-color: #1e88e5; }
             QPushButton:disabled { background-color: #333; color: #666; }
@@ -118,7 +231,7 @@ class SongListWidget(QWidget):
                 color: #888;
                 border: 1px solid #444;
                 border-radius: 6px;
-                font-size: 14px;
+                font-size: 13px;
             }
             QPushButton:hover { background-color: #444; color: #ff4444; border: 1px solid #ff4444; }
             QPushButton:disabled { background-color: #252525; color: #444; border: 1px solid #333; }
@@ -127,6 +240,174 @@ class SongListWidget(QWidget):
         btn_layout.addWidget(self._remove_btn)
         
         layout.addLayout(btn_layout)
+    
+    def dragEnterEvent(self, event):
+        """드래그 시작 - 편집 모드 체크"""
+        if not self._editable:
+            event.ignore()
+            return
+        super(SongListWidget, self).dragEnterEvent(event)
+    
+    def dragMoveEvent(self, event):
+        """드래그 이동 중 - 잘못된 드롭 위치 차단"""
+        if not self._editable:
+            event.ignore()
+            return
+        
+        source_item = self._tree.currentItem()
+        if not source_item:
+            event.ignore()
+            return
+        
+        target_item = self._tree.itemAt(event.position().toPoint())
+        if not target_item:
+            super(SongListWidget, self).dragMoveEvent(event)
+            return
+        
+        source_data = source_item.data(0, Qt.ItemDataRole.UserRole)
+        target_data = target_item.data(0, Qt.ItemDataRole.UserRole)
+        
+        # 시트를 드래그하는 경우
+        if isinstance(source_data, ScoreSheet):
+            # 타겟이 시트인 경우 - 같은 부모를 가진 경우에만 허용
+            if isinstance(target_data, ScoreSheet):
+                source_parent = source_item.parent()
+                target_parent = target_item.parent()
+                
+                if source_parent != target_parent:
+                    event.ignore()
+                    return
+            # 타겟이 곡인 경우 - 소스의 부모 곡과 같은 경우에만 허용
+            elif hasattr(target_data, 'score_sheets'):
+                source_parent = source_item.parent()
+                if source_parent != target_item:
+                    event.ignore()
+                    return
+        
+        super(SongListWidget, self).dragMoveEvent(event)
+    
+    def dropEvent(self, event):
+        """드롭 이벤트 - 시트는 같은 곡 내에서만 이동 가능"""
+        # 편집 모드가 아니면 드롭 거부
+        if not self._editable:
+            event.ignore()
+            return
+        
+        source_item = self._tree.currentItem()
+        
+        if not source_item:
+            event.ignore()
+            return
+        
+        # 드롭 위치 계산
+        target_item = self._tree.itemAt(event.position().toPoint())
+        
+        source_data = source_item.data(0, Qt.ItemDataRole.UserRole)
+        
+        # 시트(ScoreSheet)를 드래그하는 경우
+        if isinstance(source_data, ScoreSheet):
+            source_parent = source_item.parent()
+            
+            if target_item:
+                target_data = target_item.data(0, Qt.ItemDataRole.UserRole)
+                
+                # 타겟이 시트인 경우
+                if isinstance(target_data, ScoreSheet):
+                    target_parent = target_item.parent()
+                    
+                    # 같은 곡 내에서만 이동 허용
+                    if source_parent != target_parent:
+                        event.ignore()
+                        QMessageBox.warning(self, "이동 제한", "시트는 같은 곡 내에서만 순서를 변경할 수 있습니다.")
+                        return
+                # 타겟이 곡인 경우
+                elif hasattr(target_data, 'score_sheets'):
+                    # 소스의 부모 곡과 타겟 곡이 같은 경우에만 허용
+                    if source_parent != target_item:
+                        event.ignore()
+                        QMessageBox.warning(self, "이동 제한", "시트는 같은 곡 내에서만 순서를 변경할 수 있습니다.")
+                        return
+            else:
+                # 빈 공간으로 드롭 시도 - 거부
+                event.ignore()
+                return
+        
+        # 기본 드롭 처리
+        super(SongListWidget, self).dropEvent(event)
+        
+        # 드롭 후 데이터 모델 업데이트 및 구조 검증
+        self._update_order_after_drop()
+        self._validate_tree_structure()
+    
+    def _update_order_after_drop(self):
+        """드롭 후 곡/시트 순서를 데이터 모델에 반영"""
+        if not self._project:
+            return
+        
+        # 곡 순서 업데이트
+        new_song_order = []
+        for i in range(self._tree.topLevelItemCount()):
+            item = self._tree.topLevelItem(i)
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if hasattr(data, 'score_sheets'):  # Song 객체
+                data.order = i
+                new_song_order.append(data)
+                
+                # 해당 곡의 시트 순서도 업데이트
+                valid_sheets = []
+                for j in range(item.childCount()):
+                    child = item.child(j)
+                    sheet_data = child.data(0, Qt.ItemDataRole.UserRole)
+                    if isinstance(sheet_data, ScoreSheet):
+                        valid_sheets.append(sheet_data)
+                
+                # Song 객체의 score_sheets 순서 갱신
+                data.score_sheets = valid_sheets
+        
+        # 프로젝트의 selected_songs 순서 갱신
+        self._project.selected_songs = new_song_order
+        
+        # 저장
+        if self._main_window:
+            self._main_window._mark_dirty()
+            self._main_window._save_project()
+    
+    def _validate_tree_structure(self):
+        """트리 구조 검증 - 시트가 잘못된 위치에 있으면 수정"""
+        if not self._project:
+            return
+        
+        # 모든 최상위 항목(곡) 순회
+        for i in range(self._tree.topLevelItemCount()):
+            song_item = self._tree.topLevelItem(i)
+            
+            # 곡의 모든 자식 순회
+            children_to_fix = []
+            for j in range(song_item.childCount()):
+                child = song_item.child(j)
+                child_data = child.data(0, Qt.ItemDataRole.UserRole)
+                
+                # 자식이 시트가 아니거나, 시트가 또 자식을 가지고 있으면 문제
+                if isinstance(child_data, ScoreSheet):
+                    # 시트가 자식을 가지고 있으면 안 됨
+                    if child.childCount() > 0:
+                        # 잘못된 자식들을 수집
+                        for k in range(child.childCount()):
+                            grandchild = child.child(k)
+                            children_to_fix.append(grandchild)
+            
+            # 잘못된 위치의 항목들을 올바른 위치로 이동
+            for item in children_to_fix:
+                # 부모에서 제거
+                parent = item.parent()
+                if parent:
+                    parent.removeChild(item)
+                    # 곡의 직접 자식으로 추가
+                    song_item.addChild(item)
+        
+        # 구조가 수정되었으면 다시 순서 업데이트
+        if children_to_fix:
+            self._update_order_after_drop()
     
     def set_project(self, project: Project) -> None:
         """프로젝트 설정 및 곡 목록 갱신"""
@@ -139,231 +420,338 @@ class SongListWidget(QWidget):
         
     def set_editable(self, editable: bool) -> None:
         """편집 모드 활성/비활성 제어"""
-        self._editable = editable # [복구] 상태 보관
+        self._editable = editable 
         self._add_btn.setEnabled(editable)
         self._remove_btn.setEnabled(editable)
         
+    def install_event_filter(self, filter_obj) -> None:
+        """내부 트리 위젯에 이벤트 필터 설치"""
+        self._tree.installEventFilter(filter_obj)
+
+    def set_current_index(self, index: int) -> None:
+        """프로젝트의 전체 시트 인덱스 기준으로 트리 아이템 선택"""
+        if not self._project: return
+        sheets = self._project.all_score_sheets
+        if 0 <= index < len(sheets):
+            self.select_sheet_by_id(sheets[index].id)
+
+    def clear_selection(self) -> None:
+        """트리 선택 해제"""
+        self._tree.clearSelection()
+        
     def select_next_song(self) -> bool:
-        """다음 곡 선택"""
+        """다음 곡/페이지 선택"""
         if self._project and self._project.next_score_sheet():
-            self._list.setCurrentRow(self._project.current_sheet_index)
+            self._update_selection_from_project()
             return True
         return False
         
     def select_previous_song(self) -> bool:
-        """이전 곡 선택"""
+        """이전 곡/페이지 선택"""
         if self._project and self._project.previous_score_sheet():
-            self._list.setCurrentRow(self._project.current_sheet_index)
+            self._update_selection_from_project()
             return True
         return False
+
+    def _update_selection_from_project(self) -> None:
+        """프로젝트의 현재 인덱스에 맞춰 트리 아이템을 시각적으로 선택"""
+        sheet = self._project.get_current_score_sheet()
+        if not sheet: return
+        
+        # 트리 전체 스캔하여 해당 시트 찾기
+        it = QTreeWidgetItemIterator(self._tree)
+        while it.value():
+            item = it.value()
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(data, ScoreSheet) and data.id == sheet.id:
+                self._tree.blockSignals(True)
+                self._tree.setCurrentItem(item)
+                self._tree.blockSignals(False)
+                self._update_indicators()
+                break
+            it += 1
     
     def refresh_list(self) -> None:
-        """곡 목록 갱신"""
-        # 시그널 차단하여 무한 재귀 방지
-        self._list.blockSignals(True)
-        
-        self._list.clear()
+        """곡 목록 갱신 (계층 구조)"""
+        self._tree.blockSignals(True)
+        self._tree.clear()
         
         if not self._project:
-            self._list.blockSignals(False)
+            self._tree.blockSignals(False)
             return
-        
-        for i, sheet in enumerate(self._project.all_score_sheets):
-            item = QListWidgetItem(sheet.name)
-            item.setData(Qt.ItemDataRole.UserRole, sheet.id)
             
-            # 현재 곡 표시
-            if i == self._project.current_sheet_index:
-                item.setText(f"▶ {sheet.name}")
+        current_sheet = self._project.get_current_score_sheet()
+        
+        for song in self._project.selected_songs:
+            # 1. 유효한 시트만 필터링 (이미지가 있는 것만)
+            valid_sheets = [s for s in song.score_sheets if s.image_path]
             
-            self._list.addItem(item)
-        
-        # 현재 곡 선택
-        if self._project.all_score_sheets:
-            self._list.setCurrentRow(self._project.current_sheet_index)
-        
-        self._list.blockSignals(False)
+            # 곡 제목 아이템 (무조건 생성)
+            song_item = QTreeWidgetItem([song.name])
+            font = song_item.font(0)
+            font.setBold(True)
+            song_item.setFont(0, font)
+            song_item.setData(0, Qt.ItemDataRole.UserRole, song)
+            # [수정] 곡 제목 노드는 선택 불가능하지만 드래그는 가능하도록 설정
+            flags = song_item.flags()
+            flags &= ~Qt.ItemFlag.ItemIsSelectable  # 선택 불가
+            flags |= Qt.ItemFlag.ItemIsDragEnabled  # 드래그 가능
+            song_item.setFlags(flags)
+            self._tree.addTopLevelItem(song_item)
+            
+            if not valid_sheets:
+                # 이미지가 없으면 펼치지 않음
+                continue
+
+            # 2. 모든 시트를 항상 자식으로 추가 (일관성 유지)
+            for i, sheet in enumerate(valid_sheets):
+                # 표시 이름 최적화: 곡 제목 중복 제거
+                display_name = sheet.name
+                prefix = f"{song.name} -"
+                if display_name.startswith(prefix):
+                    display_name = display_name[len(prefix):].strip()
+                
+                sheet_item = QTreeWidgetItem([f"  P{i+1}: {display_name}"])
+                sheet_item.setData(0, Qt.ItemDataRole.UserRole, sheet)
+                song_item.addChild(sheet_item)
+                
+                # 현재 선택된 시트가 이 곡에 있으면 트리 확장
+                if current_sheet and any(s.id == current_sheet.id for s in valid_sheets):
+                    song_item.setExpanded(True)
+            
+        self._update_selection_from_project()
+        self._tree.blockSignals(False)
     
-    def _on_selection_changed(self, current: QListWidgetItem | None, 
-                               previous: QListWidgetItem | None) -> None:
-        """곡 선택 변경"""
+    def _on_selection_changed(self, current: QTreeWidgetItem | None, 
+                               previous: QTreeWidgetItem | None) -> None:
+        """곡 선택 변경 (트리 노드 선택 시 호출)"""
         if not current or not self._project:
             return
-        
-        sheet_id = current.data(Qt.ItemDataRole.UserRole)
-        sheet = self._project.find_score_sheet_by_id(sheet_id)
-        
-        if sheet:
-            # 현재 인덱스 업데이트
-            self._project.current_sheet_index = self._list.currentRow()
             
-            # 삼각형 기호 업데이트
+        data = current.data(0, Qt.ItemDataRole.UserRole)
+        
+        target_sheet = None
+        if isinstance(data, ScoreSheet):
+            target_sheet = data
+        elif hasattr(data, 'score_sheets') and data.score_sheets:
+            # 방향키 등으로 '곡' 노드에 진입한 경우 -> 첫 번째 페이지로 자동 점프
+            if current.childCount() > 0:
+                self._tree.setCurrentItem(current.child(0))
+                return
+            target_sheet = data.score_sheets[0]
+                
+        if target_sheet:
+            # 프로젝트 내 인덱스 찾기 및 업데이트
+            all_sheets = self._project.all_score_sheets
+            for i, s in enumerate(all_sheets):
+                if s.id == target_sheet.id:
+                    self._project.current_sheet_index = i
+                    break
+            
             self._update_indicators()
-            
-            self.song_selected.emit(sheet)
+            self.song_selected.emit(target_sheet)
 
     def _update_indicators(self) -> None:
-        """삼각형 기호(▶) 위치를 현재 인덱스에 맞게 업데이트"""
-        if not self._project:
-            return
+        """삼각형 기호(▶) 위치 업데이트 (트리 구조 대응)"""
+        current_sheet = self._project.get_current_score_sheet() if self._project else None
+        
+        it = QTreeWidgetItemIterator(self._tree)
+        while it.value():
+            item = it.value()
+            data = item.data(0, Qt.ItemDataRole.UserRole)
             
-        for i in range(self._list.count()):
-            item = self._list.item(i)
-            sheet_id = item.data(Qt.ItemDataRole.UserRole)
-            sheet = self._project.find_score_sheet_by_id(sheet_id)
-            if not sheet:
-                continue
-                
-            if i == self._project.current_sheet_index:
-                if not item.text().startswith("▶"):
-                    item.setText(f"▶ {sheet.name}")
+            # 원본 텍스트 가져오기 (이미 삼각형이 있으면 제거)
+            base_text = item.text(0).replace("▶ ", "").strip()
+            
+            if isinstance(data, ScoreSheet) and current_sheet and data.id == current_sheet.id:
+                item.setText(0, f"▶ {base_text}")
+                item.setForeground(0, QColor("#2196f3"))
             else:
-                if item.text().startswith("▶"):
-                    item.setText(sheet.name)
+                item.setText(0, base_text)
+                item.setForeground(0, QColor("#ccc"))
+            it += 1
     
-    def _on_item_clicked(self, item: QListWidgetItem) -> None:
-        """아이템 클릭 시 (이미 선택된 항목을 다시 누를 때 대응)"""
-        if not self._project:
-            return
+    def _on_item_clicked(self, item: QTreeWidgetItem) -> None:
+        """아이템 클릭 시 (곡 제목 클릭 토글 및 포커스 반환)"""
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        
+        # 곡 제목 노드인 경우 (Song 객체인 경우)
+        if hasattr(data, 'score_sheets') and not isinstance(data, ScoreSheet):
+            # 1. 접기/펼치기 상태 토글
+            item.setExpanded(not item.isExpanded())
             
-        sheet_id = item.data(Qt.ItemDataRole.UserRole)
-        sheet = self._project.find_score_sheet_by_id(sheet_id)
-        if sheet:
-            self.song_selected.emit(sheet)
-            # [복구] 포커스 반환
-            if self._main_window:
-                self._main_window.setFocus()
+            # 2. 첫 페이지 자동 선택 (기존 편의 기능)
+            if item.childCount() > 0:
+                self._tree.setCurrentItem(item.child(0))
+                
+        if self._main_window:
+            self._main_window.setFocus()
     
     def _on_add_clicked(self) -> None:
-        """[수정] 악보 이미지 설정 또는 곡 추가"""
-        if not self._project:
-            return
-            
-        if self._project.selected_songs:
-            # 다중 곡 모드: 현재 선택된 곡의 악보 이미지 설정
-            current_row = self._list.currentRow()
-            if current_row < 0:
-                # 선택된 곡이 없으면 곡 관리 다이얼로그 호출
-                if self._main_window:
-                    self._main_window._manage_songs()
-                return
-                
-            song = self._project.selected_songs[current_row]
-            self._set_song_image(song)
-        else:
-            # 레거시 모드: 기존 방식 유지
-            self._add_legacy_sheet()
+        """[수정] 버튼 클릭 시 무조건 곡 관리 다이얼로그 호출"""
+        if self._main_window:
+            self._main_window._manage_songs()
 
     def _set_song_image(self, song):
-        """특정 곡의 악보 이미지 설정"""
+        """특정 곡에 새로운 악보 페이지(이미지) 추가"""
         import shutil
         from pathlib import Path
         
-        initial_dir = str(self._main_window._project_path.parent) if self._main_window else ""
+        # 프로젝트 폴더 또는 곡 폴더를 기본 경로로 설정
+        project_dir = self._main_window._project_path.parent if self._main_window else Path.cwd()
+        song_dir = project_dir / song.folder
+        initial_dir = str(song_dir) if song_dir.exists() else str(project_dir)
         
         image_path, _ = QFileDialog.getOpenFileName(
-            self, f"'{song.name}' 악보 이미지 선택",
+            self, f"'{song.name}'에 추가할 악보 이미지 선택",
             initial_dir, "이미지 (*.jpg *.jpeg *.png *.bmp)"
         )
         
         if not image_path:
             return
             
-        # 곡의 sheets/ 폴더로 복사
-        p_path = Path(image_path)
-        dest_path = self._main_window._project_path.parent / song.folder / "sheets" / p_path.name
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        p_path = Path(image_path).resolve()
         
-        shutil.copy2(image_path, dest_path)
+        # [추가] 시트 이름 입력 받기
+        default_name = f"{song.name} - {p_path.stem}"
+        sheet_name, ok = QInputDialog.getText(
+            self, "시트 이름 지정", 
+            f"추가할 시트('{p_path.name}')의 이름을 입력하세요:",
+            text=default_name
+        )
+        if not ok or not sheet_name.strip():
+            return
         
-        # 도메인 모델 업데이트 (상대 경로로 저장)
-        song.score_sheet.image_path = f"sheets/{p_path.name}"
+        sheets_dir = song.sheets_dir if song.sheets_dir else (song.folder / "sheets")
+        abs_sheets_dir = project_dir / sheets_dir
+        abs_sheets_dir.mkdir(parents=True, exist_ok=True)
+        
+        dest_path = abs_sheets_dir / p_path.name
+        
+        # [수정] 해당 곡의 sheet 폴더에 있지 않다면 복사
+        if p_path.parent != abs_sheets_dir:
+            try:
+                shutil.copy2(image_path, dest_path)
+            except shutil.SameFileError:
+                pass
+        
+        # 도메인 모델 업데이트
+        from flow.domain.score_sheet import ScoreSheet
+        rel_sheets_dir = sheets_dir.relative_to(song.folder) if song.folder and sheets_dir.is_relative_to(song.folder) else Path("sheets")
+        new_sheet_path = f"{rel_sheets_dir}/{p_path.name}"
+        
+        new_sheet = ScoreSheet(
+            name=sheet_name.strip(),
+            image_path=new_sheet_path
+        )
+        song.score_sheets.append(new_sheet)
         
         self.refresh_list()
-        self.song_selected.emit(song.score_sheet)
+        
+        # 시트 선택 및 트리 확장
+        self.select_sheet_by_id(new_sheet.id)
+        
         if self._main_window:
             self._main_window._mark_dirty()
+            self._main_window._save_project()
 
-    def _add_legacy_sheet(self):
-        """레거시 방식의 곡 추가"""
-        name, ok = QInputDialog.getText(self, "새 곡 추가", "곡 이름을 입력하세요:")
-        if not ok or not name.strip(): return
-        
-        image_path, _ = QFileDialog.getOpenFileName(
-            self, "악보 이미지 선택", "", "이미지 (*.jpg *.jpeg *.png *.bmp)"
-        )
-        sheet = ScoreSheet(name=name.strip(), image_path=image_path or "")
-        self._project.add_score_sheet(sheet)
-        self.refresh_list()
-        self._list.setCurrentRow(len(self._project.all_score_sheets) - 1)
-        self.song_added.emit(sheet)
-    
+    def select_sheet_by_id(self, sheet_id: str) -> None:
+        """ID를 기반으로 트리의 시트 아이템 선택"""
+        it = QTreeWidgetItemIterator(self._tree)
+        while it.value():
+            item = it.value()
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(data, ScoreSheet) and data.id == sheet_id:
+                self._tree.setCurrentItem(item)
+                if item.parent():
+                    item.parent().setExpanded(True)
+                break
+            it += 1
+
     def _on_remove_clicked(self) -> None:
-        """곡 삭제 버튼 클릭"""
+        """곡(또는 페이지) 삭제 버튼 클릭"""
         if not self._project:
             return
         
-        current = self._list.currentItem()
+        current = self._tree.currentItem()
         if not current:
             return
         
-        sheet_id = current.data(Qt.ItemDataRole.UserRole)
-        sheet = self._project.find_score_sheet_by_id(sheet_id)
+        data = current.data(0, Qt.ItemDataRole.UserRole)
         
-        if not sheet:
-            return
-        
-        # 확인 대화상자
-        reply = QMessageBox.question(
-            self, "곡 삭제",
-            f"'{sheet.name}'을(를) 삭제하시겠습니까?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            self._project.remove_score_sheet(sheet_id)
-            self.refresh_list()
-            self.song_removed.emit(sheet_id)
+        if isinstance(data, ScoreSheet):
+            # 페이지 삭제
+            reply = QMessageBox.question(
+                self, "페이지 삭제",
+                f"'{data.name}' 페이지를 삭제하시겠습니까?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._project.remove_score_sheet(data.id)
+                self.refresh_list()
+                self.song_removed.emit(data.id)
+        else:
+            # 곡 삭제
+            reply = QMessageBox.question(
+                self, "곡 삭제",
+                f"'{data.name}' 곡을 프로젝트에서 제외하시겠습니까?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                if data in self._project.selected_songs:
+                    self._project.selected_songs.remove(data)
+                    self.refresh_list()
+                    # 곡이 삭제되면 관련 시트들도 모두 제거됨 (UI상)
+                    self.song_removed.emit("ALL_OF_SONG") 
 
     def _on_context_menu(self, pos: QPoint) -> None:
-        """[수정] 우클릭 컨텍스트 메뉴 확장"""
+        """우클릭 컨텍스트 메뉴 (요구사항에 따른 메뉴 분기)"""
         if not self._editable: return
-        item = self._list.itemAt(pos)
+        item = self._tree.itemAt(pos)
         if not item: return
         
         menu = QMenu(self)
+        data = item.data(0, Qt.ItemDataRole.UserRole)
         
-        # 곡 정보 가져오기
-        sheet_id = item.data(Qt.ItemDataRole.UserRole)
-        song = None
-        if self._project and self._project.selected_songs:
-            song = next((s for s in self._project.selected_songs if s.score_sheet.id == sheet_id), None)
-
-        if song:
+        if isinstance(data, ScoreSheet):
+            # [시트 노드] 삭제, 이름 변경만 가능
+            rename_action = QAction("📝 시트 이름 변경", self)
+            rename_action.triggered.connect(lambda: self._on_rename_clicked(item))
+            menu.addAction(rename_action)
+            
+            menu.addSeparator()
+            remove_action = QAction("🗑️ 시트 삭제", self)
+            remove_action.triggered.connect(self._on_remove_clicked)
+            menu.addAction(remove_action)
+        else:
+            # [곡 노드] 전체 기능 제공
+            song = data
             open_folder_act = QAction("📂 폴더 열기", self)
             open_folder_act.triggered.connect(lambda: self._open_song_folder(song))
             menu.addAction(open_folder_act)
             
-            edit_ppt_act = QAction("📽 PowerPoint 편집", self)
+            edit_ppt_act = QAction("📽 PPT 편집", self)
             edit_ppt_act.triggered.connect(lambda: self._open_song_ppt(song))
             menu.addAction(edit_ppt_act)
             
-            set_image_act = QAction("🖼 악보 이미지 설정...", self)
+            menu.addSeparator()
+            
+            set_image_act = QAction("➕ 시트 추가...", self)
             set_image_act.triggered.connect(lambda: self._set_song_image(song))
             menu.addAction(set_image_act)
             
             menu.addSeparator()
-
-        rename_action = QAction("📝 이름 변경", self)
-        rename_action.triggered.connect(lambda: self._on_rename_clicked(item))
-        menu.addAction(rename_action)
+            
+            rename_action = QAction("📝 곡 이름 변경", self)
+            rename_action.triggered.connect(lambda: self._on_rename_clicked(item))
+            menu.addAction(rename_action)
+            
+            menu.addSeparator()
+            remove_action = QAction("🗑️ 곡 프로젝트에서 제거", self)
+            remove_action.triggered.connect(self._on_remove_clicked)
+            menu.addAction(remove_action)
         
-        menu.addSeparator()
-        remove_action = QAction("🗑️ 삭제", self)
-        remove_action.triggered.connect(self._on_remove_clicked)
-        menu.addAction(remove_action)
-        
-        menu.exec(self._list.mapToGlobal(pos))
+        menu.exec(self._tree.mapToGlobal(pos))
 
     def _open_song_folder(self, song):
         """곡 폴더 열기"""
@@ -397,14 +785,24 @@ class SongListWidget(QWidget):
         else:
             subprocess.Popen(['xdg-open', path])
 
-    def _on_rename_clicked(self, item: QListWidgetItem) -> None:
-        """[복구] 곡 이름 변경"""
+    def _on_rename_clicked(self, item: QTreeWidgetItem) -> None:
+        """[수정] 곡 또는 페이지 이름 변경"""
         if not self._project: return
-        sheet_id = item.data(Qt.ItemDataRole.UserRole)
-        sheet = self._project.find_score_sheet_by_id(sheet_id)
-        if not sheet: return
-        new_name, ok = QInputDialog.getText(self, "곡 이름 변경", "새 이름을 입력하세요:", text=sheet.name)
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        
+        current_name = data.name
+            
+        new_name, ok = QInputDialog.getText(self, "이름 변경", "새 이름을 입력하세요:", text=current_name)
         if ok and new_name.strip():
-            sheet.name = new_name.strip()
+            # 실제 데이터 변경
+            data.name = new_name.strip()
             self.refresh_list()
-            self.song_selected.emit(sheet)
+            
+            # 시트인 경우 메인 윈도우에 알림
+            if isinstance(data, ScoreSheet):
+                self.song_selected.emit(data)
+            else:
+                # 곡인 경우 첫 번째 시트가 있다면 선택 유도
+                valid_sheets = [s for s in data.score_sheets if s.image_path]
+                if valid_sheets:
+                    self.song_selected.emit(valid_sheets[0])

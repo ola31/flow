@@ -35,8 +35,15 @@ def _convert_pdf_to_images(pdf_path: Path, cache_dir: Path) -> bool:
             
             for i in range(page_count):
                 page = doc.load_page(i)
+                
                 # 2.0배 배율 (약 144 DPI) - 2K급 선명도 (속도와 화질의 균형)
-                pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))
+                # [수정] 배경을 검은색으로 채워 하얀 글씨가 보이도록 함 (Live 전송 시에도 가독성 확보)
+                pix = page.get_pixmap(
+                    matrix=fitz.Matrix(2.0, 2.0),
+                    colorspace=fitz.csRGB,
+                    alpha=False
+                )
+                
                 target = cache_dir / f"slide_{i}.png"
                 pix.save(str(target))
             
@@ -45,8 +52,7 @@ def _convert_pdf_to_images(pdf_path: Path, cache_dir: Path) -> bool:
         # 가끔 subprocess 종료 직후 파일이 잠겨있을 수 있음
         if "document closed" in str(e) or "cannot open" in str(e).lower():
             import time
-            time.sleep(0.5) # 잠시 대기 후 재시도 방안 고려 가능
-        print(f"[SlideConverter] PDF 이미지 추출 실패: {e}")
+            time.sleep(0.5)
         return False
 
 import threading
@@ -112,7 +118,10 @@ class OnlyOfficeSlideConverter(SlideConverter):
 
         if img_path.exists():
             return QImage(str(img_path))
-        return QImage(1280, 720, QImage.Format.Format_RGB32)
+        from PySide6.QtCore import Qt
+        img = QImage(1280, 720, QImage.Format.Format_RGB32)
+        img.fill(Qt.GlobalColor.black)
+        return img
 
 class WindowsSlideConverter(SlideConverter):
     """Windows용 변환기 (PowerPoint PDF 변환 -> PyMuPDF 추출)"""
@@ -214,17 +223,20 @@ class LinuxSlideConverter(SlideConverter):
         return _convert_with_libreoffice(pptx_path, index, self._cache_dir, "libreoffice")
 
 def _convert_with_libreoffice(pptx_path: Path, index: int, cache_dir: Path, soffice_cmd: str) -> QImage:
-    """LibreOffice를 사용한 공통 변환 로직"""
+    """LibreOffice를 사용한 공통 변환 로직 (디버깅 강화)"""
+    from PySide6.QtCore import Qt
     if not pptx_path:
-        return QImage(1280, 720, QImage.Format.Format_RGB32)
+        img = QImage(1280, 720, QImage.Format.Format_RGB32)
+        img.fill(Qt.GlobalColor.black)
+        return img
+
     mtime = pptx_path.stat().st_mtime
-    pptx_hash = hashlib.md5(f"lo_v2_{str(pptx_path.resolve())}_{mtime}".encode()).hexdigest()
+    pptx_hash = hashlib.md5(f"lo_v10_{str(pptx_path.resolve())}_{mtime}".encode()).hexdigest()
     pptx_cache_dir = cache_dir / pptx_hash
     
     img_path = pptx_cache_dir / f"slide_{index}.png"
     if img_path.exists():
         return QImage(str(img_path))
-
 
     if not pptx_cache_dir.exists():
         pptx_cache_dir.mkdir(parents=True, exist_ok=True)
@@ -232,27 +244,39 @@ def _convert_with_libreoffice(pptx_path: Path, index: int, cache_dir: Path, soff
     pdf_path = pptx_cache_dir / "temp.pdf"
     if not pdf_path.exists():
         try:
+            # -env:UserInstallation을 사용하여 인스턴스 충돌 방지 (Linux 필수)
+            user_install_dir = pptx_cache_dir / "lo_user"
+            user_install_dir.mkdir(exist_ok=True)
+            
             cmd = [
                 soffice_cmd,
+                f"-env:UserInstallation=file://{user_install_dir.resolve()}",
                 "--headless",
                 "--convert-to", "pdf",
-                "--outdir", str(pptx_cache_dir),
-                str(pptx_path)
+                "--outdir", str(pptx_cache_dir.resolve()),
+                str(pptx_path.resolve())
             ]
             subprocess.run(cmd, check=True, capture_output=True)
-            # 생성된 파일명을 temp.pdf로 변경
+            
+            # 생성된 PDF 찾기
             for f in pptx_cache_dir.glob("*.pdf"):
-                f.replace(pdf_path)
-                break
-        except Exception as e:
-            print(f"[SlideConverter] LibreOffice 변환 실패: {e}")
+                if f.name != "temp.pdf":
+                    if pdf_path.exists(): pdf_path.unlink()
+                    f.replace(pdf_path)
+                    break
+        except:
+            pass
 
     if pdf_path.exists():
         _convert_pdf_to_images(pdf_path, pptx_cache_dir)
 
     if img_path.exists():
         return QImage(str(img_path))
-    return QImage(1280, 720, QImage.Format.Format_RGB32)
+    
+    from PySide6.QtCore import Qt
+    img = QImage(1280, 720, QImage.Format.Format_RGB32)
+    img.fill(Qt.GlobalColor.black)
+    return img
 
 def create_slide_converter() -> SlideConverter:
     """플랫폼 및 아키텍처를 감지하여 최적의 변환기를 선택 (Windows는 PowerPoint 우선)"""
@@ -267,7 +291,6 @@ def create_slide_converter() -> SlideConverter:
     if sys.platform == "win32":
         win_converter = WindowsSlideConverter()
         if win_converter._check_powerpoint_installed():
-            # print("[SlideConverter] PowerPoint 엔진 사용 (Windows 권장)")
             return win_converter
 
     # 2. 독립 엔진(ONLYOFFICE) 탐색
@@ -287,21 +310,21 @@ def create_slide_converter() -> SlideConverter:
     # 아키텍처 우선 탐색
     for arch in arch_candidates:
         for target in target_names:
+            if not search_base.exists(): break
             for match in search_base.rglob(target):
                 path_str = str(match.parent).lower()
                 if os_key in path_str and arch in path_str:
-                    print(f"[SlideConverter] 독립 엔진 발견: {match.relative_to(search_base)}")
                     return OnlyOfficeSlideConverter(match)
 
     # OS 폴더 Fallback 탐색
     for target in target_names:
+        if not search_base.exists(): break
         for match in search_base.rglob(target):
             if os_key in str(match.parent).lower():
-                print(f"[SlideConverter] 독립 엔진 발견 (Fallback): {match.relative_to(search_base)}")
                 return OnlyOfficeSlideConverter(match)
 
     # 3. 최후의 보루: 리눅스 기본 변환기
     if sys.platform == "win32":
-        return WindowsSlideConverter() # 이미 위에서 체크했지만 구조상 유지
+        return WindowsSlideConverter()
     return LinuxSlideConverter()
 

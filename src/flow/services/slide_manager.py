@@ -207,9 +207,10 @@ class SlideManager(QObject):
         offset = 0
         for song in songs:
             if song.has_slides:
-                # 각 곡의 슬라이드 개수 확인
+                # 각 곡의 슬라이드 개수 확인 (절대 경로 사용)
+                abs_p = song.abs_slides_path
                 try:
-                    prs = Presentation(str(song.slides_path))
+                    prs = Presentation(str(abs_p))
                     count = len(prs.slides)
                     song.set_slide_count(count)
                     
@@ -220,7 +221,7 @@ class SlideManager(QObject):
                     song.set_slide_count(0)
         
         self._total_slide_count = offset
-        print(f"[SlideManager] 다중 PPT 로드 완료: {len(songs)}개 곡, 총 {self._total_slide_count}개 슬라이드")
+        self.load_finished.emit(self._total_slide_count) # UI 갱신 신호 발생
     
     def global_to_local(self, global_index: int) -> tuple[str, int]:
         """
@@ -271,7 +272,7 @@ class SlideManager(QObject):
         if not song or not song.has_slides:
             raise ValueError(f"Song not found or has no slides: {song_name}")
         
-        return self._converter.convert_slide(song.slides_path, local_index)
+        return self._converter.convert_slide(song.abs_slides_path, local_index)
 
     def get_song_offset(self, song_name: str) -> int:
         """특정 곡의 시작 오프셋 반환"""

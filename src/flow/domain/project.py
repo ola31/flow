@@ -39,7 +39,10 @@ class Project:
     def all_score_sheets(self) -> list[ScoreSheet]:
         """모든 시트 목록 (새 구조와 레거시 구조 통합)"""
         if self.selected_songs:
-            return [song.score_sheet for song in self.selected_songs if song.score_sheet]
+            all_sheets = []
+            for song in self.selected_songs:
+                all_sheets.extend(song.score_sheets)
+            return all_sheets
         return self.score_sheets
 
     def add_score_sheet(self, sheet: ScoreSheet) -> None:
@@ -50,20 +53,19 @@ class Project:
         self.score_sheets.append(sheet)
     
     def remove_score_sheet(self, sheet_id: str) -> bool:
-        """시트 제거"""
-        sheets = self.all_score_sheets
-        for i, s in enumerate(sheets):
-            if s.id == sheet_id:
-                if self.selected_songs:
-                    # 곡 목록에서 제거
-                    self.selected_songs.pop(i)
-                else:
+        """시트 제거 (곡 내부 시트 목록에서 제거)"""
+        if self.selected_songs:
+            for song in self.selected_songs:
+                for i, s in enumerate(song.score_sheets):
+                    if s.id == sheet_id:
+                        song.score_sheets.pop(i)
+                        # 곡 자체가 통째로 삭제되는 것은 별도 로직(SongListWidget)에서 처리
+                        return True
+        else:
+            for i, s in enumerate(self.score_sheets):
+                if s.id == sheet_id:
                     self.score_sheets.pop(i)
-                
-                # 현재 인덱스 조정
-                if self.current_sheet_index >= len(sheets):
-                    self.current_sheet_index = max(0, len(sheets) - 1)
-                return True
+                    return True
         return False
     
     def find_score_sheet_by_id(self, sheet_id: str) -> ScoreSheet | None:
@@ -74,19 +76,18 @@ class Project:
         return None
     
     def move_score_sheet(self, sheet_id: str, new_index: int) -> bool:
-        """시트 순서 변경"""
-        sheets = self.all_score_sheets
-        for i, s in enumerate(sheets):
-            if s.id == sheet_id:
-                if self.selected_songs:
-                    item = self.selected_songs.pop(i)
-                    new_index = max(0, min(new_index, len(self.selected_songs)))
-                    self.selected_songs.insert(new_index, item)
-                else:
+        """시트 순서 변경 (프로젝트 전체 순서 기준)"""
+        # [주의] 다중 곡/다중 시트 구조에서 '전체 인덱스' 이동은 복잡하므로 
+        # 여기서는 레거시 구조 대응만 유지하거나, 곡별 이동으로 제한하는 것이 안전함.
+        # 현재는 SongListWidget에서 곡 단위 이동을 처리함.
+        if not self.selected_songs:
+            sheets = self.score_sheets
+            for i, s in enumerate(sheets):
+                if s.id == sheet_id:
                     item = self.score_sheets.pop(i)
                     new_index = max(0, min(new_index, len(self.score_sheets)))
                     self.score_sheets.insert(new_index, item)
-                return True
+                    return True
         return False
     
     def get_current_score_sheet(self) -> ScoreSheet | None:

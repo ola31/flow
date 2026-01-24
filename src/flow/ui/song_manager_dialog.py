@@ -90,7 +90,7 @@ class SongManagerDialog(QDialog):
         slides_path = song_dir / "slides.pptx"
         self._create_empty_pptx(slides_path)
         
-        # sheets/ 폴더 생성
+        # sheets/ 폴더 생성 (기본값)
         (song_dir / "sheets").mkdir(exist_ok=True)
         
         # song.json 생성 (빈 템플릿)
@@ -109,7 +109,6 @@ class SongManagerDialog(QDialog):
         song = Song(
             name=name,
             folder=Path("songs") / name,
-            score_sheet=ScoreSheet(name=name),  # name 인자 추가
             order=len(self.selected_songs) + 1
         )
         self.selected_songs.append(song)
@@ -120,8 +119,11 @@ class SongManagerDialog(QDialog):
         QMessageBox.information(self, "완료", f"'{name}' 곡이 추가되었습니다.")
     
     def _create_empty_pptx(self, path: Path):
-        """빈 PPTX 파일 생성"""
+        """빈 PPTX 파일 생성 (최소 1개 슬라이드 포함)"""
         prs = Presentation()
+        # 기본 레이아웃(제목 슬라이드 등)을 사용하여 하나 추가
+        blank_slide_layout = prs.slide_layouts[6] # 6은 보통 완전히 비어있는 레이아웃
+        prs.slides.add_slide(blank_slide_layout)
         prs.save(str(path))
     
     def _on_import_song(self):
@@ -189,7 +191,6 @@ class SongManagerDialog(QDialog):
         song = Song(
             name=song_name,
             folder=Path("songs") / song_name,
-            score_sheet=score_sheet,
             order=len(self.selected_songs) + 1
         )
         self.selected_songs.append(song)

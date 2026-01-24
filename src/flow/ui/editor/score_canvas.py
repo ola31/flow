@@ -7,6 +7,8 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QScrollArea, QMenu
 from PySide6.QtGui import QPixmap, QPainter, QColor, QPen, QMouseEvent, QAction, QFont
 from PySide6.QtCore import Signal, Qt, QPoint, QRect, QSize
 
+from pathlib import Path
+
 from flow.domain.score_sheet import ScoreSheet
 from flow.domain.hotspot import Hotspot
 
@@ -63,6 +65,9 @@ class ScoreCanvas(QWidget):
         self._is_dragging = False
         self._drag_hotspot_id = None
         
+        # 이미지 캐시 (경로 -> QPixmap)
+        self._pixmap_cache = {}
+        
     def is_hotspot_editable(self, hotspot: Hotspot, verse_index: int) -> bool:
         """현재 레이어에서 이 핫스팟이 편집 가능한지 판별"""
         if not hotspot: return False
@@ -87,23 +92,55 @@ class ScoreCanvas(QWidget):
             return has_chorus_mapping or is_completely_new
     
     def set_score_sheet(self, sheet: ScoreSheet | None, base_path: str | Path | None = None) -> None:
-        """악보 설정 (base_path를 통해 상대 경로 해결)"""
-        import os
-        from pathlib import Path
-        
+        """악보 설정 (이미지 캐싱 지원)"""
         self._score_sheet = sheet
         self._selected_hotspot_id = None
         
         if sheet and sheet.image_path:
             img_path = Path(sheet.image_path)
-            
-            # 상대 경로인 경우 base_path와 결합
             if not img_path.is_absolute() and base_path:
-                img_path = Path(base_path) / img_path
+                img_path = (Path(base_path) / img_path).resolve()
             
-            self._pixmap = QPixmap(str(img_path))
-            if self._pixmap.isNull():
-                self._pixmap = None
+            path_key = str(img_path)
+            
+            # 1. 캐시 확인
+            if path_key in self._pixmap_cache:
+                self._pixmap = self._pixmap_cache[path_key]
+            else:
+                # 2. 신규 로딩
+                print(f"[DEBUG] Loading score image from disk: {path_key}")
+                self._pixmap = QPixmap(path_key)
+                
+                # 로드 실패 시 fallback 처리
+                if self._pixmap.isNull() and base_path:
+                    # sheet <-> sheets 교체 시도 등 (기존 로직 유지)
+                    alt_path_str = sheet.image_path
+                    if "sheets/" in alt_path_str:
+                        alt_path_str = alt_path_str.replace("sheets/", "sheet/")
+                    elif "sheet/" in alt_path_str:
+                        alt_path_str = alt_path_str.replace("sheet/", "sheets/")
+                    
+                    if alt_path_str != sheet.image_path:
+                        alt_p = (Path(base_path) / alt_path_str).resolve()
+                        self._pixmap = QPixmap(str(alt_p))
+                        if not self._pixmap.isNull():
+                            path_key = str(alt_p)
+                
+                # 여전히 실패 시 폴더 내 검색
+                if self._pixmap.isNull() and base_path:
+                    for sub in ["sheet", "sheets"]:
+                        filename = Path(sheet.image_path).name
+                        alt_p = (Path(base_path) / sub / filename).resolve()
+                        self._pixmap = QPixmap(str(alt_p))
+                        if not self._pixmap.isNull():
+                            path_key = str(alt_p)
+                            break
+                
+                # 최종 성공 시 캐시에 저장
+                if not self._pixmap.isNull():
+                    self._pixmap_cache[path_key] = self._pixmap
+                else:
+                    self._pixmap = None
         else:
             self._pixmap = None
         
@@ -129,6 +166,10 @@ class ScoreCanvas(QWidget):
         if not self._score_sheet or not self._selected_hotspot_id:
             return None
         return self._score_sheet.find_hotspot_by_id(self._selected_hotspot_id)
+    
+    def get_score_sheet(self) -> ScoreSheet | None:
+        """현재 표시 중인 악보 시트 반환"""
+        return self._score_sheet
     
     def paintEvent(self, event) -> None:
         """그리기"""

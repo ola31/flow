@@ -72,7 +72,7 @@ class MainWindow(QMainWindow):
         
         # SongListWidget에 메인 윈도우 참조 연결 (경로 획득용)
         self._song_list.set_main_window(self)
-        self._song_list._list.installEventFilter(self) # [추가] 곡 목록 키 전역 필터
+        self._song_list.install_event_filter(self) # [추가] 곡 목록 키 전역 필터
         
         # Windows 타이틀바 다크 모드 적용
         self._apply_dark_title_bar()
@@ -733,10 +733,10 @@ class MainWindow(QMainWindow):
                 self._slide_preview.refresh_slides()
 
             # 4. 첫 번째 곡 선택 및 악보 표시
-            if self._project.score_sheets:
-                first_sheet = self._project.score_sheets[0]
+            if self._project.all_score_sheets:
+                first_sheet = self._project.all_score_sheets[0]
                 self._on_song_selected(first_sheet)
-                self._song_list._list.setCurrentRow(0)
+                self._song_list.set_current_index(0)
             else:
                 self._canvas.set_score_sheet(None)
             
@@ -786,7 +786,7 @@ class MainWindow(QMainWindow):
             if sheets:
                 sheet = sheets[0]
                 self._on_song_selected(sheet)
-                self._song_list._list.setCurrentRow(0)
+                self._song_list.set_current_index(0)
             else:
                 self._canvas.set_score_sheet(None)
             
@@ -1134,10 +1134,10 @@ class MainWindow(QMainWindow):
         ppt_to_load = ""
         current_ppt = ""
         if self._project and self._project.selected_songs:
-            # 다중 곡 모드: 현재 선택된 곡 찾기
-            song = next((s for s in self._project.selected_songs if s.score_sheet.id == sheet.id), None)
+            # 다중 곡 모드: 현재 선택된 시트가 속한 곡 찾기
+            song = next((s for s in self._project.selected_songs if any(sh.id == sheet.id for sh in s.score_sheets)), None)
             if song and song.has_slides:
-                ppt_to_load = str(song.slides_path.resolve())
+                ppt_to_load = str(song.abs_slides_path)
                 self._slide_manager.start_watching(ppt_to_load)
         else:
             # 레거시 단일 PPT 모드
@@ -1153,8 +1153,10 @@ class MainWindow(QMainWindow):
                     self._slide_manager.start_watching(ppt_to_load)
                 else:
                     self._slide_manager.load_pptx("")
-                    self._slide_manager.stop_watching()
-                    self._slide_preview.refresh_slides()
+            
+            # [추가] 곡 전환 시 매핑 링크 기호 갱신
+            self._update_mapped_slides_ui()
+            self._update_verse_buttons_state()
             
         self._statusbar.showMessage(f"곡 선택: {sheet.name}")
         
@@ -1181,10 +1183,23 @@ class MainWindow(QMainWindow):
         self._statusbar.showMessage(f"새 곡 추가: {sheet.name}")
         
     def _on_song_removed(self, sheet_id: str) -> None:
-        """곡 삭제됨"""
+        """곡 또는 시트 삭제됨"""
         self._mark_dirty()
-        self._canvas.set_score_sheet(None)
-        self._statusbar.showMessage("곡 삭제됨")
+        
+        # 1. 곡 전체가 삭제된 경우 ("ALL_OF_SONG") -> 무조건 초기화
+        if sheet_id == "ALL_OF_SONG":
+            self._canvas.set_score_sheet(None)
+            self._statusbar.showMessage("곡 제거됨")
+            return
+            
+        # 2. 현재 열려있는 시트가 삭제되었는지 확인
+        current_sheet = self._canvas.get_score_sheet()
+        if current_sheet and current_sheet.id == sheet_id:
+            self._canvas.set_score_sheet(None)
+            self._statusbar.showMessage("현재 시트 삭제됨")
+        else:
+            self._statusbar.showMessage("시트 삭제됨")
+            # 현재 시트가 살아있다면 아무것도 지우지 않음 (사용자 혼란 방지)
         
     def _project_dir(self) -> str:
         """현재 프로젝트의 디렉토리 경로 반환"""
@@ -1412,7 +1427,7 @@ class MainWindow(QMainWindow):
         found_hotspot = None
         
         # 1. 모든 곡(ScoreSheet) 탐색
-        for sheet in self._project.score_sheets:
+        for sheet in self._project.all_score_sheets:
             for hotspot in sheet.hotspots:
                 # 모든 절 매핑을 검사
                 for v_idx_str, s_idx in hotspot.slide_mappings.items():
@@ -1437,11 +1452,8 @@ class MainWindow(QMainWindow):
                 self._on_song_selected(found_sheet)
                 
                 # 곡 목록 UI 동기화
-                for i in range(self._song_list._list.count()):
-                    item = self._song_list._list.item(i)
-                    if item.data(Qt.ItemDataRole.UserRole) == found_sheet.id:
-                        self._song_list._list.setCurrentRow(i)
-                        break
+                # 트리/리스트 내에서 정확한 시트 선택
+                self._song_list.select_sheet_by_id(found_sheet.id)
             
             # 핫스팟 선택 및 프리뷰 갱신
             self._canvas.select_hotspot(found_hotspot.id)
@@ -1456,7 +1468,7 @@ class MainWindow(QMainWindow):
             # (수정: 현재 핫스팟이 선택되어 있다면 매핑 시도로 보고 악보를 지우지 않음)
             if not self._canvas.get_selected_hotspot():
                 self._canvas.set_score_sheet(None)
-                self._song_list._list.clearSelection() # 곡 목록 선택도 해제
+                self._song_list.clear_selection() # 곡 목록 선택도 해제
                 msg = f"미리보기: 슬라이드 {index + 1} (매칭 없음 - 악보 가림)"
             else:
                 msg = f"미리보기: 슬라이드 {index + 1} (매칭 없음 - 매핑 대기 중)"
@@ -1500,7 +1512,7 @@ class MainWindow(QMainWindow):
         current_verse = self._project.current_verse_index
         current_verse_key = str(current_verse)
         
-        for sheet in self._project.score_sheets:
+        for sheet in self._get_relevant_sheets():
             ordered_hotspots = sheet.get_ordered_hotspots()
             for i, hotspot in enumerate(ordered_hotspots):
                 # 현재 절의 매핑만 검사
@@ -1559,7 +1571,7 @@ class MainWindow(QMainWindow):
             return
             
         mapped_indices = set()
-        for sheet in self._project.score_sheets:
+        for sheet in self._get_relevant_sheets():
             for hotspot in sheet.hotspots:
                 # [수정] 현재 절의 매핑만 추출
                 idx = hotspot.get_slide_index(self._project.current_verse_index)
@@ -1567,6 +1579,20 @@ class MainWindow(QMainWindow):
                     mapped_indices.add(idx)
         
         self._slide_preview.set_mapped_slides(mapped_indices)
+
+    def _get_relevant_sheets(self) -> list[ScoreSheet]:
+        """현재 화면에 표시된 PPT와 관련된 시트들만 반환 (정확한 매핑 표시용)"""
+        if not self._project: return []
+        
+        # 다중 곡 모드: 현재 선택된 악보가 속한 '곡'의 시트들만 반환
+        current_sheet = self._canvas.get_score_sheet()
+        if current_sheet and self._project.selected_songs:
+            song = next((s for s in self._project.selected_songs if any(sh.id == current_sheet.id for sh in s.score_sheets)), None)
+            if song:
+                return song.score_sheets
+        
+        # 레거시 모드 또는 곡을 찾을 수 없는 경우
+        return self._project.all_score_sheets
 
     def _on_slide_unlink_all_requested(self, index: int) -> None:
         """특정 슬라이드가 매핑된 모든 곳에서 해제 (Undo 지원)"""
@@ -1859,8 +1885,8 @@ class MainWindow(QMainWindow):
             return None
             
         if self._project.selected_songs:
-            # 다중 곡 모드에서 해당 시트의 곡 찾기
-            song = next((s for s in self._project.selected_songs if s.score_sheet.id == sheet.id), None)
+            # 다중 곡 모드에서 해당 시트가 속한 곡 찾기
+            song = next((s for s in self._project.selected_songs if any(sh.id == sheet.id for sh in s.score_sheets)), None)
             if song:
                 return self._project_path.parent / song.folder
                 

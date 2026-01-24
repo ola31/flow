@@ -4,8 +4,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QScrollArea,
                              QListWidget, QListWidgetItem, QLabel, QPushButton,
                              QProgressBar)
 from PySide6.QtCore import Qt, Signal, QSize, QEvent
-from PySide6 import QtGui
-from PySide6.QtGui import QPixmap, QIcon
+from PySide6.QtGui import QPixmap, QIcon, QColor
 from flow.services.slide_manager import SlideManager
 
 class SlidePreviewPanel(QWidget):
@@ -265,6 +264,8 @@ class SlidePreviewPanel(QWidget):
         """SlideManager 연결 및 초기화"""
         self._slide_manager = manager
         self._slide_manager.file_changed.connect(self.refresh_slides)
+        self._slide_manager.load_finished.connect(self.refresh_slides)
+        self._slide_manager.load_error.connect(self.hide_loading)
         self.refresh_slides()
         
     def set_editable(self, editable: bool) -> None:
@@ -307,7 +308,7 @@ class SlidePreviewPanel(QWidget):
             if item.text() != label:
                 item.setText(label)
             
-            target_color = QtGui.QColor("#2a3a4f") if is_mapped else QtGui.QColor("transparent")
+            target_color = QColor("#2a3a4f") if is_mapped else QColor("transparent")
             if item.background().color() != target_color:
                 item.setBackground(target_color)
 
@@ -346,7 +347,7 @@ class SlidePreviewPanel(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, i)
             
             if is_mapped:
-                item.setBackground(QtGui.QColor("#2a3a4f"))
+                item.setBackground(QColor("#2a3a4f"))
             
             self._list.addItem(item)
             
