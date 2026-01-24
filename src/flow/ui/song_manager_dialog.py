@@ -125,45 +125,66 @@ class SongManagerDialog(QDialog):
         prs.save(str(path))
     
     def _on_import_song(self):
-        """기존 곡 불러오기"""
-        if not self.songs_dir.exists():
-            QMessageBox.warning(self, "오류", "songs/ 폴더가 없습니다.")
-            return
+        """기존 곡 불러오기 (파일 탐색기)"""
+        from PySide6.QtWidgets import QFileDialog
         
-        # songs/ 폴더의 모든 곡 스캔
-        available_songs = [
-            d.name for d in self.songs_dir.iterdir() 
-            if d.is_dir() and (d / "song.json").exists()
-        ]
-        
-        # 이미 선택된 곡 제외
-        selected_names = {s.name for s in self.selected_songs}
-        unloaded = [s for s in available_songs if s not in selected_names]
-        
-        if not unloaded:
-            QMessageBox.information(self, "알림", "불러올 수 있는 곡이 없습니다.")
-            return
-        
-        # 선택 다이얼로그
-        song_name, ok = QInputDialog.getItem(
-            self, "곡 불러오기", "곡 선택:", unloaded, 0, False
+        # 곡 폴더 선택
+        song_folder = QFileDialog.getExistingDirectory(
+            self,
+            "곡 폴더 선택",
+            str(Path.home()),
+            QFileDialog.ShowDirsOnly
         )
-        if not ok:
+        
+        if not song_folder:
             return
+        
+        song_folder = Path(song_folder)
+        song_name = song_folder.name
+        
+        # song.json 파일 확인
+        song_json_path = song_folder / "song.json"
+        if not song_json_path.exists():
+            QMessageBox.warning(
+                self, "오류", 
+                f"선택한 폴더에 song.json 파일이 없습니다.\n곡 폴더를 선택해주세요."
+            )
+            return
+        
+        # 이미 선택된 곡인지 확인
+        if any(s.name == song_name for s in self.selected_songs):
+            QMessageBox.warning(self, "오류", f"'{song_name}' 곡이 이미 추가되어 있습니다.")
+            return
+        
+        # songs/ 폴더로 복사
+        self.songs_dir.mkdir(exist_ok=True)
+        dest_dir = self.songs_dir / song_name
+        
+        if dest_dir.exists():
+            reply = QMessageBox.question(
+                self, "확인",
+                f"'{song_name}' 폴더가 이미 존재합니다. 덮어쓰시겠습니까?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+            import shutil
+            shutil.rmtree(dest_dir)
+        
+        # 폴더 복사
+        import shutil
+        shutil.copytree(song_folder, dest_dir)
         
         # Song 객체 생성
         from flow.domain.song import Song
         from flow.domain.score_sheet import ScoreSheet
         import json
         
-        song_dir = self.songs_dir / song_name
-        song_json_path = song_dir / "song.json"
-        
-        with open(song_json_path, "r", encoding="utf-8-sig") as f:
+        with open(dest_dir / "song.json", "r", encoding="utf-8-sig") as f:
             song_data = json.load(f)
         
         sheet_data = song_data.get("sheet")
-        score_sheet = ScoreSheet.from_dict(sheet_data) if sheet_data else ScoreSheet(name=song_name)  # name 인자 추가
+        score_sheet = ScoreSheet.from_dict(sheet_data) if sheet_data else ScoreSheet(name=song_name)
         
         song = Song(
             name=song_name,
@@ -177,7 +198,7 @@ class SongManagerDialog(QDialog):
         self.songs_changed.emit()
         
         QMessageBox.information(self, "완료", f"'{song_name}' 곡이 추가되었습니다.")
-    
+
     def _on_remove_song(self):
         """곡 제거 (폴더는 유지)"""
         current_row = self.song_list.currentRow()
