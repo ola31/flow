@@ -1127,7 +1127,11 @@ class MainWindow(QMainWindow):
         ppt_to_load = ""
         current_ppt = ""
         if self._project and self._project.selected_songs:
-            pass # 변수 선언 유지 (아래 if문 호환용)
+            # 다중 곡 모드: 현재 선택된 곡 찾기
+            song = next((s for s in self._project.selected_songs if s.score_sheet.id == sheet.id), None)
+            if song and song.has_slides:
+                ppt_to_load = str(song.slides_path.resolve())
+                self._slide_manager.start_watching(ppt_to_load)
         else:
             # 레거시 단일 PPT 모드
             ppt_to_load = (sheet.pptx_path or self._project.pptx_path)

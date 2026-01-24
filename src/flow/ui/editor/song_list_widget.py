@@ -235,36 +235,67 @@ class SongListWidget(QWidget):
                 self._main_window.setFocus()
     
     def _on_add_clicked(self) -> None:
-        """곡 추가 버튼 클릭"""
+        """[수정] 악보 이미지 설정 또는 곡 추가"""
         if not self._project:
             return
-        
-        # 곡 이름 입력
-        name, ok = QInputDialog.getText(
-            self, "새 곡 추가", "곡 이름을 입력하세요:"
-        )
-        
-        if not ok or not name.strip():
-            return
-        
-        # 악보 이미지 선택 (선택사항)
-        initial_dir = ""
-        if self._main_window:
-            initial_dir = self._main_window._project_dir()
             
+        if self._project.selected_songs:
+            # 다중 곡 모드: 현재 선택된 곡의 악보 이미지 설정
+            current_row = self._list.currentRow()
+            if current_row < 0:
+                # 선택된 곡이 없으면 곡 관리 다이얼로그 호출
+                if self._main_window:
+                    self._main_window._manage_songs()
+                return
+                
+            song = self._project.selected_songs[current_row]
+            self._set_song_image(song)
+        else:
+            # 레거시 모드: 기존 방식 유지
+            self._add_legacy_sheet()
+
+    def _set_song_image(self, song):
+        """특정 곡의 악보 이미지 설정"""
+        import shutil
+        from pathlib import Path
+        
+        initial_dir = str(self._main_window._project_path.parent) if self._main_window else ""
+        
         image_path, _ = QFileDialog.getOpenFileName(
-            self, "악보 이미지 선택 (선택사항)",
+            self, f"'{song.name}' 악보 이미지 선택",
             initial_dir, "이미지 (*.jpg *.jpeg *.png *.bmp)"
         )
         
-        # 새 악보 생성
+        if not image_path:
+            return
+            
+        # 곡의 sheets/ 폴더로 복사
+        p_path = Path(image_path)
+        dest_path = self._main_window._project_path.parent / song.folder / "sheets" / p_path.name
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        shutil.copy2(image_path, dest_path)
+        
+        # 도메인 모델 업데이트 (상대 경로로 저장)
+        song.score_sheet.image_path = f"sheets/{p_path.name}"
+        
+        self.refresh_list()
+        self.song_selected.emit(song.score_sheet)
+        if self._main_window:
+            self._main_window._mark_dirty()
+
+    def _add_legacy_sheet(self):
+        """레거시 방식의 곡 추가"""
+        name, ok = QInputDialog.getText(self, "새 곡 추가", "곡 이름을 입력하세요:")
+        if not ok or not name.strip(): return
+        
+        image_path, _ = QFileDialog.getOpenFileName(
+            self, "악보 이미지 선택", "", "이미지 (*.jpg *.jpeg *.png *.bmp)"
+        )
         sheet = ScoreSheet(name=name.strip(), image_path=image_path or "")
         self._project.add_score_sheet(sheet)
         self.refresh_list()
-        
-        # 새로 추가된 곡 선택
         self._list.setCurrentRow(len(self._project.all_score_sheets) - 1)
-        
         self.song_added.emit(sheet)
     
     def _on_remove_clicked(self) -> None:
@@ -295,19 +326,76 @@ class SongListWidget(QWidget):
             self.song_removed.emit(sheet_id)
 
     def _on_context_menu(self, pos: QPoint) -> None:
-        """[복구] 우클릭 컨텍스트 메뉴"""
+        """[수정] 우클릭 컨텍스트 메뉴 확장"""
         if not self._editable: return
         item = self._list.itemAt(pos)
         if not item: return
+        
         menu = QMenu(self)
+        
+        # 곡 정보 가져오기
+        sheet_id = item.data(Qt.ItemDataRole.UserRole)
+        song = None
+        if self._project and self._project.selected_songs:
+            song = next((s for s in self._project.selected_songs if s.score_sheet.id == sheet_id), None)
+
+        if song:
+            open_folder_act = QAction("📂 폴더 열기", self)
+            open_folder_act.triggered.connect(lambda: self._open_song_folder(song))
+            menu.addAction(open_folder_act)
+            
+            edit_ppt_act = QAction("📽 PowerPoint 편집", self)
+            edit_ppt_act.triggered.connect(lambda: self._open_song_ppt(song))
+            menu.addAction(edit_ppt_act)
+            
+            set_image_act = QAction("🖼 악보 이미지 설정...", self)
+            set_image_act.triggered.connect(lambda: self._set_song_image(song))
+            menu.addAction(set_image_act)
+            
+            menu.addSeparator()
+
         rename_action = QAction("📝 이름 변경", self)
         rename_action.triggered.connect(lambda: self._on_rename_clicked(item))
         menu.addAction(rename_action)
+        
         menu.addSeparator()
         remove_action = QAction("🗑️ 삭제", self)
         remove_action.triggered.connect(self._on_remove_clicked)
         menu.addAction(remove_action)
+        
         menu.exec(self._list.mapToGlobal(pos))
+
+    def _open_song_folder(self, song):
+        """곡 폴더 열기"""
+        import os
+        import subprocess
+        import sys
+        
+        path = self._main_window._project_path.parent / song.folder
+        if sys.platform == 'win32':
+            os.startfile(path)
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', path])
+        else:
+            subprocess.Popen(['xdg-open', path])
+
+    def _open_song_ppt(self, song):
+        """곡 PPT 열기"""
+        import os
+        import subprocess
+        import sys
+        
+        path = self._main_window._project_path.parent / song.folder / "slides.pptx"
+        if not path.exists():
+             QMessageBox.warning(self, "오류", "PPT 파일이 존재하지 않습니다.")
+             return
+             
+        if sys.platform == 'win32':
+            os.startfile(path)
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', path])
+        else:
+            subprocess.Popen(['xdg-open', path])
 
     def _on_rename_clicked(self, item: QListWidgetItem) -> None:
         """[복구] 곡 이름 변경"""
