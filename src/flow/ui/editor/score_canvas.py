@@ -86,13 +86,22 @@ class ScoreCanvas(QWidget):
             # 후렴 매핑이 있거나, 아예 아무 소속도 없는 '완전한 새 버튼'인 경우 편집 가능
             return has_chorus_mapping or is_completely_new
     
-    def set_score_sheet(self, sheet: ScoreSheet | None) -> None:
-        """악보 설정"""
+    def set_score_sheet(self, sheet: ScoreSheet | None, base_path: str | Path | None = None) -> None:
+        """악보 설정 (base_path를 통해 상대 경로 해결)"""
+        import os
+        from pathlib import Path
+        
         self._score_sheet = sheet
         self._selected_hotspot_id = None
         
         if sheet and sheet.image_path:
-            self._pixmap = QPixmap(sheet.image_path)
+            img_path = Path(sheet.image_path)
+            
+            # 상대 경로인 경우 base_path와 결합
+            if not img_path.is_absolute() and base_path:
+                img_path = Path(base_path) / img_path
+            
+            self._pixmap = QPixmap(str(img_path))
             if self._pixmap.isNull():
                 self._pixmap = None
         else:
