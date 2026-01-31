@@ -77,18 +77,20 @@ class ScoreCanvas(QWidget):
         if not hotspot:
             return False
 
-        # [수정] 1~5절(0~4)은 하나의 편집 그룹으로 묶고, 후렴(5)과만 분리
-        is_verse_group = verse_index < 5
+        # [수정] 5번 인덱스는 '후렴'으로 고정, 나머지는 모두 '절' 그룹으로 간주 (확장성 대응)
+        is_chorus = verse_index == 5
+        is_verse_group = not is_chorus
 
         # 실제로 어떤 매핑(기존 방식 포함)이라도 존재하는지 여부 (완전한 '새 버튼' 판별용)
         is_completely_new = not hotspot.slide_mappings and hotspot.slide_index == -1
 
-        has_verse_mapping = any(str(i) in hotspot.slide_mappings for i in range(5)) or (
+        # 절 매핑 확인 (5를 제외한 모든 키)
+        has_verse_mapping = any(k != "5" for k in hotspot.slide_mappings) or (
             hotspot.slide_index >= 0
         )
         has_chorus_mapping = "5" in hotspot.slide_mappings
 
-        # 1. 절 그룹 모드(1~5절)일 때
+        # 1. 절 그룹 모드일 때
         if is_verse_group:
             # 절 매핑이 있거나, 아예 아무 소속도 없는 '완전한 새 버튼'인 경우 편집 가능
             return has_verse_mapping or is_completely_new

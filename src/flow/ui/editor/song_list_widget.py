@@ -285,6 +285,12 @@ class SongListWidget(QWidget):
         self._act_show_song.triggered.connect(self._on_show_song_names_toggled)
         self._options_menu.addAction(self._act_show_song)
 
+        self._options_menu.addSeparator()
+
+        self._act_settings = QAction("⚙️ 환경설정...", self)
+        self._act_settings.triggered.connect(self._on_settings_clicked)
+        self._options_menu.addAction(self._act_settings)
+
         self._options_btn.clicked.connect(self._show_options_menu)
         header_layout.addWidget(self._options_btn)
 
@@ -732,6 +738,11 @@ class SongListWidget(QWidget):
         self._show_song_names = checked
         if self._is_flat_view:
             self.refresh_list()
+
+    def _on_settings_clicked(self):
+        """설정 메뉴 클릭 핸들러"""
+        if self._main_window:
+            self._main_window._show_settings()
 
     def _show_options_menu(self):
         """설정 메뉴 표시"""

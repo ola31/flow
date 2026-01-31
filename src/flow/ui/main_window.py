@@ -219,51 +219,15 @@ class MainWindow(QMainWindow):
         self._verse_container.setStyleSheet(
             "background-color: #2a2a2a; border-bottom: 1px solid #3d3d3d;"
         )
-        verse_bar_layout = QHBoxLayout(self._verse_container)
-        verse_bar_layout.setContentsMargins(8, 0, 8, 0)
-        verse_bar_layout.setSpacing(4)
-
-        lbl = QLabel("📂 LAYER")
-        lbl.setStyleSheet(
-            "font-size: 10px; font-weight: 900; color: #555; letter-spacing: 1px; padding-right: 4px;"
-        )
-        verse_bar_layout.addWidget(lbl)
+        self._verse_layout = QHBoxLayout(self._verse_container)
+        self._verse_layout.setContentsMargins(8, 0, 8, 0)
+        self._verse_layout.setSpacing(4)
 
         self._verse_group = QButtonGroup(self)
-        verses = [("1", 0), ("2", 1), ("3", 2), ("4", 3), ("5", 4), ("후렴", 5)]
-        for text, idx in verses:
-            btn = QPushButton(text)
-            btn.setCheckable(True)
-            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            btn.setFixedWidth(38 if idx < 5 else 50)
-            btn.setFixedHeight(20)
-            btn.setStyleSheet("""
-                QPushButton { 
-                    background-color: #333; 
-                    border: 1px solid #444; 
-                    border-radius: 4px; 
-                    color: #888; 
-                    font-size: 10px;
-                    font-weight: bold;
-                }
-                QPushButton:hover { 
-                    background-color: #444; 
-                    color: white;
-                }
-                QPushButton:checked { 
-                    background-color: #2a3a4f; 
-                    color: #2196f3; 
-                    font-weight: 900; 
-                    border: 1px solid #2196f3; 
-                }
-            """)
-            if idx == 0:
-                btn.setChecked(True)
-            self._verse_group.addButton(btn, idx)
-            verse_bar_layout.addWidget(btn)
-
         self._verse_group.idClicked.connect(self._on_verse_changed)
-        verse_bar_layout.addStretch()
+
+        self._update_verse_buttons()
+
         center_layout.addWidget(self._verse_container)
 
         self._canvas = ScoreCanvas()
@@ -605,6 +569,13 @@ class MainWindow(QMainWindow):
         self._manage_songs_action.setEnabled(False)
         self._manage_songs_action.triggered.connect(self._manage_songs)
         create_tool_btn(self._manage_songs_action, row1)
+
+        add_sep(row1)
+
+        self._settings_action = QAction("⚙️ 설정", self)
+        self._settings_action.setToolTip("환경설정")
+        self._settings_action.triggered.connect(self._show_settings)
+        create_tool_btn(self._settings_action, row1)
 
         row1.addStretch()
 
@@ -1031,6 +1002,88 @@ class MainWindow(QMainWindow):
         else:
             self._mark_dirty()
 
+    def _update_verse_buttons(self) -> None:
+        """설정된 최대 절 수에 따라 레이어 버튼들 갱신"""
+        # 기존 버튼들 제거
+        for btn in self._verse_group.buttons():
+            self._verse_group.removeButton(btn)
+            btn.deleteLater()
+
+        # 레이아웃 비우기 (라벨 제외)
+        while self._verse_layout.count():
+            item = self._verse_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # 라벨 다시 추가
+        lbl = QLabel("📂 LAYER")
+        lbl.setStyleSheet(
+            "font-size: 10px; font-weight: 900; color: #555; letter-spacing: 1px; padding-right: 4px;"
+        )
+        self._verse_layout.addWidget(lbl)
+
+        # 설정값 가져오기
+        max_verses = self._config_service.get_max_verses()
+
+        # 버튼 스타일 공통 정의
+        btn_style = """
+            QPushButton { 
+                background-color: #333; 
+                border: 1px solid #444; 
+                border-radius: 4px; 
+                color: #888; 
+                font-size: 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover { 
+                background-color: #444; 
+                color: white;
+            }
+            QPushButton:checked { 
+                background-color: #2a3a4f; 
+                color: #2196f3; 
+                font-weight: 900; 
+                border: 1px solid #2196f3; 
+            }
+        """
+
+        # 숫자 버튼들
+        for i in range(max_verses):
+            # 후렴 인덱스(5)와 겹치지 않게 처리
+            idx = i if i < 5 else i + 1
+            btn = QPushButton(str(i + 1))
+            btn.setCheckable(True)
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn.setFixedWidth(38)
+            btn.setFixedHeight(20)
+            btn.setStyleSheet(btn_style)
+            if i == 0:
+                btn.setChecked(True)
+            self._verse_group.addButton(btn, idx)
+            self._verse_layout.addWidget(btn)
+
+        # 후렴 버튼 (인덱스 5 고정)
+        btn_chorus = QPushButton("후렴")
+        btn_chorus.setCheckable(True)
+        btn_chorus.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_chorus.setFixedWidth(50)
+        btn_chorus.setFixedHeight(20)
+        btn_chorus.setStyleSheet(btn_style)
+        self._verse_group.addButton(btn_chorus, 5)
+        self._verse_layout.addWidget(btn_chorus)
+
+        self._verse_layout.addStretch()
+
+    def _show_settings(self) -> None:
+        """환경설정 다이얼로그 표시"""
+        from flow.ui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(self._config_service, self)
+        if dialog.exec():
+            # 설정 변경 시 버튼 갱신
+            self._update_verse_buttons()
+            self._statusbar.showMessage("설정이 저장되었습니다.", 2000)
+
     def _on_verse_changed(self, verse_index: int) -> None:
         """현재 선택된 절 변경 핸들러"""
         if not self._project:
@@ -1053,10 +1106,13 @@ class MainWindow(QMainWindow):
         # [추가] 절이 바뀌면 슬라이드 링크 표시도 갱신
         self._update_mapped_slides_ui()
 
-        self._statusbar.showMessage(
-            f"{verse_index + 1 if verse_index < 5 else '후렴'}을(를) 선택했습니다.",
-            1000,
+        # 메시지 표시 보정
+        v_text = (
+            "후렴"
+            if verse_index == 5
+            else f"{self._verse_group.button(verse_index).text()}절"
         )
+        self._statusbar.showMessage(f"{v_text}을(를) 선택했습니다.", 1000)
 
     def _save_project_as(self) -> None:
         """현재 프로젝트를 다른 이름(폴더 통째로 복사)으로 저장"""
@@ -2092,24 +2148,33 @@ class MainWindow(QMainWindow):
                 event.accept()
                 return
 
-        # 숫자키 1-6 (상단 숫자키): 절(Verse) 즉시 전환
+        # 숫자키 및 단축키: 절(Verse) / 후렴 전환
         verse_idx = -1
-        if Qt.Key.Key_1 <= key <= Qt.Key.Key_6:
-            verse_idx = key - Qt.Key.Key_1
+        max_v = self._config_service.get_max_verses()
+
+        if Qt.Key.Key_1 <= key <= Qt.Key.Key_9:
+            k_num = key - Qt.Key.Key_1 + 1
+            if k_num <= max_v:
+                verse_idx = k_num - 1 if k_num <= 5 else k_num
+        elif key == Qt.Key.Key_0:
+            if max_v >= 10:
+                verse_idx = 10  # ID 10은 10절
+        elif key in (Qt.Key.Key_C, Qt.Key.Key_QuoteLeft, Qt.Key.Key_AsciiTilde):
+            # C 키 또는 ` (백틱) 키: 후렴 전환
+            verse_idx = 5
+        elif key == Qt.Key.Key_6 and max_v < 6:
+            # 하위 호환: 최대 절 수가 5 이하일 때 6번 키는 후렴으로 동작
+            verse_idx = 5
 
         if verse_idx != -1:
-            self._on_verse_changed(verse_idx)
-            # 버튼 UI 동기화
             btn = self._verse_group.button(verse_idx)
             if btn:
                 btn.setChecked(True)
-            self.statusBar().showMessage(
-                f"레이어 전환: {verse_idx + 1 if verse_idx < 5 else '후렴'}", 1000
-            )
-            # [복구] 포커스 강제 이동으로 점프 방지
-            self._canvas.setFocus()
-            event.accept()
-            return
+                self._on_verse_changed(verse_idx)
+                # [복구] 포커스 강제 이동으로 점프 방지
+                self._canvas.setFocus()
+                event.accept()
+                return
 
         # [중요] 텍스트 입력 중일 때는 전역 키 조작을 하지 않음 (커서 이동/줄바꿈 보호)
         if isinstance(focused, (QLineEdit, QTextEdit, QPlainTextEdit)):
@@ -2140,8 +2205,8 @@ class MainWindow(QMainWindow):
                 c_hotspots = [h for h in ordered if h.id in chorus_ids]
 
                 # 현재 모드(v_idx)에서 보이는 핫스팟 목록 구성
-                if v_idx < 5:
-                    # 1~5절 모드: 숫자 버튼(절)과 알파벳 버튼(후렴)이 모두 보이므로 전체 탐색
+                if v_idx != 5:
+                    # 절 모드: 숫자 버튼(절)과 알파벳 버튼(후렴)이 모두 보이므로 전체 탐색
                     all_eligible = v_hotspots + c_hotspots
                 else:
                     # 후렴 모드: 알파벳 버튼(후렴)만 보이므로 후렴만 탐색
