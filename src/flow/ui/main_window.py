@@ -559,10 +559,6 @@ class MainWindow(QMainWindow):
 
         add_sep(row1)
 
-        self._load_ppt_action = QAction("📽 PPT 로드", self)
-        self._load_ppt_action.triggered.connect(self._on_load_ppt)
-        create_tool_btn(self._load_ppt_action, row1)
-
         # 곡 관리 버튼 추가
         self._manage_songs_action = QAction("🎵 곡 관리", self)
         self._manage_songs_action.setToolTip("곡 추가/제거/관리")
@@ -1272,7 +1268,6 @@ class MainWindow(QMainWindow):
         self._close_project_action.setEnabled(True)
 
         # 편집 관련 액션만 제어
-        self._load_ppt_action.setEnabled(editable)
         self._manage_songs_action.setEnabled(editable)  # 곡 관리 버튼
         self._undo_action.setEnabled(editable)
         self._redo_action.setEnabled(editable)
