@@ -157,6 +157,8 @@ class SongListWidget(QWidget):
         self._project: Project | None = None
         self._main_window = None  # 메인 윈도우 참조 보관
         self._editable = True
+        self._is_flat_view = False  # 단일 목록 모드 상태
+        self._show_song_names = True  # 단일 목록에서 곡 제목 표시 여부
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -166,26 +168,13 @@ class SongListWidget(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(10)
 
-        # 헤더
-        header = QLabel("📋 곡 목록")
-        header.setStyleSheet("""
-            font-weight: 800; 
-            font-size: 14px; 
-            color: #2196f3; 
-            padding: 4px 4px;
-            letter-spacing: 0.5px;
-        """)
-        layout.addWidget(header)
-
-        # 곡 트리 (CustomTreeWidget으로 드래그 앤 드롭 제약 적용)
+        # 1. 트리 위젯 우선 생성 (버튼 연결을 위함)
         self._tree = CustomTreeWidget(self)
         self._tree.setHeaderHidden(True)
         self._tree.setIndentation(15)
         self._tree.setDragEnabled(True)
         self._tree.setAcceptDrops(True)
         self._tree.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
-
-        # [추가] 화살표 아이콘 숨기기 (곡 자체 클릭으로 토글하므로 필요 없음)
         self._tree.setRootIsDecorated(False)
 
         self._tree.setStyleSheet("""
@@ -216,9 +205,93 @@ class SongListWidget(QWidget):
         self._tree.itemClicked.connect(self._on_item_clicked)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
+
+        # 2. 헤더 및 제어 버튼 레이아웃
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(4, 4, 4, 4)
+        header_layout.setSpacing(4)
+
+        header = QLabel("📋 곡 목록")
+        header.setStyleSheet("""
+            font-weight: 800; 
+            font-size: 14px; 
+            color: #2196f3; 
+            letter-spacing: 0.5px;
+        """)
+        header_layout.addWidget(header)
+        header_layout.addStretch()
+
+        btn_style = """
+            QPushButton {
+                background-color: #2a2a2a;
+                color: #aaa;
+                border: 1px solid #333;
+                border-radius: 4px;
+                font-size: 10px;
+                font-weight: bold;
+                padding: 4px 6px;
+            }
+            QPushButton:hover {
+                background-color: #383838;
+                color: white;
+                border: 1px solid #2196f3;
+            }
+            QPushButton:checked {
+                background-color: #203040;
+                color: #2196f3;
+                border: 1px solid #2196f3;
+            }
+        """
+
+        # 단일 목록 토글 버튼 (텍스트 단축)
+        self._flat_view_btn = QPushButton("목록형")
+        self._flat_view_btn.setCheckable(True)
+        self._flat_view_btn.setToolTip("곡 제목을 숨기고 시트만 나열하는 모드입니다.")
+        self._flat_view_btn.setStyleSheet(btn_style)
+        self._flat_view_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._flat_view_btn.clicked.connect(self._on_flat_view_toggled)
+        header_layout.addWidget(self._flat_view_btn)
+
+        # 설정/추가 옵션 메뉴 버튼
+        self._options_btn = QPushButton("⚙️")
+        self._options_btn.setToolTip("보기 옵션 및 제어")
+        self._options_btn.setStyleSheet(
+            btn_style + "QPushButton { font-size: 12px; padding: 3px 6px; }"
+        )
+        self._options_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        # 옵션 메뉴 구성
+        self._options_menu = QMenu(self)
+        self._options_menu.setStyleSheet("""
+            QMenu { background-color: #2a2a2a; color: #ccc; border: 1px solid #444; }
+            QMenu::item { padding: 6px 20px; }
+            QMenu::item:selected { background-color: #3d3d3d; color: white; }
+            QMenu::separator { height: 1px; background: #444; margin: 4px 0px; }
+        """)
+
+        self._act_expand = QAction("📂 전체 펼치기", self)
+        self._act_expand.triggered.connect(self._tree.expandAll)
+        self._options_menu.addAction(self._act_expand)
+
+        self._act_collapse = QAction("📁 전체 접기", self)
+        self._act_collapse.triggered.connect(self._tree.collapseAll)
+        self._options_menu.addAction(self._act_collapse)
+
+        self._options_menu.addSeparator()
+
+        self._act_show_song = QAction("🎵 곡 제목 표시 (목록형 전용)", self)
+        self._act_show_song.setCheckable(True)
+        self._act_show_song.setChecked(True)
+        self._act_show_song.triggered.connect(self._on_show_song_names_toggled)
+        self._options_menu.addAction(self._act_show_song)
+
+        self._options_btn.clicked.connect(self._show_options_menu)
+        header_layout.addWidget(self._options_btn)
+
+        layout.addLayout(header_layout)
         layout.addWidget(self._tree)
 
-        # 버튼들
+        # 3. 하단 버튼들
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(6)
 
@@ -551,13 +624,18 @@ class SongListWidget(QWidget):
         self._update_indicators()
 
     def refresh_list(self) -> None:
-        """곡 목록 갱신 (계층 구조)"""
+        """곡 목록 갱신 (계층 구조 또는 단일 목록 대응)"""
         self._tree.blockSignals(True)
         self._tree.clear()
 
         if not self._project:
             self._tree.blockSignals(False)
             return
+
+        # 단일 목록 모드 상태에 따른 옵션 메뉴 활성화/비활성화
+        self._act_expand.setEnabled(not self._is_flat_view)
+        self._act_collapse.setEnabled(not self._is_flat_view)
+        self._act_show_song.setEnabled(self._is_flat_view)
 
         current_sheet = self._project.get_current_score_sheet()
 
@@ -569,26 +647,23 @@ class SongListWidget(QWidget):
                 if s.image_path and str(s.image_path).strip()
             ]
 
-            # 곡 제목 아이템 (무조건 생성)
-            song_item = QTreeWidgetItem([song.name])
-            font = song_item.font(0)
-            font.setBold(True)
-            song_item.setFont(0, font)
-            song_item.setData(0, Qt.ItemDataRole.UserRole, song)
-            # [수정] 곡 제목 노드는 선택 불가능하지만 드래그는 가능하도록 설정
-            flags = song_item.flags()
-            flags &= ~Qt.ItemFlag.ItemIsSelectable  # 선택 불가
-            flags |= Qt.ItemFlag.ItemIsDragEnabled  # 드래그 가능
-            song_item.setFlags(flags)
-            self._tree.addTopLevelItem(song_item)
+            if not self._is_flat_view:
+                # [기본 모드] 곡 제목 아이템 생성
+                song_item = QTreeWidgetItem([song.name])
+                font = song_item.font(0)
+                font.setBold(True)
+                song_item.setFont(0, font)
+                song_item.setData(0, Qt.ItemDataRole.UserRole, song)
+                flags = song_item.flags()
+                flags &= ~Qt.ItemFlag.ItemIsSelectable  # 선택 불가
+                flags |= Qt.ItemFlag.ItemIsDragEnabled  # 드래그 가능
+                song_item.setFlags(flags)
+                self._tree.addTopLevelItem(song_item)
 
-            if not valid_sheets:
-                # 이미지가 없으면 펼치지 않음
-                continue
+                if not valid_sheets:
+                    continue
 
-            # 2. 모든 시트를 항상 자식으로 추가 (일관성 유지)
-            global_sheet_idx = 0
-            # 전체 프로젝트 기준 인덱스를 계산하기 위해 이전 곡들의 시트 개수 합산
+            # 2. 시트 목록 구성 (전체 프로젝트 기준 인덱스 계산)
             all_sheets_before = []
             for s in self._project.selected_songs:
                 if s == song:
@@ -603,28 +678,67 @@ class SongListWidget(QWidget):
             global_start_idx = len(all_sheets_before)
 
             for i, sheet in enumerate(valid_sheets):
-                # 표시 이름 최적화: 곡 제목 중복 제거
+                # 표시 이름 최적화
                 display_name = sheet.name
-                prefix = f"{song.name} -"
-                if display_name.startswith(prefix):
-                    display_name = display_name[len(prefix) :].strip()
+                if not self._is_flat_view:
+                    # 곡 제목 중복 제거 (계층 구조일 때만)
+                    prefix = f"{song.name} -"
+                    if display_name.startswith(prefix):
+                        display_name = display_name[len(prefix) :].strip()
+                    item_text = f"  P{i + 1}: {display_name}"
+                else:
+                    # 단일 목록 모드: 설정에 따라 곡 제목 표시 여부 결정
+                    if self._show_song_names:
+                        # 시트가 1개뿐이고 이름이 곡 이름과 같다면 곡 이름만 표시
+                        if len(valid_sheets) == 1 and (
+                            display_name == song.name
+                            or display_name.startswith(f"{song.name} -")
+                        ):
+                            item_text = song.name
+                        else:
+                            item_text = f"{song.name} - {display_name}"
+                    else:
+                        # 곡 제목 없이 시트 이름만 표시
+                        item_text = display_name
 
-                sheet_item = QTreeWidgetItem([f"  P{i + 1}: {display_name}"])
+                sheet_item = QTreeWidgetItem([item_text])
                 sheet_item.setData(0, Qt.ItemDataRole.UserRole, sheet)
-                # [추가] ID 충돌 방지를 위해 절대 인덱스 저장
                 sheet_item.setData(
                     0, Qt.ItemDataRole.UserRole + 1, global_start_idx + i
                 )
-                song_item.addChild(sheet_item)
 
-                # 현재 선택된 시트가 이 곡에 있으면 트리 확장
-                if current_sheet and any(
-                    s.id == current_sheet.id for s in valid_sheets
-                ):
-                    song_item.setExpanded(True)
+                if not self._is_flat_view:
+                    song_item.addChild(sheet_item)
+                    # 현재 선택된 시트가 이 곡에 있으면 트리 확장
+                    if current_sheet and any(
+                        s.id == current_sheet.id for s in valid_sheets
+                    ):
+                        song_item.setExpanded(True)
+                else:
+                    # 단일 목록 모드: 직접 최상위에 추가
+                    self._tree.addTopLevelItem(sheet_item)
 
         self._update_selection_from_project()
         self._tree.blockSignals(False)
+
+    def _on_flat_view_toggled(self, checked: bool):
+        """단일 목록 모드 토글 핸들러"""
+        self._is_flat_view = checked
+        self._tree.setDragEnabled(not checked)
+        self.refresh_list()
+
+    def _on_show_song_names_toggled(self, checked: bool):
+        """단일 목록에서 곡 이름 표시 토글 핸들러"""
+        self._show_song_names = checked
+        if self._is_flat_view:
+            self.refresh_list()
+
+    def _show_options_menu(self):
+        """설정 메뉴 표시"""
+        # 버튼 바로 아래에 메뉴 표시
+        self._options_menu.exec(
+            self._options_btn.mapToGlobal(QPoint(0, self._options_btn.height()))
+        )
 
     def _on_selection_changed(
         self, current: QTreeWidgetItem | None, previous: QTreeWidgetItem | None
