@@ -11,8 +11,8 @@ python -m venv .venv
 # 가상 환경 활성화
 # Linux/macOS
 source .venv/bin/activate
-# Windows
 
+# Windows
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 .venv\Scripts\activate

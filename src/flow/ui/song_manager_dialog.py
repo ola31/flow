@@ -1,226 +1,307 @@
-"""곡 관리 다이얼로그"""
+"""곡 관리 다이얼로그 - 체크박스 기반 곡 선택"""
+
+from __future__ import annotations
+
+import json
+import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
+
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
-    QListWidget, QInputDialog, QMessageBox, QLabel
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QListWidget,
+    QListWidgetItem,
+    QInputDialog,
+    QMessageBox,
+    QLabel,
+    QFileDialog,
 )
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, Qt
 from pptx import Presentation
+
+from flow.domain.song import Song
+from flow.domain.score_sheet import ScoreSheet
+
+if TYPE_CHECKING:
+    from flow.domain.project import Project
 
 
 class SongManagerDialog(QDialog):
-    """곡 추가/제거/순서 변경 다이얼로그"""
-    
-    songs_changed = Signal()  # 곡 목록 변경 시 발생
-    
-    def __init__(self, project_dir: Path, selected_songs: list, parent=None):
+    """곡 추가/제거/순서 변경 다이얼로그 (체크박스 기반)"""
+
+    songs_changed = Signal()
+
+    def __init__(self, project_dir: Path, project: Project, parent=None):
         super().__init__(parent)
         self.project_dir = project_dir
+        self.project = project
         self.songs_dir = project_dir / "songs"
-        self.selected_songs = selected_songs  # Song 객체 리스트
-        
+        self.selected_songs = project.selected_songs
+        self._selected_names: set[str] = {s.name for s in self.selected_songs}
+
         self.setWindowTitle("곡 관리")
         self.setMinimumWidth(500)
-        self.setMinimumHeight(400)
-        
+        self.setMinimumHeight(450)
+
         self._setup_ui()
-        self._load_song_list()
-    
+        self._scan_and_load()
+
     def _setup_ui(self):
-        """UI 구성"""
         layout = QVBoxLayout(self)
-        
-        # 설명
-        label = QLabel("프로젝트에 포함된 곡 목록:")
+
+        label = QLabel("songs/ 폴더 내 곡 목록 (체크된 곡이 프로젝트에 포함됨):")
         layout.addWidget(label)
-        
-        # 곡 목록
+
         self.song_list = QListWidget()
+        self.song_list.itemChanged.connect(self._on_item_changed)
         layout.addWidget(self.song_list)
-        
-        # 버튼들
-        btn_layout = QHBoxLayout()
-        
-        self.btn_add_new = QPushButton("새 곡 만들기")
+
+        btn_row1 = QHBoxLayout()
+
+        self.btn_add_new = QPushButton("+ 새 곡 만들기")
         self.btn_add_new.clicked.connect(self._on_add_new_song)
-        btn_layout.addWidget(self.btn_add_new)
-        
-        self.btn_import = QPushButton("기존 곡 불러오기")
+        btn_row1.addWidget(self.btn_add_new)
+
+        self.btn_import = QPushButton("📂 외부에서 가져오기")
         self.btn_import.clicked.connect(self._on_import_song)
-        btn_layout.addWidget(self.btn_import)
-        
-        self.btn_remove = QPushButton("제거")
-        self.btn_remove.clicked.connect(self._on_remove_song)
-        btn_layout.addWidget(self.btn_remove)
-        
-        btn_layout.addStretch()
-        
+        btn_row1.addWidget(self.btn_import)
+
+        self.btn_refresh = QPushButton("🔄 새로고침")
+        self.btn_refresh.clicked.connect(self._scan_and_load)
+        btn_row1.addWidget(self.btn_refresh)
+
+        layout.addLayout(btn_row1)
+
+        btn_row2 = QHBoxLayout()
+
+        self.btn_up = QPushButton("⬆ 위로")
+        self.btn_up.clicked.connect(self._on_move_up)
+        btn_row2.addWidget(self.btn_up)
+
+        self.btn_down = QPushButton("⬇ 아래로")
+        self.btn_down.clicked.connect(self._on_move_down)
+        btn_row2.addWidget(self.btn_down)
+
+        btn_row2.addStretch()
+
         self.btn_close = QPushButton("닫기")
-        self.btn_close.clicked.connect(self.accept)
-        btn_layout.addWidget(self.btn_close)
-        
-        layout.addLayout(btn_layout)
-    
-    def _load_song_list(self):
-        """현재 선택된 곡 목록 표시"""
+        self.btn_close.clicked.connect(self._on_close)
+        btn_row2.addWidget(self.btn_close)
+
+        layout.addLayout(btn_row2)
+
+    def _scan_and_load(self):
+        """songs/ 폴더 스캔하여 모든 곡 표시"""
+        self.song_list.blockSignals(True)
         self.song_list.clear()
-        for song in self.selected_songs:
-            self.song_list.addItem(f"{song.order}. {song.name}")
-    
+
+        if not self.songs_dir.exists():
+            self.songs_dir.mkdir(parents=True, exist_ok=True)
+
+        actual_folders = {
+            f.name
+            for f in self.songs_dir.iterdir()
+            if f.is_dir() and (f / "song.json").exists()
+        }
+
+        ordered_list = [
+            name for name in self.project.song_order if name in actual_folders
+        ]
+        new_folders = sorted(list(actual_folders - set(ordered_list)))
+        ordered_list.extend(new_folders)
+
+        self.project.song_order = ordered_list
+
+        for name in ordered_list:
+            item = QListWidgetItem(name)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.CheckState.Checked
+                if name in self._selected_names
+                else Qt.CheckState.Unchecked
+            )
+            self.song_list.addItem(item)
+
+        self.song_list.blockSignals(False)
+
+    def _on_item_changed(self, item: QListWidgetItem):
+        name = item.text()
+        is_checked = item.checkState() == Qt.CheckState.Checked
+
+        if is_checked and name not in self._selected_names:
+            song = self._load_song_from_folder(name)
+            if song:
+                self.selected_songs.append(song)
+                self._selected_names.add(name)
+                self._sync_selected_order()
+
+        elif not is_checked and name in self._selected_names:
+            self.selected_songs = [s for s in self.selected_songs if s.name != name]
+            self.project.selected_songs = self.selected_songs
+            self._selected_names.discard(name)
+            self._reorder_songs()
+
+    def _load_song_from_folder(self, name: str) -> Song | None:
+        """폴더에서 Song 객체 로드"""
+        song_dir = self.songs_dir / name
+        song_json = song_dir / "song.json"
+
+        if not song_json.exists():
+            return None
+
+        try:
+            with open(song_json, "r", encoding="utf-8-sig") as f:
+                data = json.load(f)
+
+            sheets_data = data.get("sheets", [])
+            if not sheets_data and data.get("sheet"):
+                sheets_data = [data["sheet"]]
+
+            score_sheets = []
+            for sd in sheets_data:
+                if sd:
+                    score_sheets.append(ScoreSheet.from_dict(sd))
+
+            if not score_sheets:
+                score_sheets.append(ScoreSheet(name=name))
+
+            song = Song(
+                name=name,
+                folder=Path("songs") / name,
+                score_sheets=score_sheets,
+                project_dir=self.project_dir,
+            )
+            return song
+
+        except Exception as e:
+            print(f"곡 로드 실패: {name} - {e}")
+            return None
+
+    def _reorder_songs(self):
+        """선택된 곡들의 순서 재조정"""
+        for i, song in enumerate(self.selected_songs):
+            song.order = i + 1
+
     def _on_add_new_song(self):
-        """새 곡 추가"""
+        """새 곡 폴더 생성"""
         name, ok = QInputDialog.getText(self, "새 곡", "곡 이름:")
         if not ok or not name.strip():
             return
-        
+
         name = name.strip()
-        
-        # songs/ 폴더 생성
-        self.songs_dir.mkdir(exist_ok=True)
-        
-        # 곡 폴더 생성
         song_dir = self.songs_dir / name
+
         if song_dir.exists():
-            QMessageBox.warning(self, "오류", f"'{name}' 곡이 이미 존재합니다.")
+            QMessageBox.warning(self, "오류", f"'{name}' 폴더가 이미 존재합니다.")
             return
-        
+
+        self.songs_dir.mkdir(exist_ok=True)
         song_dir.mkdir(parents=True)
-        
-        # 빈 slides.pptx 생성
-        slides_path = song_dir / "slides.pptx"
-        self._create_empty_pptx(slides_path)
-        
-        # sheets/ 폴더 생성 (기본값)
+
+        self._create_empty_pptx(song_dir / "slides.pptx")
         (song_dir / "sheets").mkdir(exist_ok=True)
-        
-        # song.json 생성 (빈 템플릿)
-        import json
-        song_data = {
-            "name": name,
-            "sheet": None
-        }
+
+        song_data = {"name": name, "sheets": []}
         with open(song_dir / "song.json", "w", encoding="utf-8-sig") as f:
             json.dump(song_data, f, ensure_ascii=False, indent=2)
-        
-        # Song 객체 생성 및 추가
-        from flow.domain.song import Song
-        from flow.domain.score_sheet import ScoreSheet
-        
-        song = Song(
-            name=name,
-            folder=Path("songs") / name,
-            order=len(self.selected_songs) + 1
-        )
-        self.selected_songs.append(song)
-        
-        self._load_song_list()
-        self.songs_changed.emit()
-        
-        QMessageBox.information(self, "완료", f"'{name}' 곡이 추가되었습니다.")
-    
-    def _create_empty_pptx(self, path: Path):
-        """빈 PPTX 파일 생성 (최소 1개 슬라이드 포함)"""
-        prs = Presentation()
-        # 기본 레이아웃(제목 슬라이드 등)을 사용하여 하나 추가
-        blank_slide_layout = prs.slide_layouts[6] # 6은 보통 완전히 비어있는 레이아웃
-        prs.slides.add_slide(blank_slide_layout)
-        prs.save(str(path))
-    
-    def _on_import_song(self):
-        """기존 곡 불러오기 (파일 탐색기)"""
-        from PySide6.QtWidgets import QFileDialog
-        
-        # 곡 폴더 선택
-        song_folder = QFileDialog.getExistingDirectory(
-            self,
-            "곡 폴더 선택",
-            str(Path.home()),
-            QFileDialog.ShowDirsOnly
-        )
-        
-        if not song_folder:
-            return
-        
-        song_folder = Path(song_folder)
-        song_name = song_folder.name
-        
-        # song.json 파일 확인
-        song_json_path = song_folder / "song.json"
-        if not song_json_path.exists():
-            QMessageBox.warning(
-                self, "오류", 
-                f"선택한 폴더에 song.json 파일이 없습니다.\n곡 폴더를 선택해주세요."
-            )
-            return
-        
-        # 이미 선택된 곡인지 확인
-        if any(s.name == song_name for s in self.selected_songs):
-            QMessageBox.warning(self, "오류", f"'{song_name}' 곡이 이미 추가되어 있습니다.")
-            return
-        
-        # songs/ 폴더로 복사
-        self.songs_dir.mkdir(exist_ok=True)
-        dest_dir = self.songs_dir / song_name
-        
-        if dest_dir.exists():
-            reply = QMessageBox.question(
-                self, "확인",
-                f"'{song_name}' 폴더가 이미 존재합니다. 덮어쓰시겠습니까?",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            if reply == QMessageBox.No:
-                return
-            import shutil
-            shutil.rmtree(dest_dir)
-        
-        # 폴더 복사
-        import shutil
-        shutil.copytree(song_folder, dest_dir)
-        
-        # Song 객체 생성
-        from flow.domain.song import Song
-        from flow.domain.score_sheet import ScoreSheet
-        import json
-        
-        with open(dest_dir / "song.json", "r", encoding="utf-8-sig") as f:
-            song_data = json.load(f)
-        
-        sheet_data = song_data.get("sheet")
-        score_sheet = ScoreSheet.from_dict(sheet_data) if sheet_data else ScoreSheet(name=song_name)
-        
-        song = Song(
-            name=song_name,
-            folder=Path("songs") / song_name,
-            order=len(self.selected_songs) + 1
-        )
-        self.selected_songs.append(song)
-        
-        self._load_song_list()
-        self.songs_changed.emit()
-        
-        QMessageBox.information(self, "완료", f"'{song_name}' 곡이 추가되었습니다.")
 
-    def _on_remove_song(self):
-        """곡 제거 (폴더는 유지)"""
-        current_row = self.song_list.currentRow()
-        if current_row < 0:
-            QMessageBox.warning(self, "오류", "제거할 곡을 선택하세요.")
-            return
-        
-        song = self.selected_songs[current_row]
-        
-        reply = QMessageBox.question(
-            self, "확인", 
-            f"'{song.name}' 곡을 프로젝트에서 제거하시겠습니까?\n(폴더는 유지됩니다)",
-            QMessageBox.Yes | QMessageBox.No
+        self._scan_and_load()
+        QMessageBox.information(
+            self,
+            "완료",
+            f"'{name}' 곡이 생성되었습니다.\n체크하여 프로젝트에 추가하세요.",
         )
-        
-        if reply == QMessageBox.Yes:
-            self.selected_songs.pop(current_row)
-            
-            # 순서 재조정
-            for i, s in enumerate(self.selected_songs):
-                s.order = i + 1
-            
-            self._load_song_list()
-            self.songs_changed.emit()
+
+    def _create_empty_pptx(self, path: Path):
+        prs = Presentation()
+        blank_layout = prs.slide_layouts[6]
+        prs.slides.add_slide(blank_layout)
+        prs.save(str(path))
+
+    def _on_import_song(self):
+        """외부 곡 폴더를 songs/로 복사"""
+        folder = QFileDialog.getExistingDirectory(
+            self, "곡 폴더 선택", str(Path.home()), QFileDialog.Option.ShowDirsOnly
+        )
+        if not folder:
+            return
+
+        src = Path(folder)
+        name = src.name
+
+        if not (src / "song.json").exists():
+            QMessageBox.warning(
+                self,
+                "오류",
+                f"선택한 폴더에 song.json이 없습니다.\n유효한 곡 폴더를 선택하세요.",
+            )
+            return
+
+        dest = self.songs_dir / name
+        self.songs_dir.mkdir(exist_ok=True)
+
+        if dest.exists():
+            reply = QMessageBox.question(
+                self,
+                "확인",
+                f"'{name}' 폴더가 이미 존재합니다. 덮어쓰시겠습니까?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            shutil.rmtree(dest)
+
+        shutil.copytree(src, dest)
+        self._scan_and_load()
+
+        QMessageBox.information(
+            self,
+            "완료",
+            f"'{name}' 곡을 가져왔습니다.\n체크하여 프로젝트에 추가하세요.",
+        )
+
+    def _on_move_up(self):
+        """곡 순서를 위로 이동"""
+        row = self.song_list.currentRow()
+        if row <= 0:
+            return
+
+        order = self.project.song_order
+        order[row], order[row - 1] = order[row - 1], order[row]
+
+        self._sync_selected_order()
+        self._scan_and_load()
+        self.song_list.setCurrentRow(row - 1)
+
+    def _on_move_down(self):
+        """곡 순서를 아래로 이동"""
+        row = self.song_list.currentRow()
+        if row < 0 or row >= self.song_list.count() - 1:
+            return
+
+        order = self.project.song_order
+        order[row], order[row + 1] = order[row + 1], order[row]
+
+        self._sync_selected_order()
+        self._scan_and_load()
+        self.song_list.setCurrentRow(row + 1)
+
+    def _sync_selected_order(self):
+        """song_order에 맞춰 selected_songs 순서 동기화"""
+        selected_map = {s.name: s for s in self.selected_songs}
+
+        new_selected = []
+        for name in self.project.song_order:
+            if name in selected_map:
+                new_selected.append(selected_map[name])
+
+        self.project.selected_songs = new_selected
+        self.selected_songs = new_selected
+        self._reorder_songs()
+
+    def _on_close(self):
+        self.songs_changed.emit()
+        self.accept()
