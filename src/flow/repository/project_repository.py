@@ -230,6 +230,85 @@ class ProjectRepository:
         # 4. 그래도 없으면 원래 경로 반환 (UI에서 '찾을 수 없음' 표시용)
         return str(p)
 
+    def load_standalone_song(self, song_dir: Path | str) -> Project:
+        """단일 곡 폴더를 가상 프로젝트로 로드"""
+        song_dir = Path(song_dir).resolve()
+        song_json_path = song_dir / "song.json"
+
+        if not song_json_path.exists():
+            raise FileNotFoundError(f"song.json이 없습니다: {song_dir}")
+
+        # 1. song.json 로드
+        with open(song_json_path, "r", encoding="utf-8-sig") as f:
+            song_data = json.load(f)
+
+        from flow.domain.song import Song
+        from flow.domain.score_sheet import ScoreSheet
+
+        # ScoreSheet 목록 복원
+        score_sheets = []
+        if "sheets" in song_data:
+            score_sheets = [ScoreSheet.from_dict(s) for s in song_data["sheets"]]
+        elif "sheet" in song_data and song_data["sheet"]:
+            score_sheets = [ScoreSheet.from_dict(song_data["sheet"])]
+
+        if not score_sheets:
+            score_sheets.append(ScoreSheet(name=song_data.get("name", song_dir.name)))
+
+        # 2. Song 객체 생성
+        # 단독 편집이므로 곡 폴더 자체를 기준으로 상대 경로 설정
+        song = Song(
+            name=song_data.get("name", song_dir.name),
+            folder=Path("."),  # 현재 폴더가 곡 폴더임
+            score_sheets=score_sheets,
+            project_dir=song_dir,
+        )
+
+        # 3. 가상 Project 객체 생성
+        project = Project(
+            name=f"[곡 편집] {song.name}", selected_songs=[song], current_sheet_index=0
+        )
+
+        return project
+
+    def save_standalone_song(self, project: Project) -> None:
+        """가상 프로젝트에서 단일 곡 정보만 해당 폴더에 저장"""
+        if not project.selected_songs:
+            return
+
+        song = project.selected_songs[0]
+        # Song.project_dir이 실제 곡 폴더 경로임 (load_standalone_song 참고)
+        song_dir = song.project_dir
+        song_json_path = song_dir / "song.json"
+
+        song_data = {
+            "name": song.name,
+            "sheets": [s.to_dict() for s in song.score_sheets],
+        }
+
+        with open(song_json_path, "w", encoding="utf-8-sig") as f:
+            json.dump(song_data, f, ensure_ascii=False, indent=2)
+
+    def create_standalone_song(self, song_dir: Path | str, name: str) -> Project:
+        """새로운 곡 폴더 및 기본 song.json 생성"""
+        song_dir = Path(song_dir).resolve()
+        if song_dir.exists():
+            raise FileExistsError(f"폴더가 이미 존재합니다: {song_dir}")
+
+        song_dir.mkdir(parents=True)
+
+        from flow.domain.score_sheet import ScoreSheet
+
+        initial_sheet = ScoreSheet(name=name)
+
+        song_data = {"name": name, "sheets": [initial_sheet.to_dict()]}
+
+        song_json_path = song_dir / "song.json"
+        with open(song_json_path, "w", encoding="utf-8-sig") as f:
+            json.dump(song_data, f, ensure_ascii=False, indent=2)
+
+        return self.load_standalone_song(song_dir)
+
     def list_projects(self) -> list[Path]:
         """저장된 프로젝트 파일 목록 반환"""
         if not self.base_path.exists():

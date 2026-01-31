@@ -62,6 +62,7 @@ class MainWindow(QMainWindow):
 
         self._project: Project | None = None
         self._project_path: Path | None = None
+        self._is_standalone: bool = False
         self._repo = ProjectRepository(Path.home() / "flow_projects")
         self._config_service = ConfigService()
 
@@ -570,6 +571,10 @@ class MainWindow(QMainWindow):
         self._new_action.triggered.connect(self._new_project)
         create_tool_btn(self._new_action, row1)
 
+        self._new_song_action = QAction("🎵 새 곡", self)
+        self._new_song_action.triggered.connect(self._new_song)
+        create_tool_btn(self._new_song_action, row1)
+
         self._open_action = QAction("📂 열기", self)
         self._open_action.setShortcut(QKeySequence.StandardKey.Open)
         self._open_action.triggered.connect(self._open_project)
@@ -667,7 +672,9 @@ class MainWindow(QMainWindow):
         """시그널 연결"""
         # 런처 시그널
         self._launcher.project_selected.connect(self._open_project_by_path)
+        self._launcher.song_selected.connect(self._open_song_by_path)
         self._launcher.new_project_requested.connect(self._new_project)
+        self._launcher.new_song_requested.connect(self._new_song)
         self._launcher.open_project_requested.connect(self._open_project)
 
         # 곡 목록 시그널
@@ -721,6 +728,7 @@ class MainWindow(QMainWindow):
             p_base = p_base.with_suffix("")
 
         project_dir = p_base
+        self._is_standalone = False
         self._project_path = project_dir / "project.json"
         self._project = Project(name=project_dir.name)
         self._live_controller.set_project(self._project)
@@ -746,6 +754,51 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self, "오류", f"프로젝트 폴더를 생성할 수 없습니다:\n{e}"
             )
+
+    def _new_song(self) -> None:
+        """새로운 단독 곡 생성"""
+        # 1. 곡 이름 입력 받기
+        from PySide6.QtWidgets import QInputDialog
+
+        name, ok = QInputDialog.getText(self, "새 곡 생성", "곡 제목을 입력하세요:")
+        if not ok or not name.strip():
+            return
+
+        # 2. 저장 위치 선택 (폴더)
+        folder = QFileDialog.getExistingDirectory(
+            self, "곡 폴더를 생성할 위치 선택", str(self._repo.base_path)
+        )
+        if not folder:
+            return
+
+        song_dir = Path(folder) / name.strip()
+
+        try:
+            self._is_standalone = True
+            self._project = self._repo.create_standalone_song(song_dir, name.strip())
+            self._project_path = song_dir
+            self._live_controller.set_project(self._project)
+
+            # UI 초기화
+            self._song_list.set_project(self._project)
+            self._canvas.set_score_sheet(None)
+            self._slide_manager.load_pptx("")
+            self._slide_preview.refresh_slides()
+
+            self.setWindowTitle(f"Flow - {self._project.name}")
+            self._clear_dirty()
+            self._show_editor()
+            self._toggle_edit_mode()
+            self._statusbar.showMessage(f"새 곡이 생성되었습니다: {name}")
+
+            # 첫 번째 시트 선택
+            sheets = self._project.all_score_sheets
+            if sheets:
+                self._on_song_selected(sheets[0])
+                self._song_list.set_current_index(0)
+
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"곡을 생성할 수 없습니다:\n{e}")
 
     def _open_project(self) -> None:
         """프로젝트 열기"""
@@ -777,8 +830,11 @@ class MainWindow(QMainWindow):
             # 2. 매핑 상태 UI 동기화
             self._update_mapped_slides_ui()
 
-            # 3. 전역 PPT 설정 복구
-            if self._project.pptx_path:
+            # 3. PPT 로드 (새 구조 우선)
+            if self._project.selected_songs:
+                self._slide_manager.load_songs(self._project.selected_songs)
+                self._globalize_project_indices()
+            elif self._project.pptx_path:
                 self._slide_manager.load_pptx(self._project.pptx_path)
             else:
                 self._slide_preview.refresh_slides()
@@ -826,6 +882,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            self._is_standalone = False
             self._project = self._repo.load(path)
             self._project_path = path
 
@@ -876,9 +933,58 @@ class MainWindow(QMainWindow):
 
             QMessageBox.critical(self, "오류", f"프로젝트를 열 수 없습니다:\n{e}")
 
+    def _open_song_by_path(self, path_str: str) -> None:
+        """지정된 경로의 단일 곡을 열기"""
+        path = Path(path_str)
+        if not path.exists():
+            QMessageBox.warning(self, "오류", "해당 곡 폴더가 존재하지 않습니다.")
+            return
+
+        try:
+            self._is_standalone = True
+            self._project = self._repo.load_standalone_song(path)
+            self._project_path = path
+            self._live_controller.set_project(self._project)
+
+            self._song_list.set_project(self._project)
+
+            v_idx = self._project.current_verse_index
+            self._verse_group.button(v_idx).setChecked(True)
+            self._canvas.set_verse_index(v_idx)
+            self._update_mapped_slides_ui()
+
+            if self._project.selected_songs:
+                self._slide_manager.load_songs(self._project.selected_songs)
+                self._globalize_project_indices()
+
+            sheets = self._project.all_score_sheets
+            if sheets:
+                self._on_song_selected(sheets[0])
+                self._song_list.set_current_index(0)
+
+            self._clear_dirty()
+            self._show_editor()
+            self._toggle_edit_mode()
+            self.setWindowTitle(f"Flow - {self._project.name}")
+            self._statusbar.showMessage(f"곡을 열었습니다: {path.name}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"곡을 열 수 없습니다:\n{e}")
+
     def _save_project(self) -> None:
-        """프로젝트 저장"""
+        """프로젝트 또는 단일 곡 저장"""
         if not self._project:
+            return
+
+        if self._is_standalone:
+            try:
+                self._repo.save_standalone_song(self._project)
+                self._undo_stack.setClean()
+                self._statusbar.showMessage("곡 정보가 저장되었습니다.", 2000)
+            except Exception as e:
+                QMessageBox.critical(
+                    self, "오류", f"곡 정보를 저장할 수 없습니다:\n{e}"
+                )
             return
 
         # 저장 경로가 없거나 처음 저장하는 경우 이름/위치 묻기
@@ -1103,6 +1209,7 @@ class MainWindow(QMainWindow):
         """프로젝트 편집 관련 UI 요소들 활성/비활성 제어"""
         # 툴바 액션 - 파일 관리 관련은 항상 활성화
         self._new_action.setEnabled(True)
+        self._new_song_action.setEnabled(True)
         self._open_action.setEnabled(True)
         self._save_action.setEnabled(True)
         self._save_as_action.setEnabled(True)
@@ -2139,6 +2246,12 @@ class MainWindow(QMainWindow):
         if not self._project or not self._project_path:
             return
 
+        if self._is_standalone:
+            QMessageBox.information(
+                self, "정보", "단독 곡 편집 모드에서는 곡 관리를 사용할 수 없습니다."
+            )
+            return
+
         from flow.ui.song_manager_dialog import SongManagerDialog
 
         dialog = SongManagerDialog(self._project_path.parent, self._project, self)
@@ -2169,6 +2282,10 @@ class MainWindow(QMainWindow):
         """ScoreSheet이 속한 곡의 베이스 경로 반환"""
         if not self._project or not self._project_path:
             return None
+
+        # 단독 편집 모드인 경우 곡 폴더 자체가 베이스 경로
+        if getattr(self, "_is_standalone", False):
+            return self._project_path
 
         if self._project.selected_songs:
             # 다중 곡 모드에서 해당 시트가 속한 곡 찾기
