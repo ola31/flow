@@ -12,12 +12,13 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QPushButton,
-    QListWidget,
-    QListWidgetItem,
+    QTreeWidget,
+    QTreeWidgetItem,
     QInputDialog,
     QMessageBox,
     QLabel,
     QFileDialog,
+    QTreeWidgetItemIterator,
 )
 from PySide6.QtCore import Signal, Qt
 from pptx import Presentation
@@ -39,12 +40,21 @@ class SongManagerDialog(QDialog):
         self.project_dir = project_dir
         self.project = project
         self.songs_dir = project_dir / "songs"
-        self.selected_songs = project.selected_songs
-        self._selected_names: set[str] = {s.name for s in self.selected_songs}
+
+        # 1. 초기 상태 백업 (취소 기능용)
+        self._original_song_order = list(project.song_order)
+        self._original_selected_names = {s.name for s in project.selected_songs}
+        self._song_backups = {}  # song_name -> list of score_sheets (copies)
+        for song in project.selected_songs:
+            self._song_backups[song.name] = list(song.score_sheets)
+
+        self.selected_songs = list(project.selected_songs)
+        self._selected_names = set(self._original_selected_names)
+        self._modified_songs = set()  # 변경된 곡 목록 추적
 
         self.setWindowTitle("곡 관리")
-        self.setMinimumWidth(500)
-        self.setMinimumHeight(450)
+        self.setMinimumWidth(550)
+        self.setMinimumHeight(500)
 
         self._setup_ui()
         self._scan_and_load()
@@ -52,12 +62,14 @@ class SongManagerDialog(QDialog):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
 
-        label = QLabel("songs/ 폴더 내 곡 목록 (체크된 곡이 프로젝트에 포함됨):")
+        label = QLabel("곡 및 시트 관리 (체크된 곡이 프로젝트에 포함됨):")
         layout.addWidget(label)
 
-        self.song_list = QListWidget()
-        self.song_list.itemChanged.connect(self._on_item_changed)
-        layout.addWidget(self.song_list)
+        self.song_tree = QTreeWidget()
+        self.song_tree.setHeaderHidden(True)
+        self.song_tree.setIndentation(20)
+        self.song_tree.itemChanged.connect(self._on_item_changed)
+        layout.addWidget(self.song_tree)
 
         btn_row1 = QHBoxLayout()
 
@@ -65,7 +77,7 @@ class SongManagerDialog(QDialog):
         self.btn_add_new.clicked.connect(self._on_add_new_song)
         btn_row1.addWidget(self.btn_add_new)
 
-        self.btn_import = QPushButton("📂 외부에서 가져오기")
+        self.btn_import = QPushButton("📂 외부 가져오기")
         self.btn_import.clicked.connect(self._on_import_song)
         btn_row1.addWidget(self.btn_import)
 
@@ -85,28 +97,53 @@ class SongManagerDialog(QDialog):
         self.btn_down.clicked.connect(self._on_move_down)
         btn_row2.addWidget(self.btn_down)
 
-        btn_row2.addStretch()
+        self.btn_rename = QPushButton("📝 이름 변경")
+        self.btn_rename.clicked.connect(self._on_rename_clicked)
+        btn_row2.addWidget(self.btn_rename)
 
-        self.btn_close = QPushButton("닫기")
-        self.btn_close.clicked.connect(self._on_close)
-        btn_row2.addWidget(self.btn_close)
+        self.btn_delete = QPushButton("🗑 삭제")
+        self.btn_delete.clicked.connect(self._on_delete_clicked)
+        btn_row2.addWidget(self.btn_delete)
 
         layout.addLayout(btn_row2)
 
+        layout.addStretch()
+
+        # 하단 확인/취소 버튼
+        footer_layout = QHBoxLayout()
+        footer_layout.addStretch()
+
+        self.btn_ok = QPushButton("확인")
+        self.btn_ok.setFixedWidth(100)
+        self.btn_ok.setStyleSheet(
+            "background-color: #2196f3; color: white; font-weight: bold;"
+        )
+        self.btn_ok.clicked.connect(self._on_ok_clicked)
+        footer_layout.addWidget(self.btn_ok)
+
+        self.btn_cancel = QPushButton("취소")
+        self.btn_cancel.setFixedWidth(100)
+        self.btn_cancel.clicked.connect(self._on_cancel_clicked)
+        footer_layout.addWidget(self.btn_cancel)
+
+        layout.addLayout(footer_layout)
+
     def _scan_and_load(self):
-        """songs/ 폴더 스캔하여 모든 곡 표시"""
-        self.song_list.blockSignals(True)
-        self.song_list.clear()
+        """songs/ 폴더 스캔하여 모든 곡 및 시트 표시"""
+        self.song_tree.blockSignals(True)
+        self.song_tree.clear()
 
         if not self.songs_dir.exists():
             self.songs_dir.mkdir(parents=True, exist_ok=True)
 
+        # 1. 실제 폴더에 존재하는 곡들 스캔
         actual_folders = {
             f.name
             for f in self.songs_dir.iterdir()
             if f.is_dir() and (f / "song.json").exists()
         }
 
+        # 2. 저장된 순서 기반 정렬
         ordered_list = [
             name for name in self.project.song_order if name in actual_folders
         ]
@@ -115,34 +152,65 @@ class SongManagerDialog(QDialog):
 
         self.project.song_order = ordered_list
 
+        # 3. 트리 리스트 생성
         for name in ordered_list:
-            item = QListWidgetItem(name)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(
+            song = next((s for s in self.selected_songs if s.name == name), None)
+            if not song:
+                song = self._load_song_from_folder(name)
+
+            if not song:
+                continue
+
+            # 곡 노드 생성
+            song_item = QTreeWidgetItem([song.name])
+            song_item.setFlags(song_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            song_item.setData(0, Qt.ItemDataRole.UserRole, song)
+            song_item.setCheckState(
+                0,
                 Qt.CheckState.Checked
                 if name in self._selected_names
-                else Qt.CheckState.Unchecked
+                else Qt.CheckState.Unchecked,
             )
-            self.song_list.addItem(item)
+            font = song_item.font(0)
+            font.setBold(True)
+            song_item.setFont(0, font)
+            self.song_tree.addTopLevelItem(song_item)
 
-        self.song_list.blockSignals(False)
+            for i, sheet in enumerate(song.score_sheets):
+                display_name = sheet.name
+                prefix = f"{song.name} -"
+                if display_name.startswith(prefix):
+                    display_name = display_name[len(prefix) :].strip()
 
-    def _on_item_changed(self, item: QListWidgetItem):
-        name = item.text()
-        is_checked = item.checkState() == Qt.CheckState.Checked
+                sheet_item = QTreeWidgetItem([f"  📄 P{i + 1}: {display_name}"])
+                sheet_item.setData(0, Qt.ItemDataRole.UserRole, sheet)
+                song_item.addChild(sheet_item)
+
+            if name in self._selected_names:
+                song_item.setExpanded(True)
+
+        self.song_tree.blockSignals(False)
+
+    def _on_item_changed(self, item: QTreeWidgetItem, column: int):
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not isinstance(data, Song):
+            return
+
+        name = data.name
+        is_checked = item.checkState(0) == Qt.CheckState.Checked
 
         if is_checked and name not in self._selected_names:
-            song = self._load_song_from_folder(name)
-            if song:
-                self.selected_songs.append(song)
-                self._selected_names.add(name)
-                self._sync_selected_order()
+            self.selected_songs.append(data)
+            self._selected_names.add(name)
+            self._sync_selected_order()
+            item.setExpanded(True)
 
         elif not is_checked and name in self._selected_names:
             self.selected_songs = [s for s in self.selected_songs if s.name != name]
             self.project.selected_songs = self.selected_songs
             self._selected_names.discard(name)
             self._reorder_songs()
+            item.setExpanded(False)
 
     def _load_song_from_folder(self, name: str) -> Song | None:
         """폴더에서 Song 객체 로드"""
@@ -264,44 +332,138 @@ class SongManagerDialog(QDialog):
         )
 
     def _on_move_up(self):
-        """곡 순서를 위로 이동"""
-        row = self.song_list.currentRow()
-        if row <= 0:
+        item = self.song_tree.currentItem()
+        if not item:
             return
 
-        order = self.project.song_order
-        order[row], order[row - 1] = order[row - 1], order[row]
+        parent = item.parent()
+        if parent:
+            idx = parent.indexOfChild(item)
+            if idx > 0:
+                parent.takeChild(idx)
+                parent.insertChild(idx - 1, item)
+                self.song_tree.setCurrentItem(item)
+                self._sync_sheets_to_song(parent, auto_save=False)
+        else:
+            idx = self.song_tree.indexOfTopLevelItem(item)
+            if idx > 0:
+                self.song_tree.takeTopLevelItem(idx)
+                self.song_tree.insertTopLevelItem(idx - 1, item)
+                self.song_tree.setCurrentItem(item)
 
-        self._sync_selected_order()
-        self._scan_and_load()
-        self.song_list.setCurrentRow(row - 1)
+                order = self.project.song_order
+                order[idx], order[idx - 1] = order[idx - 1], order[idx]
+                self._sync_selected_order()
 
     def _on_move_down(self):
-        """곡 순서를 아래로 이동"""
-        row = self.song_list.currentRow()
-        if row < 0 or row >= self.song_list.count() - 1:
+        item = self.song_tree.currentItem()
+        if not item:
             return
 
-        order = self.project.song_order
-        order[row], order[row + 1] = order[row + 1], order[row]
+        parent = item.parent()
+        if parent:
+            idx = parent.indexOfChild(item)
+            if idx < parent.childCount() - 1:
+                parent.takeChild(idx)
+                parent.insertChild(idx + 1, item)
+                self.song_tree.setCurrentItem(item)
+                self._sync_sheets_to_song(parent, auto_save=False)
+        else:
+            idx = self.song_tree.indexOfTopLevelItem(item)
+            if idx < self.song_tree.topLevelItemCount() - 1:
+                self.song_tree.takeTopLevelItem(idx)
+                self.song_tree.insertTopLevelItem(idx + 1, item)
+                self.song_tree.setCurrentItem(item)
 
-        self._sync_selected_order()
-        self._scan_and_load()
-        self.song_list.setCurrentRow(row + 1)
+                order = self.project.song_order
+                order[idx], order[idx + 1] = order[idx + 1], order[idx]
+                self._sync_selected_order()
 
-    def _sync_selected_order(self):
-        """song_order에 맞춰 selected_songs 순서 동기화"""
-        selected_map = {s.name: s for s in self.selected_songs}
+    def _sync_sheets_to_song(self, song_item: QTreeWidgetItem, auto_save: bool = True):
+        song = song_item.data(0, Qt.ItemDataRole.UserRole)
+        if not isinstance(song, Song):
+            return
 
-        new_selected = []
+        new_sheets = []
+        for i in range(song_item.childCount()):
+            sheet = song_item.child(i).data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(sheet, ScoreSheet):
+                new_sheets.append(sheet)
+
+        song.score_sheets = new_sheets
+        self._modified_songs.add(song)
+
+        if auto_save:
+            self._save_song_metadata(song)
+            self.songs_changed.emit()
+
+    def _on_ok_clicked(self):
+        for song in self._modified_songs:
+            self._save_song_metadata(song)
+
+        self.songs_changed.emit()
+        self.accept()
+
+    def _on_cancel_clicked(self):
+        self.project.song_order = list(self._original_song_order)
+
+        for song_name, sheets in self._song_backups.items():
+            song = next(
+                (s for s in self.project.selected_songs if s.name == song_name), None
+            )
+            if song:
+                song.score_sheets = list(sheets)
+
+        restored_selected = []
         for name in self.project.song_order:
-            if name in selected_map:
-                new_selected.append(selected_map[name])
+            if name in self._original_selected_names:
+                song = next((s for s in self.selected_songs if s.name == name), None)
+                if not song:
+                    song = self._load_song_from_folder(name)
+                if song:
+                    restored_selected.append(song)
 
-        self.project.selected_songs = new_selected
-        self.selected_songs = new_selected
-        self._reorder_songs()
+        self.project.selected_songs = restored_selected
+        self.reject()
+
+    def _on_rename_clicked(self):
+        item = self.song_tree.currentItem()
+        if not item:
+            return
+
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        old_name = data.name if hasattr(data, "name") else item.text(0)
+
+        new_name, ok = QInputDialog.getText(
+            self, "이름 변경", "새 이름:", text=old_name
+        )
+        if ok and new_name.strip():
+            data.name = new_name.strip()
+            # 곡 이름 변경인 경우 song_order도 업데이트
+            if isinstance(data, Song) and old_name in self.project.song_order:
+                idx = self.project.song_order.index(old_name)
+                self.project.song_order[idx] = data.name
+                if old_name in self._selected_names:
+                    self._selected_names.discard(old_name)
+                    self._selected_names.add(data.name)
+
+            self._save_changes_for_item(item, auto_save=False)
+            self._scan_and_load()
+
+    def _save_changes_for_item(self, item: QTreeWidgetItem, auto_save: bool = True):
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if isinstance(data, Song):
+            self._modified_songs.add(data)
+            if auto_save:
+                self._save_song_metadata(data)
+        elif isinstance(data, ScoreSheet):
+            parent_item = item.parent()
+            if parent_item:
+                parent_song = parent_item.data(0, Qt.ItemDataRole.UserRole)
+                self._modified_songs.add(parent_song)
+                if auto_save:
+                    self._save_song_metadata(parent_song)
 
     def _on_close(self):
-        self.songs_changed.emit()
+        # 더 이상 사용되지 않음 (ok/cancel로 대체)
         self.accept()
