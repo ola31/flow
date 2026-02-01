@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QTreeWidgetItemIterator,
 )
-from PySide6.QtCore import Signal, Qt, QPoint, QTimer
+from PySide6.QtCore import Signal, Qt, QPoint, QTimer, QEvent
 from PySide6.QtGui import QAction, QColor
 
 from flow.domain.project import Project
