@@ -947,6 +947,7 @@ class MainWindow(QMainWindow):
             try:
                 self._repo.save_standalone_song(self._project)
                 self._undo_stack.setClean()
+                self._clear_dirty()  # [추가] 수동 dirty 플래그 명시적 제거
                 self._statusbar.showMessage("곡 정보가 저장되었습니다.", 2000)
             except Exception as e:
                 QMessageBox.critical(
@@ -981,6 +982,7 @@ class MainWindow(QMainWindow):
 
             self.setWindowTitle(f"Flow - {self._project.name}")
             self._undo_stack.setClean()  # 저장 시점 기록
+            self._clear_dirty()  # [추가] 수동 dirty 플래그 명시적 제거 (Undo 스택과 별개로 보장)
             self._statusbar.showMessage(
                 f"프로젝트가 저장되었습니다: {self._project_path.name}"
             )

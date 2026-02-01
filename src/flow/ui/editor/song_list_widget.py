@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QTreeWidgetItemIterator,
 )
-from PySide6.QtCore import Signal, Qt, QPoint
+from PySide6.QtCore import Signal, Qt, QPoint, QTimer
 from PySide6.QtGui import QAction, QColor
 
 from flow.domain.project import Project
@@ -39,7 +39,7 @@ class CustomTreeWidget(QTreeWidget):
         super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event):
-        """드래그 이동 중 - 잘못된 드롭 위치 차단"""
+        """드래그 이동 중 - 시트가 곡 밖으로 나가는 것을 철저히 차단"""
         if not self.parent_widget._editable:
             event.ignore()
             return
@@ -50,92 +50,83 @@ class CustomTreeWidget(QTreeWidget):
             return
 
         target_item = self.itemAt(event.position().toPoint())
-        if not target_item:
-            super().dragMoveEvent(event)
-            return
-
         source_data = source_item.data(0, Qt.ItemDataRole.UserRole)
-        target_data = target_item.data(0, Qt.ItemDataRole.UserRole)
 
         # 시트를 드래그하는 경우
         if isinstance(source_data, ScoreSheet):
-            # 타겟이 시트인 경우 - 같은 부모를 가진 경우에만 허용
-            if isinstance(target_data, ScoreSheet):
-                source_parent = source_item.parent()
-                target_parent = target_item.parent()
+            # 1. 타겟이 없는 경우 (리스트 끝 빈 공간 등) -> 거부
+            if not target_item:
+                event.ignore()
+                return
 
-                if source_parent != target_parent:
+            target_data = target_item.data(0, Qt.ItemDataRole.UserRole)
+
+            # 2. 타겟이 시트인 경우 -> 같은 곡(부모)에 속한 경우에만 허용
+            if isinstance(target_data, ScoreSheet):
+                if source_item.parent() != target_item.parent():
                     event.ignore()
                     return
-            # 타겟이 곡인 경우 - 소스의 부모 곡과 같은 경우에만 허용
+
+            # 3. 타겟이 곡인 경우 -> 자신이 원래 속해있던 곡인 경우에만 허용
             elif hasattr(target_data, "score_sheets"):
-                source_parent = source_item.parent()
-                if source_parent != target_item:
+                if source_item.parent() != target_item:
                     event.ignore()
                     return
+
+            # 4. 그 외 (루트 레벨의 엉뚱한 위치 등) -> 거부
+            else:
+                event.ignore()
+                return
 
         super().dragMoveEvent(event)
 
     def dropEvent(self, event):
-        """드롭 이벤트 - 시트는 같은 곡 내에서만 이동 가능"""
-        # 편집 모드가 아니면 드롭 거부
+        """드롭 이벤트 - 안전한 이동 보장 및 Segfault 방지"""
         if not self.parent_widget._editable:
             event.ignore()
             return
 
         source_item = self.currentItem()
-
         if not source_item:
             event.ignore()
             return
 
-        # 드롭 위치 계산
         target_item = self.itemAt(event.position().toPoint())
-
         source_data = source_item.data(0, Qt.ItemDataRole.UserRole)
 
-        # 시트(ScoreSheet)를 드래그하는 경우
+        # 시트(ScoreSheet) 이동 제한 재검증
         if isinstance(source_data, ScoreSheet):
-            source_parent = source_item.parent()
-
-            if target_item:
-                target_data = target_item.data(0, Qt.ItemDataRole.UserRole)
-
-                # 타겟이 시트인 경우
-                if isinstance(target_data, ScoreSheet):
-                    target_parent = target_item.parent()
-
-                    # 같은 곡 내에서만 이동 허용
-                    if source_parent != target_parent:
-                        event.ignore()
-                        QMessageBox.warning(
-                            self.parent_widget,
-                            "이동 제한",
-                            "시트는 같은 곡 내에서만 순서를 변경할 수 있습니다.",
-                        )
-                        return
-                # 타겟이 곡인 경우
-                elif hasattr(target_data, "score_sheets"):
-                    # 소스의 부모 곡과 타겟 곡이 같은 경우에만 허용
-                    if source_parent != target_item:
-                        event.ignore()
-                        QMessageBox.warning(
-                            self.parent_widget,
-                            "이동 제한",
-                            "시트는 같은 곡 내에서만 순서를 변경할 수 있습니다.",
-                        )
-                        return
-            else:
-                # 빈 공간으로 드롭 시도 - 거부
+            if not target_item:
                 event.ignore()
                 return
 
-        # 기본 드롭 처리
+            target_data = target_item.data(0, Qt.ItemDataRole.UserRole)
+            is_valid_drop = False
+
+            if isinstance(target_data, ScoreSheet):
+                # 다른 시트 위에/사이에 드롭하는 경우 -> 같은 부모면 허용
+                if source_item.parent() == target_item.parent():
+                    is_valid_drop = True
+            elif hasattr(target_data, "score_sheets"):
+                # 곡 제목(부모)에 드롭하는 경우
+                if source_item.parent() == target_item:
+                    # [수정] 이미 내 부모라면 이동(맨 뒤로 가기)할 필요가 없으므로 이벤트 무시
+                    # 이렇게 하면 자리바꿈 현상이 발생하지 않음
+                    event.ignore()
+                    return
+                # 다른 곡 제목에 드롭하는 경우 -> 현재 시스템은 다른 곡 이동을 금지하므로 ignore (위에서 이미 처리됨)
+
+            if not is_valid_drop:
+                event.ignore()
+                return
+
+        # 기본 드롭 처리 실행
         super().dropEvent(event)
 
-        # 드롭 후 데이터 모델 업데이트 및 구조 검증
-        self.parent_widget._update_order_after_drop()
-        self.parent_widget._validate_tree_structure()
+        # [중요] Segfault 방지: 드롭 트랜잭션이 완전히 끝난 후(10ms 뒤) 구조 검증 실행
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(10, self.parent_widget._finalize_drop_operation)
 
 
 class SongListWidget(QWidget):
@@ -338,127 +329,25 @@ class SongListWidget(QWidget):
 
         layout.addLayout(btn_layout)
 
-    def dragEnterEvent(self, event):
-        """드래그 시작 - 편집 모드 체크"""
-        if not self._editable:
-            event.ignore()
-            return
-        super(SongListWidget, self).dragEnterEvent(event)
-
-    def dragMoveEvent(self, event):
-        """드래그 이동 중 - 잘못된 드롭 위치 차단"""
-        if not self._editable:
-            event.ignore()
-            return
-
-        source_item = self._tree.currentItem()
-        if not source_item:
-            event.ignore()
-            return
-
-        target_item = self._tree.itemAt(event.position().toPoint())
-        if not target_item:
-            super(SongListWidget, self).dragMoveEvent(event)
-            return
-
-        source_data = source_item.data(0, Qt.ItemDataRole.UserRole)
-        target_data = target_item.data(0, Qt.ItemDataRole.UserRole)
-
-        # 시트를 드래그하는 경우
-        if isinstance(source_data, ScoreSheet):
-            # 타겟이 시트인 경우 - 같은 부모를 가진 경우에만 허용
-            if isinstance(target_data, ScoreSheet):
-                source_parent = source_item.parent()
-                target_parent = target_item.parent()
-
-                if source_parent != target_parent:
-                    event.ignore()
-                    return
-            # 타겟이 곡인 경우 - 소스의 부모 곡과 같은 경우에만 허용
-            elif hasattr(target_data, "score_sheets"):
-                source_parent = source_item.parent()
-                if source_parent != target_item:
-                    event.ignore()
-                    return
-
-        super(SongListWidget, self).dragMoveEvent(event)
-
-    def dropEvent(self, event):
-        """드롭 이벤트 - 시트는 같은 곡 내에서만 이동 가능"""
-        # 편집 모드가 아니면 드롭 거부
-        if not self._editable:
-            event.ignore()
-            return
-
-        source_item = self._tree.currentItem()
-
-        if not source_item:
-            event.ignore()
-            return
-
-        # 드롭 위치 계산
-        target_item = self._tree.itemAt(event.position().toPoint())
-
-        source_data = source_item.data(0, Qt.ItemDataRole.UserRole)
-
-        # 시트(ScoreSheet)를 드래그하는 경우
-        if isinstance(source_data, ScoreSheet):
-            source_parent = source_item.parent()
-
-            if target_item:
-                target_data = target_item.data(0, Qt.ItemDataRole.UserRole)
-
-                # 타겟이 시트인 경우
-                if isinstance(target_data, ScoreSheet):
-                    target_parent = target_item.parent()
-
-                    # 같은 곡 내에서만 이동 허용
-                    if source_parent != target_parent:
-                        event.ignore()
-                        QMessageBox.warning(
-                            self,
-                            "이동 제한",
-                            "시트는 같은 곡 내에서만 순서를 변경할 수 있습니다.",
-                        )
-                        return
-                # 타겟이 곡인 경우
-                elif hasattr(target_data, "score_sheets"):
-                    # 소스의 부모 곡과 타겟 곡이 같은 경우에만 허용
-                    if source_parent != target_item:
-                        event.ignore()
-                        QMessageBox.warning(
-                            self,
-                            "이동 제한",
-                            "시트는 같은 곡 내에서만 순서를 변경할 수 있습니다.",
-                        )
-                        return
-            else:
-                # 빈 공간으로 드롭 시도 - 거부
-                event.ignore()
-                return
-
-        # 기본 드롭 처리
-        super(SongListWidget, self).dropEvent(event)
-
-        # 드롭 후 데이터 모델 업데이트 및 구조 검증
-        self._update_order_after_drop()
+    def _finalize_drop_operation(self):
+        """드롭 작업 완료 후 최종 검증 및 데이터 동기화"""
         self._validate_tree_structure()
+        self._update_order_after_drop()
 
     def _update_order_after_drop(self):
-        """드롭 후 곡/시트 순서를 데이터 모델에 반영"""
+        """드롭 후 계층 구조를 도메인 모델에 동기화"""
         if not self._project:
             return
 
-        # 곡 순서 업데이트
         new_song_order = []
         for i in range(self._tree.topLevelItemCount()):
             item = self._tree.topLevelItem(i)
             data = item.data(0, Qt.ItemDataRole.UserRole)
-            if hasattr(data, "score_sheets"):  # Song 객체
+
+            if hasattr(data, "score_sheets") and not isinstance(data, ScoreSheet):
                 data.order = i
                 new_song_order.append(data)
 
-                # 해당 곡의 시트 순서도 업데이트
                 valid_sheets = []
                 for j in range(item.childCount()):
                     child = item.child(j)
@@ -466,52 +355,79 @@ class SongListWidget(QWidget):
                     if isinstance(sheet_data, ScoreSheet):
                         valid_sheets.append(sheet_data)
 
-                # Song 객체의 score_sheets 순서 갱신
                 data.score_sheets = valid_sheets
 
-        # 프로젝트의 selected_songs 순서 갱신
         self._project.selected_songs = new_song_order
 
-        # 저장
         if self._main_window:
             self._main_window._mark_dirty()
             self._main_window._save_project()
 
     def _validate_tree_structure(self):
-        """트리 구조 검증 - 시트가 잘못된 위치에 있으면 수정"""
+        """트리 계층 구조 무결성 검증 및 보정 (시트 소실 방지 강화)"""
         if not self._project:
             return
 
-        # 모든 최상위 항목(곡) 순회
-        for i in range(self._tree.topLevelItemCount()):
-            song_item = self._tree.topLevelItem(i)
+        has_changes = False
 
-            # 곡의 모든 자식 순회
-            children_to_fix = []
-            for j in range(song_item.childCount()):
-                child = song_item.child(j)
-                child_data = child.data(0, Qt.ItemDataRole.UserRole)
+        # 1. 루트 레벨 시트 검사 및 보정
+        for i in range(self._tree.topLevelItemCount() - 1, -1, -1):
+            item = self._tree.topLevelItem(i)
+            data = item.data(0, Qt.ItemDataRole.UserRole)
 
-                # 자식이 시트가 아니거나, 시트가 또 자식을 가지고 있으면 문제
-                if isinstance(child_data, ScoreSheet):
-                    # 시트가 자식을 가지고 있으면 안 됨
-                    if child.childCount() > 0:
-                        # 잘못된 자식들을 수집
-                        for k in range(child.childCount()):
-                            grandchild = child.child(k)
-                            children_to_fix.append(grandchild)
+            if isinstance(data, ScoreSheet):
+                target_song_item = None
 
-            # 잘못된 위치의 항목들을 올바른 위치로 이동
-            for item in children_to_fix:
-                # 부모에서 제거
-                parent = item.parent()
-                if parent:
-                    parent.removeChild(item)
-                    # 곡의 직접 자식으로 추가
-                    song_item.addChild(item)
+                # 먼저 위쪽으로 가장 가까운 곡 검색
+                for j in range(i - 1, -1, -1):
+                    p_item = self._tree.topLevelItem(j)
+                    p_data = p_item.data(0, Qt.ItemDataRole.UserRole)
+                    if hasattr(p_data, "score_sheets") and not isinstance(
+                        p_data, ScoreSheet
+                    ):
+                        target_song_item = p_item
+                        break
 
-        # 구조가 수정되었으면 다시 순서 업데이트
-        if children_to_fix:
+                # 위쪽에 곡이 없으면 아래쪽으로 검색
+                if not target_song_item:
+                    for j in range(i + 1, self._tree.topLevelItemCount()):
+                        n_item = self._tree.topLevelItem(j)
+                        n_data = n_item.data(0, Qt.ItemDataRole.UserRole)
+                        if hasattr(n_data, "score_sheets") and not isinstance(
+                            n_data, ScoreSheet
+                        ):
+                            target_song_item = n_item
+                            break
+
+                self._tree.takeTopLevelItem(i)
+                if target_song_item:
+                    # 위쪽 곡을 찾았다면 맨 뒤에 추가, 아래쪽 곡을 찾았다면 맨 앞에 삽입
+                    if self._tree.indexOfTopLevelItem(target_song_item) < i:
+                        target_song_item.addChild(item)
+                    else:
+                        target_song_item.insertChild(0, item)
+                    target_song_item.setExpanded(True)
+
+                has_changes = True
+
+        orphans = []
+        it = QTreeWidgetItemIterator(self._tree)
+        while it.value():
+            item = it.value()
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(data, ScoreSheet) and item.childCount() > 0:
+                parent_song = item.parent()
+                if parent_song:
+                    for k in range(item.childCount() - 1, -1, -1):
+                        child = item.takeChild(k)
+                        orphans.append((parent_song, child))
+            it += 1
+
+        for parent, child in orphans:
+            parent.addChild(child)
+            has_changes = True
+
+        if has_changes:
             self._update_order_after_drop()
 
     def set_project(self, project: Project) -> None:
