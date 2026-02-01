@@ -2308,15 +2308,16 @@ class MainWindow(QMainWindow):
         if not self._project or not self._project_path:
             return
 
-        if self._is_standalone:
-            QMessageBox.information(
-                self, "정보", "단독 곡 편집 모드에서는 곡 관리를 사용할 수 없습니다."
-            )
-            return
-
         from flow.ui.song_manager_dialog import SongManagerDialog
 
-        dialog = SongManagerDialog(self._project_path.parent, self._project, self)
+        # 단독 모드인 경우 곡 폴더를 상위 폴더로 간주하여 전달 (ProjectRepository 호환)
+        project_dir = (
+            self._project_path if self._is_standalone else self._project_path.parent
+        )
+
+        dialog = SongManagerDialog(
+            project_dir, self._project, is_standalone=self._is_standalone, parent=self
+        )
         dialog.songs_changed.connect(self._on_songs_changed)
         dialog.exec()
 

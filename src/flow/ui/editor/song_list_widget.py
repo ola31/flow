@@ -170,31 +170,34 @@ class SongListWidget(QWidget):
         self._tree.setAcceptDrops(True)
         self._tree.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
         self._tree.setDefaultDropAction(Qt.DropAction.MoveAction)
-        self._tree.setDropIndicatorShown(True)  # [추가] 드롭 위치 지시선 표시
+        self._tree.setDropIndicatorShown(True)
         self._tree.setRootIsDecorated(False)
-        self._tree.setAnimated(True)  # [추가] 폴더 열릴 때 애니메이션 효과
+        self._tree.setAnimated(True)
 
         self._tree.setStyleSheet("""
             QTreeWidget {
-                background-color: #222;
+                background-color: #1e1e1e;
                 border: 1px solid #333;
                 border-radius: 6px;
                 outline: none;
                 padding: 4px;
+                color: #ccc;
             }
             QTreeWidget::item {
-                height: 38px;
-                color: #ccc;
-                border-bottom: 1px solid #2a2a2a;
+                height: 32px;
+                border-bottom: 1px solid #252525;
             }
             QTreeWidget::item:hover {
                 background-color: #2a2a2a;
-                color: white;
             }
             QTreeWidget::item:selected {
-                background-color: #203040;
+                background-color: #26384a;
                 color: #2196f3;
                 font-weight: bold;
+            }
+            QTreeWidget::item:selected:!active {
+                background-color: #2a2a2a;
+                color: #ccc;
             }
         """)
 
@@ -542,7 +545,6 @@ class SongListWidget(QWidget):
             new_sheet = all_sheets[self._project.current_sheet_index]
             self.song_selected.emit(new_sheet)
 
-            # [디버그] 상태바에 현재 위치 표시
             if self._main_window:
                 self._main_window.statusBar().showMessage(
                     f"시트 이동: {self._project.current_sheet_index + 1} / {len(all_sheets)} ({new_sheet.name})",
@@ -568,7 +570,6 @@ class SongListWidget(QWidget):
             new_sheet = all_sheets[self._project.current_sheet_index]
             self.song_selected.emit(new_sheet)
 
-            # [디버그] 상태바에 현재 위치 표시
             if self._main_window:
                 self._main_window.statusBar().showMessage(
                     f"시트 이동: {self._project.current_sheet_index + 1} / {len(all_sheets)} ({new_sheet.name})",
@@ -586,7 +587,6 @@ class SongListWidget(QWidget):
         self._tree.blockSignals(True)
         self._tree.clearSelection()
 
-        # [수정] ID 충돌 방지를 위해 전체 트리에서 N번째 시트 아이템을 직접 찾음
         current_count = 0
         found = False
         it = QTreeWidgetItemIterator(self._tree)
@@ -629,7 +629,6 @@ class SongListWidget(QWidget):
         current_sheet = self._project.get_current_score_sheet()
 
         for song in self._project.selected_songs:
-            # 1. 유효한 시트만 필터링 (이미지가 있는 것만)
             valid_sheets = [
                 s
                 for s in song.score_sheets
@@ -637,7 +636,6 @@ class SongListWidget(QWidget):
             ]
 
             if not self._is_flat_view:
-                # [기본 모드] 곡 제목 아이템 생성
                 song_item = QTreeWidgetItem([song.name])
                 font = song_item.font(0)
                 font.setBold(True)
@@ -658,7 +656,6 @@ class SongListWidget(QWidget):
                 if not valid_sheets:
                     continue
 
-            # 2. 시트 목록 구성 (전체 프로젝트 기준 인덱스 계산)
             all_sheets_before = []
             for s in self._project.selected_songs:
                 if s == song:
