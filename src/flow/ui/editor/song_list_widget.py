@@ -708,58 +708,64 @@ class SongListWidget(QWidget):
     def _create_item_reorder_buttons(
         self, item: QTreeWidgetItem, text: str, is_bold: bool = False
     ):
-        """트리 아이템 옆에 텍스트와 상하 이동 버튼 생성 및 주입"""
+        """트리 아이템 옆에 텍스트와 상하 이동 버튼 생성 및 주입 (공간 최적화)"""
         container = QWidget()
         layout = QHBoxLayout(container)
-        layout.setContentsMargins(4, 0, 4, 0)
-        layout.setSpacing(6)
+        layout.setContentsMargins(4, 0, 2, 0)
+        layout.setSpacing(4)
 
-        # 텍스트 라벨 추가 (기존 텍스트 대체)
+        # 텍스트 라벨 (최대 너비 제한 없이 가변 공간 활용)
         label = QLabel(text)
-        label.setAttribute(
-            Qt.WidgetAttribute.WA_TransparentForMouseEvents
-        )  # 클릭 이벤트 통과
+        label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         style = "color: #ccc; font-size: 11px;"
         if is_bold:
             style += " font-weight: bold; color: #eee;"
         label.setStyleSheet(style)
+
+        # 라벨이 생략되지 않도록 처리 (충분한 공간 부여)
+        label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         layout.addWidget(label)
 
-        layout.addStretch()
+        # 버튼들을 담을 고정 크기 레이아웃
+        btn_container = QWidget()
+        btn_layout = QHBoxLayout(btn_container)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(2)
 
         btn_style = """
             QPushButton {
                 background-color: #333;
-                color: #aaa;
+                color: #888;
                 border: 1px solid #444;
-                border-radius: 3px;
-                font-size: 9px;
-                min-width: 22px;
-                max-width: 22px;
+                border-radius: 2px;
+                font-size: 8px;
+                min-width: 18px;
+                max-width: 18px;
                 min-height: 18px;
                 max-height: 18px;
+                padding: 0px;
             }
             QPushButton:hover {
                 background-color: #444;
                 color: #ff9800;
-                border: 1px solid #ff9800;
+                border: 1px solid #f57c00;
             }
         """
 
         up_btn = QPushButton("▲")
         up_btn.setStyleSheet(btn_style)
-        up_btn.setToolTip("위로 이동")
         up_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         up_btn.clicked.connect(lambda: self._on_move_item(item, -1))
 
         down_btn = QPushButton("▼")
         down_btn.setStyleSheet(btn_style)
-        down_btn.setToolTip("아래로 이동")
         down_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         down_btn.clicked.connect(lambda: self._on_move_item(item, 1))
 
-        layout.addWidget(up_btn)
-        layout.addWidget(down_btn)
+        btn_layout.addWidget(up_btn)
+        btn_layout.addWidget(down_btn)
+
+        layout.addWidget(btn_container)
 
         self._tree.setItemWidget(item, 0, container)
 
