@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QInputDialog,
     QTreeWidgetItemIterator,
+    QSizePolicy,
 )
 from PySide6.QtCore import Signal, Qt, QPoint, QTimer, QEvent
 from PySide6.QtGui import QAction, QColor
