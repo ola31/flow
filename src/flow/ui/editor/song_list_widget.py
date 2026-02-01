@@ -166,7 +166,10 @@ class SongListWidget(QWidget):
         self._tree.setDragEnabled(True)
         self._tree.setAcceptDrops(True)
         self._tree.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
+        self._tree.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self._tree.setDropIndicatorShown(True)  # [추가] 드롭 위치 지시선 표시
         self._tree.setRootIsDecorated(False)
+        self._tree.setAnimated(True)  # [추가] 폴더 열릴 때 애니메이션 효과
 
         self._tree.setStyleSheet("""
             QTreeWidget {
@@ -196,6 +199,9 @@ class SongListWidget(QWidget):
         self._tree.itemClicked.connect(self._on_item_clicked)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
+
+        # 키보드 단축키 설정 (Ctrl + Up/Down)
+        self._tree.installEventFilter(self)
 
         # 2. 헤더 및 제어 버튼 레이아웃
         header_layout = QHBoxLayout()
@@ -446,8 +452,28 @@ class SongListWidget(QWidget):
         self._remove_btn.setEnabled(editable)
 
     def install_event_filter(self, filter_obj) -> None:
-        """내부 트리 위젯에 이벤트 필터 설치"""
+        """외부 필터 설치"""
         self._tree.installEventFilter(filter_obj)
+
+    def eventFilter(self, watched, event) -> bool:
+        """내부 키보드 단축키 처리 (Ctrl + Up/Down)"""
+        if watched == self._tree and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            modifiers = event.modifiers()
+
+            if modifiers & Qt.KeyboardModifier.ControlModifier:
+                item = self._tree.currentItem()
+                if not item:
+                    return False
+
+                if key == Qt.Key.Key_Up:
+                    self._on_move_item(item, -1)
+                    return True
+                elif key == Qt.Key.Key_Down:
+                    self._on_move_item(item, 1)
+                    return True
+
+        return super().eventFilter(watched, event)
 
     def set_current_index(self, index: int) -> None:
         """프로젝트의 전체 시트 인덱스 기준으로 트리 아이템 선택"""
@@ -882,6 +908,29 @@ class SongListWidget(QWidget):
                     # 곡이 삭제되면 관련 시트들도 모두 제거됨 (UI상)
                     self.song_removed.emit("ALL_OF_SONG")
 
+    def _on_move_item(self, item: QTreeWidgetItem, delta: int):
+        """항목의 순서를 위/아래로 이동 (데이터 동기화 포함)"""
+        parent = item.parent()
+        if parent:
+            # 자식 노드(시트) 이동
+            index = parent.indexOfChild(item)
+            new_index = index + delta
+            if 0 <= new_index < parent.childCount():
+                parent.takeChild(index)
+                parent.insertChild(new_index, item)
+                self._tree.setCurrentItem(item)
+        else:
+            # 최상위 노드(곡) 이동
+            index = self._tree.indexOfTopLevelItem(item)
+            new_index = index + delta
+            if 0 <= new_index < self._tree.topLevelItemCount():
+                self._tree.takeTopLevelItem(index)
+                self._tree.insertTopLevelItem(new_index, item)
+                self._tree.setCurrentItem(item)
+
+        # 데이터 모델 업데이트
+        self._update_order_after_drop()
+
     def _on_context_menu(self, pos: QPoint) -> None:
         """우클릭 컨텍스트 메뉴 (요구사항에 따른 메뉴 분기)"""
         if not self._editable:
@@ -894,7 +943,17 @@ class SongListWidget(QWidget):
         data = item.data(0, Qt.ItemDataRole.UserRole)
 
         if isinstance(data, ScoreSheet):
-            # [시트 노드] 삭제, 이름 변경만 가능
+            # [시트 노드] 이동, 삭제, 이름 변경
+            move_up_action = QAction("🔼 위로 이동", self)
+            move_up_action.triggered.connect(lambda: self._on_move_item(item, -1))
+            menu.addAction(move_up_action)
+
+            move_down_action = QAction("🔽 아래로 이동", self)
+            move_down_action.triggered.connect(lambda: self._on_move_item(item, 1))
+            menu.addAction(move_down_action)
+
+            menu.addSeparator()
+
             rename_action = QAction("📝 시트 이름 변경", self)
             rename_action.triggered.connect(lambda: self._on_rename_clicked(item))
             menu.addAction(rename_action)
@@ -931,6 +990,17 @@ class SongListWidget(QWidget):
             rename_action = QAction("📝 곡 이름 변경", self)
             rename_action.triggered.connect(lambda: self._on_rename_clicked(item))
             menu.addAction(rename_action)
+
+            menu.addSeparator()
+
+            # [곡 노드] 순서 변경 추가
+            move_up_action = QAction("🔼 곡 위로 이동", self)
+            move_up_action.triggered.connect(lambda: self._on_move_item(item, -1))
+            menu.addAction(move_up_action)
+
+            move_down_action = QAction("🔽 곡 아래로 이동", self)
+            move_down_action.triggered.connect(lambda: self._on_move_item(item, 1))
+            menu.addAction(move_down_action)
 
             menu.addSeparator()
             remove_action = QAction("🗑️ 곡 프로젝트에서 제거", self)
