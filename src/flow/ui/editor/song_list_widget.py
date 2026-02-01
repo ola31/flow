@@ -1015,8 +1015,26 @@ class SongListWidget(QWidget):
                     self.song_removed.emit("ALL_OF_SONG")
 
     def _on_move_item(self, item: QTreeWidgetItem, delta: int):
-        """항목의 순서를 위/아래로 이동 (데이터 동기화 포함)"""
+        """항목의 순서를 위/아래로 이동 (데이터 동기화 및 버튼 유지 포함)"""
         parent = item.parent()
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+
+        # 순서 편집 모드에서 버튼에 표시되던 텍스트 가져오기
+        # (setItemWidget으로 인해 기본 text(0)은 비어있을 수 있으므로 직접 계산)
+        display_text = ""
+        is_bold = False
+        if hasattr(data, "score_sheets") and not isinstance(data, ScoreSheet):
+            display_text = data.name
+            is_bold = True
+        elif isinstance(data, ScoreSheet):
+            # 시트 이름은 refresh_list의 로직을 따라야 하므로
+            # 현재는 간단히 item_widget 내의 라벨 텍스트를 찾거나 새로 구성
+            widget = self._tree.itemWidget(item, 0)
+            if widget:
+                label = widget.findChild(QLabel)
+                if label:
+                    display_text = label.text()
+
         if parent:
             # 자식 노드(시트) 이동
             index = parent.indexOfChild(item)
@@ -1025,6 +1043,9 @@ class SongListWidget(QWidget):
                 parent.takeChild(index)
                 parent.insertChild(new_index, item)
                 self._tree.setCurrentItem(item)
+                # 이동 후 버튼 다시 부착 (필수)
+                if self._is_reorder_mode:
+                    self._create_item_reorder_buttons(item, display_text, is_bold)
         else:
             # 최상위 노드(곡) 이동
             index = self._tree.indexOfTopLevelItem(item)
@@ -1033,6 +1054,9 @@ class SongListWidget(QWidget):
                 self._tree.takeTopLevelItem(index)
                 self._tree.insertTopLevelItem(new_index, item)
                 self._tree.setCurrentItem(item)
+                # 이동 후 버튼 다시 부착
+                if self._is_reorder_mode:
+                    self._create_item_reorder_buttons(item, display_text, is_bold)
 
         # 데이터 모델 업데이트
         self._update_order_after_drop()
