@@ -3,6 +3,8 @@
 곡과 악보 페이지를 계층적으로 표시하고 관리하는 UI
 """
 
+import json
+
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -17,160 +19,57 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QTreeWidgetItemIterator,
     QSizePolicy,
+    QLineEdit,
 )
 from PySide6.QtCore import Signal, Qt, QPoint, QTimer, QEvent
 from PySide6.QtGui import QAction, QColor
+from pathlib import Path
 
 from flow.domain.project import Project
 from flow.domain.score_sheet import ScoreSheet
-
-
-class CustomTreeWidget(QTreeWidget):
-    """드래그 앤 드롭 제어가 가능한 커스텀 트리 위젯"""
-
-    def __init__(self, parent_widget, parent=None):
-        super().__init__(parent)
-        self.parent_widget = parent_widget  # SongListWidget 참조
-
-    def dragEnterEvent(self, event):
-        """드래그 시작 - 편집 모드 체크"""
-        if not self.parent_widget._editable:
-            event.ignore()
-            return
-        super().dragEnterEvent(event)
-
-    def dragMoveEvent(self, event):
-        """드래그 이동 중 - 시트가 곡 밖으로 나가는 것을 철저히 차단"""
-        if not self.parent_widget._editable:
-            event.ignore()
-            return
-
-        source_item = self.currentItem()
-        if not source_item:
-            event.ignore()
-            return
-
-        target_item = self.itemAt(event.position().toPoint())
-        source_data = source_item.data(0, Qt.ItemDataRole.UserRole)
-
-        # 시트를 드래그하는 경우
-        if isinstance(source_data, ScoreSheet):
-            # 1. 타겟이 없는 경우 (리스트 끝 빈 공간 등) -> 거부
-            if not target_item:
-                event.ignore()
-                return
-
-            target_data = target_item.data(0, Qt.ItemDataRole.UserRole)
-
-            # 2. 타겟이 시트인 경우 -> 같은 곡(부모)에 속한 경우에만 허용
-            if isinstance(target_data, ScoreSheet):
-                if source_item.parent() != target_item.parent():
-                    event.ignore()
-                    return
-
-            # 3. 타겟이 곡인 경우 -> 자신이 원래 속해있던 곡인 경우에만 허용
-            elif hasattr(target_data, "score_sheets"):
-                if source_item.parent() != target_item:
-                    event.ignore()
-                    return
-
-            # 4. 그 외 (루트 레벨의 엉뚱한 위치 등) -> 거부
-            else:
-                event.ignore()
-                return
-
-        super().dragMoveEvent(event)
-
-    def dropEvent(self, event):
-        """드롭 이벤트 - 안전한 이동 보장 및 Segfault 방지"""
-        if not self.parent_widget._editable:
-            event.ignore()
-            return
-
-        source_item = self.currentItem()
-        if not source_item:
-            event.ignore()
-            return
-
-        target_item = self.itemAt(event.position().toPoint())
-        source_data = source_item.data(0, Qt.ItemDataRole.UserRole)
-
-        # 시트(ScoreSheet) 이동 제한 재검증
-        if isinstance(source_data, ScoreSheet):
-            if not target_item:
-                event.ignore()
-                return
-
-            target_data = target_item.data(0, Qt.ItemDataRole.UserRole)
-            is_valid_drop = False
-
-            if isinstance(target_data, ScoreSheet):
-                # 다른 시트 위에/사이에 드롭하는 경우 -> 같은 부모면 허용
-                if source_item.parent() == target_item.parent():
-                    is_valid_drop = True
-            elif hasattr(target_data, "score_sheets"):
-                # 곡 제목(부모)에 드롭하는 경우
-                if source_item.parent() == target_item:
-                    # [수정] 이미 내 부모라면 이동(맨 뒤로 가기)할 필요가 없으므로 이벤트 무시
-                    # 이렇게 하면 자리바꿈 현상이 발생하지 않음
-                    event.ignore()
-                    return
-                # 다른 곡 제목에 드롭하는 경우 -> 현재 시스템은 다른 곡 이동을 금지하므로 ignore (위에서 이미 처리됨)
-
-            if not is_valid_drop:
-                event.ignore()
-                return
-
-        # 기본 드롭 처리 실행
-        super().dropEvent(event)
-
-        # [중요] Segfault 방지: 드롭 트랜잭션이 완전히 끝난 후(10ms 뒤) 구조 검증 실행
-        from PySide6.QtCore import QTimer
-
-        QTimer.singleShot(10, self.parent_widget._finalize_drop_operation)
+from flow.domain.song import Song
 
 
 class SongListWidget(QWidget):
-    """곡 목록 사이드바 (계층 구조)
+    """곡 목록 사이드바 (탐색 및 선택 최적화)
 
     Signals:
         song_selected: 곡이 선택되었을 때 (ScoreSheet)
         song_added: 새 곡이 추가되었을 때 (ScoreSheet)
         song_removed: 곡이 삭제되었을 때 (str: sheet_id)
+        song_reload_requested: 슬라이드 새로고침 요청 (Song)
     """
 
     song_selected = Signal(object)  # ScoreSheet
     song_added = Signal(object)  # ScoreSheet
-    song_removed = Signal(str)  # sheet_id
-    song_reload_requested = Signal(object)  # Song
+    song_removed = Signal(str)
+    song_reload_requested = Signal(object)
+    song_edit_requested = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._project: Project | None = None
-        self._main_window = None  # 메인 윈도우 참조 보관
+        self._main_window = None
         self._editable = True
-        self._is_flat_view = False  # 단일 목록 모드 상태
-        self._show_song_names = True  # 단일 목록에서 곡 제목 표시 여부
-        self._is_reorder_mode = False  # 순서 편집 모드 상태
-        self._reorder_backup = None  # 순서 복구용 백업 데이터
+        self._is_flat_view = False
+        self._show_song_names = True
+        self._is_standalone = False
+        self._search_text = ""
         self._setup_ui()
 
     def _setup_ui(self) -> None:
-        """UI 초기화 (Tree View 기반)"""
+        """UI 초기화 (Tree View 기반 탐색기)"""
         self.setStyleSheet("background-color: #1a1a1a; ")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(10)
 
-        # 1. 트리 위젯 우선 생성 (버튼 연결을 위함)
-        self._tree = CustomTreeWidget(self)
+        # 1. 트리 위젯 (표준 QTreeWidget 사용, 드래그 비활성화, 외부 드롭 활성화)
+        self._tree = QTreeWidget(self)
         self._tree.setHeaderHidden(True)
         self._tree.setIndentation(15)
-        self._tree.setDragEnabled(True)
+        self._tree.setDragEnabled(False)
         self._tree.setAcceptDrops(True)
-        self._tree.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
-        self._tree.setDefaultDropAction(Qt.DropAction.MoveAction)
-        self._tree.setDropIndicatorShown(True)
         self._tree.setRootIsDecorated(False)
         self._tree.setAnimated(True)
 
@@ -206,7 +105,10 @@ class SongListWidget(QWidget):
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
 
-        # 키보드 단축키 설정 (Ctrl + Up/Down)
+        self._tree.dragEnterEvent = self._on_tree_drag_enter
+        self._tree.dropEvent = self._on_tree_drop
+
+        # 키보드 단축키 설정
         self._tree.installEventFilter(self)
 
         # 2. 헤더 및 제어 버튼 레이아웃
@@ -246,7 +148,7 @@ class SongListWidget(QWidget):
             }
         """
 
-        # 단일 목록 토글 버튼 (텍스트 단축)
+        # 단일 목록 토글 버튼
         self._flat_view_btn = QPushButton("목록형")
         self._flat_view_btn.setCheckable(True)
         self._flat_view_btn.setToolTip("곡 제목을 숨기고 시트만 나열하는 모드입니다.")
@@ -254,39 +156,6 @@ class SongListWidget(QWidget):
         self._flat_view_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._flat_view_btn.clicked.connect(self._on_flat_view_toggled)
         header_layout.addWidget(self._flat_view_btn)
-
-        # 순서 편집 토글 버튼
-        self._reorder_mode_btn = QPushButton("순서 편집")
-        self._reorder_mode_btn.setCheckable(True)
-        self._reorder_mode_btn.setToolTip("목록의 순서를 버튼으로 빠르게 조정합니다.")
-        self._reorder_mode_btn.setStyleSheet(
-            btn_style
-            + """
-            QPushButton:checked {
-                background-color: #ff9800;
-                color: black;
-                border: 1px solid #f57c00;
-            }
-        """
-        )
-        self._reorder_mode_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._reorder_mode_btn.clicked.connect(self._on_reorder_mode_toggled)
-        header_layout.addWidget(self._reorder_mode_btn)
-
-        # 순서 편집 취소 버튼
-        self._reorder_cancel_btn = QPushButton("취소")
-        self._reorder_cancel_btn.setVisible(False)
-        self._reorder_cancel_btn.setToolTip("변경사항을 버리고 원래 순서로 되돌립니다.")
-        self._reorder_cancel_btn.setStyleSheet(
-            btn_style
-            + """
-            QPushButton { background-color: #333; color: #ff5252; border: 1px solid #444; }
-            QPushButton:hover { background-color: #444; color: white; border: 1px solid #ff5252; }
-        """
-        )
-        self._reorder_cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._reorder_cancel_btn.clicked.connect(self._on_reorder_cancel_clicked)
-        header_layout.addWidget(self._reorder_cancel_btn)
 
         # 설정/추가 옵션 메뉴 버튼
         self._options_btn = QPushButton("⚙️")
@@ -331,13 +200,56 @@ class SongListWidget(QWidget):
         header_layout.addWidget(self._options_btn)
 
         layout.addLayout(header_layout)
+
+        # 검색창 추가
+        self._search_bar = QLineEdit()
+        self._search_bar.setPlaceholderText("🔍 곡 또는 시트 검색...")
+        self._search_bar.setStyleSheet("""
+            QLineEdit {
+                background-color: #252525;
+                color: #ccc;
+                border: 1px solid #333;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #2196f3;
+                background-color: #2a2a2a;
+            }
+        """)
+        self._search_bar.textChanged.connect(self._on_search_text_changed)
+        self._search_bar.installEventFilter(self)
+        layout.addWidget(self._search_bar)
+
         layout.addWidget(self._tree)
 
         # 3. 하단 버튼들
-        btn_layout = QHBoxLayout()
+        btn_layout = QVBoxLayout()
         btn_layout.setSpacing(6)
 
-        self._add_btn = QPushButton("+ 곡 추가 / 관리")
+        self._import_ppt_btn = QPushButton("📥 PPT 가져오기")
+        self._import_ppt_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._import_ppt_btn.setFixedHeight(34)
+        self._import_ppt_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #333;
+                color: #ccc;
+                border: 1px solid #444;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover { background-color: #444; border: 1px solid #2196f3; color: white; }
+        """)
+        self._import_ppt_btn.clicked.connect(self._on_import_ppt_clicked)
+        self._import_ppt_btn.hide()
+        btn_layout.addWidget(self._import_ppt_btn)
+
+        main_btn_layout = QHBoxLayout()
+        main_btn_layout.setSpacing(6)
+
+        self._add_btn = QPushButton("+ 곡 추가")
         self._add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._add_btn.setFixedHeight(34)
         self._add_btn.setStyleSheet("""
@@ -353,7 +265,7 @@ class SongListWidget(QWidget):
             QPushButton:disabled { background-color: #333; color: #666; }
         """)
         self._add_btn.clicked.connect(self._on_add_clicked)
-        btn_layout.addWidget(self._add_btn, 1)
+        main_btn_layout.addWidget(self._add_btn, 1)
 
         self._remove_btn = QPushButton("🗑️")
         self._remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -370,120 +282,116 @@ class SongListWidget(QWidget):
             QPushButton:disabled { background-color: #252525; color: #444; border: 1px solid #333; }
         """)
         self._remove_btn.clicked.connect(self._on_remove_clicked)
-        btn_layout.addWidget(self._remove_btn)
+        main_btn_layout.addWidget(self._remove_btn)
 
+        btn_layout.addLayout(main_btn_layout)
         layout.addLayout(btn_layout)
 
-    def _finalize_drop_operation(self):
-        """드롭 작업 완료 후 최종 검증 및 데이터 동기화"""
-        self._validate_tree_structure()
-        self._update_order_after_drop()
+    def _on_tree_drag_enter(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
 
-    def _update_order_after_drop(self, force_save: bool = True):
-        """드롭 후 계층 구조를 도메인 모델에 동기화"""
-        if not self._project:
+    def _on_tree_drop(self, event):
+        urls = event.mimeData().urls()
+        if not urls or not self._project:
             return
 
-        new_song_order = []
-        for i in range(self._tree.topLevelItemCount()):
-            item = self._tree.topLevelItem(i)
-            data = item.data(0, Qt.ItemDataRole.UserRole)
+        project_dir = (
+            self._main_window._project_path.parent if self._main_window else None
+        )
+        if not project_dir:
+            return
 
-            if hasattr(data, "score_sheets") and not isinstance(data, ScoreSheet):
-                data.order = i
-                new_song_order.append(data)
+        imported_count = 0
+        for url in urls:
+            src_path = Path(url.toLocalFile())
+            if src_path.is_dir() and (src_path / "song.json").exists():
+                try:
+                    song_name = self._main_window._repo.import_song_folder(
+                        project_dir, src_path
+                    )
+                    song_obj = self._main_window._repo.load_standalone_song(
+                        project_dir / "songs" / song_name
+                    ).selected_songs[0]
+                    song_obj.project_dir = project_dir
 
-                valid_sheets = []
-                for j in range(item.childCount()):
-                    child = item.child(j)
-                    sheet_data = child.data(0, Qt.ItemDataRole.UserRole)
-                    if isinstance(sheet_data, ScoreSheet):
-                        valid_sheets.append(sheet_data)
+                    if song_name not in [s.name for s in self._project.selected_songs]:
+                        self._project.selected_songs.append(song_obj)
+                        if song_name not in self._project.song_order:
+                            self._project.song_order.append(song_name)
+                        imported_count += 1
+                except Exception as e:
+                    QMessageBox.warning(
+                        self, "가져오기 실패", f"'{src_path.name}' 가져오기 실패: {e}"
+                    )
 
-                data.score_sheets = valid_sheets
-
-        self._project.selected_songs = new_song_order
-
-        # [수정] 강제 저장이 활성화되었거나 순서 편집 모드가 아닐 때만 실제 파일 저장
-        if self._main_window:
-            self._main_window._mark_dirty()
-            if force_save and not self._is_reorder_mode:
+        if imported_count > 0:
+            self.refresh_list()
+            if self._main_window:
+                self._main_window._mark_dirty()
                 self._main_window._save_project()
+            QMessageBox.information(
+                self,
+                "가져오기 완료",
+                f"{imported_count}개의 곡을 성공적으로 가져왔습니다.",
+            )
 
-    def _validate_tree_structure(self):
-        """트리 계층 구조 무결성 검증 및 보정 (시트 소실 방지 강화)"""
-        if not self._project:
-            return
+    def set_standalone(self, standalone: bool) -> None:
+        self._is_standalone = standalone
+        if standalone:
+            self._add_btn.setText("+ 시트(이미지) 추가")
+            self._import_ppt_btn.show()
+            self._flat_view_btn.hide()
+        else:
+            self._add_btn.setText("+ 곡 추가")
+            self._import_ppt_btn.hide()
+            self._flat_view_btn.show()
 
-        has_changes = False
-
-        # 1. 루트 레벨 시트 검사 및 보정
-        for i in range(self._tree.topLevelItemCount() - 1, -1, -1):
-            item = self._tree.topLevelItem(i)
-            data = item.data(0, Qt.ItemDataRole.UserRole)
-
-            if isinstance(data, ScoreSheet):
-                target_song_item = None
-
-                # 먼저 위쪽으로 가장 가까운 곡 검색
-                for j in range(i - 1, -1, -1):
-                    p_item = self._tree.topLevelItem(j)
-                    p_data = p_item.data(0, Qt.ItemDataRole.UserRole)
-                    if hasattr(p_data, "score_sheets") and not isinstance(
-                        p_data, ScoreSheet
-                    ):
-                        target_song_item = p_item
-                        break
-
-                # 위쪽에 곡이 없으면 아래쪽으로 검색
-                if not target_song_item:
-                    for j in range(i + 1, self._tree.topLevelItemCount()):
-                        n_item = self._tree.topLevelItem(j)
-                        n_data = n_item.data(0, Qt.ItemDataRole.UserRole)
-                        if hasattr(n_data, "score_sheets") and not isinstance(
-                            n_data, ScoreSheet
-                        ):
-                            target_song_item = n_item
-                            break
-
-                self._tree.takeTopLevelItem(i)
-                if target_song_item:
-                    # 위쪽 곡을 찾았다면 맨 뒤에 추가, 아래쪽 곡을 찾았다면 맨 앞에 삽입
-                    if self._tree.indexOfTopLevelItem(target_song_item) < i:
-                        target_song_item.addChild(item)
-                    else:
-                        target_song_item.insertChild(0, item)
-                    target_song_item.setExpanded(True)
-
-                has_changes = True
-
-        orphans = []
-        it = QTreeWidgetItemIterator(self._tree)
-        while it.value():
-            item = it.value()
-            data = item.data(0, Qt.ItemDataRole.UserRole)
-            if isinstance(data, ScoreSheet) and item.childCount() > 0:
-                parent_song = item.parent()
-                if parent_song:
-                    for k in range(item.childCount() - 1, -1, -1):
-                        child = item.takeChild(k)
-                        orphans.append((parent_song, child))
-            it += 1
-
-        for parent, child in orphans:
-            parent.addChild(child)
-            has_changes = True
-
-        if has_changes:
-            self._update_order_after_drop()
+    def _get_project_dir(self) -> Path | None:
+        if not self._main_window or not self._main_window._project_path:
+            return None
+        if self._is_standalone:
+            return self._main_window._project_path
+        return self._main_window._project_path.parent
 
     def set_project(self, project: Project) -> None:
         """프로젝트 설정 및 곡 목록 갱신"""
         self._project = project
+
+        if project and len(project.selected_songs) <= 1:
+            self._search_bar.hide()
+        else:
+            self._search_bar.show()
+
         self.refresh_list()
 
+    def _clear_tree_safely(self) -> None:
+        """QTreeWidgetItem을 하나씩 제거하여 안전하게 트리를 비움.
+
+        PySide6에서 _tree.clear() 호출 시 C++ 측이 QTreeWidgetItem을
+        일괄 삭제하면서 Python wrapper와 GC가 충돌하여 segfault가 발생함.
+        takeTopLevelItem()으로 하나씩 꺼내 Python 참조를 해제한 뒤
+        del로 명시 삭제하면 C++ 일괄 삭제가 발생하지 않아 안전함.
+        """
+        import gc
+
+        while self._tree.topLevelItemCount() > 0:
+            top = self._tree.takeTopLevelItem(0)
+            if top is None:
+                break
+            for j in range(top.childCount()):
+                child = top.child(j)
+                if child is not None:
+                    child.setData(0, Qt.ItemDataRole.UserRole, None)
+                    child.setData(0, Qt.ItemDataRole.UserRole + 1, None)
+            top.setData(0, Qt.ItemDataRole.UserRole, None)
+            top.setData(0, Qt.ItemDataRole.UserRole + 1, None)
+            del top
+
+        gc.collect()
+
     def set_main_window(self, win) -> None:
-        """메인 윈도우 참조 설정 (프로젝트 경로 획득용)"""
+        """메인 윈도우 참조 설정"""
         self._main_window = win
 
     def set_editable(self, editable: bool) -> None:
@@ -497,22 +405,20 @@ class SongListWidget(QWidget):
         self._tree.installEventFilter(filter_obj)
 
     def eventFilter(self, watched, event) -> bool:
-        """내부 키보드 단축키 처리 (Ctrl + Up/Down)"""
-        if watched == self._tree and event.type() == QEvent.Type.KeyPress:
+        """키보드 단축키 처리 (Ctrl+F: 검색, Esc: 검색취소)"""
+        if event.type() == QEvent.Type.KeyPress:
             key = event.key()
             modifiers = event.modifiers()
 
-            if modifiers & Qt.KeyboardModifier.ControlModifier:
-                item = self._tree.currentItem()
-                if not item:
-                    return False
+            if modifiers & Qt.KeyboardModifier.ControlModifier and key == Qt.Key.Key_F:
+                self._search_bar.setFocus()
+                self._search_bar.selectAll()
+                return True
 
-                if key == Qt.Key.Key_Up:
-                    self._on_move_item(item, -1)
-                    return True
-                elif key == Qt.Key.Key_Down:
-                    self._on_move_item(item, 1)
-                    return True
+            if watched == self._search_bar and key == Qt.Key.Key_Escape:
+                self._search_bar.clear()
+                self._tree.setFocus()
+                return True
 
         return super().eventFilter(watched, event)
 
@@ -588,7 +494,6 @@ class SongListWidget(QWidget):
         self._tree.clearSelection()
 
         current_count = 0
-        found = False
         it = QTreeWidgetItemIterator(self._tree)
         while it.value():
             item = it.value()
@@ -601,7 +506,6 @@ class SongListWidget(QWidget):
                     self._tree.scrollToItem(item)
                     if item.parent():
                         item.parent().setExpanded(True)
-                    found = True
                     break
                 current_count += 1
             it += 1
@@ -610,30 +514,37 @@ class SongListWidget(QWidget):
         self._update_indicators()
 
     def refresh_list(self) -> None:
-        """곡 목록 갱신 (계층 구조 또는 단일 목록 대응)"""
+        """곡 목록 갱신 (탐색용 계층 구조 또는 단일 목록, 검색 필터 포함)"""
         self._tree.blockSignals(True)
-        self._tree.clear()
+        self._clear_tree_safely()
 
         if not self._project:
             self._tree.blockSignals(False)
             return
 
-        # 단일 목록 모드 상태에 따른 옵션 메뉴 활성화/비활성화
+        # 모드 상태에 따른 옵션 메뉴 활성화
         self._act_expand.setEnabled(not self._is_flat_view)
         self._act_collapse.setEnabled(not self._is_flat_view)
         self._act_show_song.setEnabled(self._is_flat_view)
 
-        # 순서 편집 모드 시 드래그 비활성화
-        self._tree.setDragEnabled(not self._is_reorder_mode and not self._is_flat_view)
-
+        query = self._search_text.lower().strip()
         current_sheet = self._project.get_current_score_sheet()
 
         for song in self._project.selected_songs:
+            song_matches = query in song.name.lower()
             valid_sheets = [
                 s
                 for s in song.score_sheets
                 if s.image_path and str(s.image_path).strip()
             ]
+
+            filtered_sheets = []
+            for s in valid_sheets:
+                if not query or song_matches or query in s.name.lower():
+                    filtered_sheets.append(s)
+
+            if query and not song_matches and not filtered_sheets:
+                continue
 
             if not self._is_flat_view:
                 song_item = QTreeWidgetItem([song.name])
@@ -641,20 +552,9 @@ class SongListWidget(QWidget):
                 font.setBold(True)
                 song_item.setFont(0, font)
                 song_item.setData(0, Qt.ItemDataRole.UserRole, song)
-                flags = song_item.flags()
-                flags &= ~Qt.ItemFlag.ItemIsSelectable  # 선택 불가
-                flags |= Qt.ItemFlag.ItemIsDragEnabled  # 드래그 가능
-                song_item.setFlags(flags)
                 self._tree.addTopLevelItem(song_item)
-
-                # 순서 편집 모드 버튼 추가
-                if self._is_reorder_mode:
-                    self._create_item_reorder_buttons(
-                        song_item, song.name, is_bold=True
-                    )
-
-                if not valid_sheets:
-                    continue
+                if query:
+                    song_item.setExpanded(True)
 
             all_sheets_before = []
             for s in self._project.selected_songs:
@@ -669,19 +569,22 @@ class SongListWidget(QWidget):
                 )
             global_start_idx = len(all_sheets_before)
 
-            for i, sheet in enumerate(valid_sheets):
-                # 표시 이름 최적화
+            sheet_to_idx = {
+                s.id: global_start_idx + i for i, s in enumerate(valid_sheets)
+            }
+
+            for sheet in (
+                filtered_sheets if self._is_flat_view or query else valid_sheets
+            ):
                 display_name = sheet.name
                 if not self._is_flat_view:
-                    # 곡 제목 중복 제거 (계층 구조일 때만)
                     prefix = f"{song.name} -"
                     if display_name.startswith(prefix):
                         display_name = display_name[len(prefix) :].strip()
-                    item_text = f"  P{i + 1}: {display_name}"
+                    orig_idx = valid_sheets.index(sheet) + 1
+                    item_text = f"  P{orig_idx}: {display_name}"
                 else:
-                    # 단일 목록 모드: 설정에 따라 곡 제목 표시 여부 결정
                     if self._show_song_names:
-                        # 시트가 1개뿐이고 이름이 곡 이름과 같다면 곡 이름만 표시
                         if len(valid_sheets) == 1 and (
                             display_name == song.name
                             or display_name.startswith(f"{song.name} -")
@@ -690,133 +593,57 @@ class SongListWidget(QWidget):
                         else:
                             item_text = f"{song.name} - {display_name}"
                     else:
-                        # 곡 제목 없이 시트 이름만 표시
                         item_text = display_name
 
                 sheet_item = QTreeWidgetItem([item_text])
                 sheet_item.setData(0, Qt.ItemDataRole.UserRole, sheet)
                 sheet_item.setData(
-                    0, Qt.ItemDataRole.UserRole + 1, global_start_idx + i
+                    0, Qt.ItemDataRole.UserRole + 1, sheet_to_idx.get(sheet.id)
                 )
 
                 if not self._is_flat_view:
                     song_item.addChild(sheet_item)
-                    # 순서 편집 모드 버튼 추가
-                    if self._is_reorder_mode:
-                        self._create_item_reorder_buttons(sheet_item, item_text)
-
-                    # 현재 선택된 시트가 이 곡에 있으면 트리 확장
-
-                    if current_sheet and any(
-                        s.id == current_sheet.id for s in valid_sheets
+                    if (
+                        not query
+                        and current_sheet
+                        and any(s.id == current_sheet.id for s in valid_sheets)
                     ):
                         song_item.setExpanded(True)
                 else:
-                    # 단일 목록 모드: 직접 최상위에 추가
                     self._tree.addTopLevelItem(sheet_item)
-                    # 순서 편집 모드 버튼 추가
-                    if self._is_reorder_mode:
-                        self._create_item_reorder_buttons(sheet_item, item_text)
+
+            if not valid_sheets and not self._is_flat_view:
+                empty_item = QTreeWidgetItem(["  (등록된 시트 없음)"])
+                empty_item.setForeground(0, QColor("#666"))
+                song_item.addChild(empty_item)
+                song_item.setExpanded(True)
 
         self._update_selection_from_project()
         self._tree.blockSignals(False)
 
-    def _create_item_reorder_buttons(
-        self, item: QTreeWidgetItem, text: str, is_bold: bool = False
-    ):
-        """트리 아이템 옆에 텍스트와 상하 이동 버튼 생성 및 주입 (공간 최적화)"""
-        container = QWidget()
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(4, 0, 2, 0)
-        layout.setSpacing(4)
-
-        # 텍스트 라벨 (최대 너비 제한 없이 가변 공간 활용)
-        label = QLabel(text)
-        label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        style = "color: #ccc; font-size: 11px;"
-        if is_bold:
-            style += " font-weight: bold; color: #eee;"
-        label.setStyleSheet(style)
-
-        # 라벨이 생략되지 않도록 처리 (충분한 공간 부여)
-        label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        layout.addWidget(label)
-
-        # 버튼들을 담을 고정 크기 레이아웃
-        btn_container = QWidget()
-        btn_layout = QHBoxLayout(btn_container)
-        btn_layout.setContentsMargins(0, 0, 0, 0)
-        btn_layout.setSpacing(2)
-
-        btn_style = """
-            QPushButton {
-                background-color: #333;
-                color: #888;
-                border: 1px solid #444;
-                border-radius: 2px;
-                font-size: 8px;
-                min-width: 18px;
-                max-width: 18px;
-                min-height: 18px;
-                max-height: 18px;
-                padding: 0px;
-            }
-            QPushButton:hover {
-                background-color: #444;
-                color: #ff9800;
-                border: 1px solid #f57c00;
-            }
-        """
-
-        up_btn = QPushButton("▲")
-        up_btn.setStyleSheet(btn_style)
-        up_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        up_btn.clicked.connect(lambda: self._on_move_item(item, -1))
-
-        down_btn = QPushButton("▼")
-        down_btn.setStyleSheet(btn_style)
-        down_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        down_btn.clicked.connect(lambda: self._on_move_item(item, 1))
-
-        btn_layout.addWidget(up_btn)
-        btn_layout.addWidget(down_btn)
-
-        layout.addWidget(btn_container)
-
-        self._tree.setItemWidget(item, 0, container)
-
-    def _on_reorder_mode_toggled(self, checked: bool):
-        """순서 편집 모드 토글 핸들러"""
-        self._is_reorder_mode = checked
-        if checked:
-            self._reorder_mode_btn.setText("완료")
-            # 편집 모드 시 전체 펼치기 유도
-            self._tree.expandAll()
-        else:
-            self._reorder_mode_btn.setText("순서 편집")
-
+    def _on_search_text_changed(self, text: str):
+        """검색어 변경 핸들러"""
+        self._search_text = text
         self.refresh_list()
 
     def _on_flat_view_toggled(self, checked: bool):
-        """단일 목록 모드 토글 핸들러"""
+        """단일 목록 모드 토글"""
         self._is_flat_view = checked
-        self._tree.setDragEnabled(not checked)
         self.refresh_list()
 
     def _on_show_song_names_toggled(self, checked: bool):
-        """단일 목록에서 곡 이름 표시 토글 핸들러"""
+        """단일 목록에서 곡 이름 표시 토글"""
         self._show_song_names = checked
         if self._is_flat_view:
             self.refresh_list()
 
     def _on_settings_clicked(self):
-        """설정 메뉴 클릭 핸들러"""
+        """환경설정 클릭"""
         if self._main_window:
             self._main_window._show_settings()
 
     def _show_options_menu(self):
         """설정 메뉴 표시"""
-        # 버튼 바로 아래에 메뉴 표시
         self._options_menu.exec(
             self._options_btn.mapToGlobal(QPoint(0, self._options_btn.height()))
         )
@@ -825,7 +652,6 @@ class SongListWidget(QWidget):
         self, current: QTreeWidgetItem | None, previous: QTreeWidgetItem | None
     ) -> None:
         """곡 선택 변경 (트리 노드 선택 시 호출)"""
-        # [추가] 시그널이 차단된 상태거나 인덱스 업데이트 중이면 무시
         if not current or not self._project or self._tree.signalsBlocked():
             return
 
@@ -835,17 +661,14 @@ class SongListWidget(QWidget):
         if isinstance(data, ScoreSheet):
             target_sheet = data
         elif hasattr(data, "score_sheets") and data.score_sheets:
-            # 방향키 등으로 '곡' 노드에 진입한 경우 -> 첫 번째 페이지로 자동 점프
             if current.childCount() > 0:
                 self._tree.setCurrentItem(current.child(0))
                 return
             target_sheet = data.score_sheets[0]
 
         if target_sheet:
-            # [수정] ID 충돌 방지를 위해 저장된 절대 인덱스 우선 사용
             new_idx = current.data(0, Qt.ItemDataRole.UserRole + 1)
 
-            # 인덱스 데이터가 없으면 검색으로 대체 (하위 호환)
             if new_idx is None:
                 all_sheets = self._project.all_score_sheets
                 for i, s in enumerate(all_sheets):
@@ -858,11 +681,10 @@ class SongListWidget(QWidget):
                 self._update_indicators()
                 self.song_selected.emit(target_sheet)
             elif new_idx is not None:
-                # 인덱스는 같지만 시각적 갱신이 필요할 수 있음
                 self._update_indicators()
 
     def _update_indicators(self) -> None:
-        """삼각형 기호(▶) 위치 업데이트 (트리 구조 대응)"""
+        """현재 선택된 항목 인디케이터(▶) 업데이트"""
         current_sheet = (
             self._project.get_current_score_sheet() if self._project else None
         )
@@ -872,7 +694,6 @@ class SongListWidget(QWidget):
             item = it.value()
             data = item.data(0, Qt.ItemDataRole.UserRole)
 
-            # 원본 텍스트 가져오기 (이미 삼각형이 있으면 제거)
             base_text = item.text(0).replace("▶ ", "").strip()
 
             if (
@@ -882,7 +703,6 @@ class SongListWidget(QWidget):
             ):
                 item.setText(0, f"▶ {base_text}")
                 item.setForeground(0, QColor("#2196f3"))
-                # [추가] 인디케이터가 있는 아이템을 트리에서 선택 상태로 동기화
                 self._tree.blockSignals(True)
                 self._tree.setCurrentItem(item)
                 self._tree.blockSignals(False)
@@ -892,15 +712,11 @@ class SongListWidget(QWidget):
             it += 1
 
     def _on_item_clicked(self, item: QTreeWidgetItem) -> None:
-        """아이템 클릭 시 (곡 제목 클릭 토글 및 포커스 반환)"""
+        """아이템 클릭 시 (접기/펼치기 토글)"""
         data = item.data(0, Qt.ItemDataRole.UserRole)
 
-        # 곡 제목 노드인 경우 (Song 객체인 경우)
         if hasattr(data, "score_sheets") and not isinstance(data, ScoreSheet):
-            # 1. 접기/펼치기 상태 토글
             item.setExpanded(not item.isExpanded())
-
-            # 2. 첫 페이지 자동 선택 (기존 편의 기능)
             if item.childCount() > 0:
                 self._tree.setCurrentItem(item.child(0))
 
@@ -911,19 +727,165 @@ class SongListWidget(QWidget):
             self._main_window._canvas.setFocus()
 
     def _on_add_clicked(self) -> None:
-        """[수정] 버튼 클릭 시 무조건 곡 관리 다이얼로그 호출"""
-        if self._main_window:
-            self._main_window._manage_songs()
+        if self._is_standalone and self._project and self._project.selected_songs:
+            self._set_song_image(self._project.selected_songs[0])
+            return
+
+        if not self._project or not self._main_window:
+            return
+
+        project_dir = self._main_window._project_path.parent
+        songs_dir = project_dir / "songs"
+
+        if not songs_dir.exists():
+            songs_dir.mkdir(parents=True, exist_ok=True)
+
+        included_names = {s.name for s in self._project.selected_songs}
+        available = []
+        for folder in sorted(songs_dir.iterdir()):
+            if folder.is_dir() and (folder / "song.json").exists():
+                if folder.name not in included_names:
+                    available.append(folder.name)
+
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #2a2a2a; color: #ccc;
+                border: 1px solid #444; border-radius: 6px;
+                padding: 4px 0;
+            }
+            QMenu::item {
+                padding: 8px 20px; font-size: 12px;
+            }
+            QMenu::item:selected {
+                background-color: #3d3d3d; color: white;
+            }
+            QMenu::item:disabled {
+                color: #555;
+            }
+            QMenu::separator {
+                height: 1px; background: #444; margin: 4px 8px;
+            }
+        """)
+
+        if available:
+            for name in available:
+                act = menu.addAction(f"📂  {name}")
+                act.triggered.connect(
+                    lambda checked, n=name: self._add_existing_song(n)
+                )
+        else:
+            empty = menu.addAction("(추가 가능한 곡 없음)")
+            empty.setEnabled(False)
+
+        menu.addSeparator()
+        new_act = menu.addAction("✚  새 곡 만들기")
+        new_act.triggered.connect(self._add_new_song_inline)
+
+        menu.exec(self._add_btn.mapToGlobal(QPoint(0, -menu.sizeHint().height())))
+
+    def _add_existing_song(self, name: str) -> None:
+        if not self._project or not self._main_window:
+            return
+
+        project_dir = self._main_window._project_path.parent
+        song = self._load_song_from_folder(name, project_dir)
+        if not song:
+            QMessageBox.warning(self, "오류", f"'{name}' 곡을 로드할 수 없습니다.")
+            return
+
+        self._project.selected_songs.append(song)
+        if name not in self._project.song_order:
+            self._project.song_order.append(name)
+
+        self.refresh_list()
+        self._main_window._mark_dirty()
+        self._main_window._save_project()
+
+    def _load_song_from_folder(self, name: str, project_dir: Path) -> Song | None:
+        song_dir = project_dir / "songs" / name
+        song_json = song_dir / "song.json"
+
+        if not song_json.exists():
+            return None
+
+        try:
+            with open(song_json, "r", encoding="utf-8-sig") as f:
+                data = json.load(f)
+
+            sheets_data = data.get("sheets", [])
+            if not sheets_data and data.get("sheet"):
+                sheets_data = [data["sheet"]]
+
+            score_sheets = []
+            for sd in sheets_data:
+                if sd:
+                    score_sheets.append(ScoreSheet.from_dict(sd))
+
+            if not score_sheets:
+                score_sheets.append(ScoreSheet(name=name))
+
+            return Song(
+                name=name,
+                folder=Path("songs") / name,
+                score_sheets=score_sheets,
+                project_dir=project_dir,
+            )
+        except Exception:
+            return None
+
+    def _on_import_ppt_clicked(self) -> None:
+        if self._project and self._project.selected_songs:
+            self._import_song_ppt(self._project.selected_songs[0])
+
+    def _add_new_song_inline(self) -> None:
+        if not self._project or not self._main_window:
+            return
+
+        name, ok = QInputDialog.getText(self, "새 곡", "곡 이름:")
+        if not ok or not name.strip():
+            return
+
+        name = name.strip()
+        project_dir = self._main_window._project_path.parent
+        song_dir = project_dir / "songs" / name
+
+        if song_dir.exists():
+            QMessageBox.warning(self, "오류", f"'{name}' 곡이 이미 존재합니다.")
+            return
+
+        try:
+            main_repo = getattr(self._main_window, "_repo", None)
+            if main_repo:
+                main_repo.init_song_folder(song_dir, name)
+            else:
+                song_dir.mkdir(parents=True)
+                (song_dir / "sheets").mkdir(exist_ok=True)
+                song_data = {"name": name, "sheets": []}
+                with open(song_dir / "song.json", "w", encoding="utf-8-sig") as f:
+                    json.dump(song_data, f, ensure_ascii=False, indent=2)
+
+            song = Song(
+                name=name,
+                folder=Path("songs") / name,
+                score_sheets=[],
+                project_dir=project_dir,
+            )
+            self._project.selected_songs.append(song)
+            if name not in self._project.song_order:
+                self._project.song_order.append(name)
+
+            self.refresh_list()
+            self._main_window._mark_dirty()
+            self._main_window._save_project()
+        except Exception as e:
+            QMessageBox.warning(self, "오류", f"곡 생성 실패: {e}")
 
     def _set_song_image(self, song):
-        """특정 곡에 새로운 악보 페이지(이미지) 추가"""
+        """악보 이미지 추가"""
         import shutil
-        from pathlib import Path
 
-        # 프로젝트 폴더 또는 곡 폴더를 기본 경로로 설정
-        project_dir = (
-            self._main_window._project_path.parent if self._main_window else Path.cwd()
-        )
+        project_dir = self._get_project_dir() or Path.cwd()
         song_dir = project_dir / song.folder
         initial_dir = str(song_dir) if song_dir.exists() else str(project_dir)
 
@@ -938,8 +900,6 @@ class SongListWidget(QWidget):
             return
 
         p_path = Path(image_path).resolve()
-
-        # [추가] 시트 이름 입력 받기
         default_name = f"{song.name} - {p_path.stem}"
         sheet_name, ok = QInputDialog.getText(
             self,
@@ -956,29 +916,17 @@ class SongListWidget(QWidget):
 
         dest_path = abs_sheets_dir / p_path.name
 
-        # [수정] 해당 곡의 sheet 폴더에 있지 않다면 복사
         if p_path.parent != abs_sheets_dir:
             try:
                 shutil.copy2(image_path, dest_path)
             except shutil.SameFileError:
                 pass
 
-        # 도메인 모델 업데이트
-        from flow.domain.score_sheet import ScoreSheet
-
-        rel_sheets_dir = (
-            sheets_dir.relative_to(song.folder)
-            if song.folder and sheets_dir.is_relative_to(song.folder)
-            else Path("sheets")
-        )
-        new_sheet_path = f"{rel_sheets_dir}/{p_path.name}"
-
+        new_sheet_path = f"{sheets_dir.relative_to(song.folder) if song.folder and sheets_dir.is_relative_to(song.folder) else 'sheets'}/{p_path.name}"
         new_sheet = ScoreSheet(name=sheet_name.strip(), image_path=new_sheet_path)
         song.score_sheets.append(new_sheet)
 
         self.refresh_list()
-
-        # 시트 선택 및 트리 확장
         self.select_sheet_by_id(new_sheet.id)
 
         if self._main_window:
@@ -986,7 +934,7 @@ class SongListWidget(QWidget):
             self._main_window._save_project()
 
     def select_sheet_by_id(self, sheet_id: str) -> None:
-        """ID를 기반으로 트리의 시트 아이템 선택"""
+        """ID 기반 선택"""
         it = QTreeWidgetItemIterator(self._tree)
         while it.value():
             item = it.value()
@@ -999,7 +947,6 @@ class SongListWidget(QWidget):
             it += 1
 
     def _on_remove_clicked(self) -> None:
-        """곡(또는 페이지) 삭제 버튼 클릭"""
         if not self._project:
             return
 
@@ -1010,131 +957,24 @@ class SongListWidget(QWidget):
         data = current.data(0, Qt.ItemDataRole.UserRole)
 
         if isinstance(data, ScoreSheet):
-            # 페이지 삭제
-            reply = QMessageBox.question(
-                self,
-                "페이지 삭제",
-                f"'{data.name}' 페이지를 삭제하시겠습니까?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if reply == QMessageBox.StandardButton.Yes:
-                self._project.remove_score_sheet(data.id)
-                self.refresh_list()
-                self.song_removed.emit(data.id)
-        else:
-            # 곡 삭제
-            reply = QMessageBox.question(
-                self,
-                "곡 삭제",
-                f"'{data.name}' 곡을 프로젝트에서 제외하시겠습니까?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if reply == QMessageBox.StandardButton.Yes:
-                if data in self._project.selected_songs:
-                    self._project.selected_songs.remove(data)
-                    self.refresh_list()
-                    # 곡이 삭제되면 관련 시트들도 모두 제거됨 (UI상)
-                    self.song_removed.emit("ALL_OF_SONG")
-
-    def _on_move_item(self, item: QTreeWidgetItem, delta: int):
-        """항목의 순서를 위/아래로 이동 (재귀적 버튼 복구 포함)"""
-        parent = item.parent()
-
-        if parent:
-            index = parent.indexOfChild(item)
-            new_index = index + delta
-            if 0 <= new_index < parent.childCount():
-                parent.takeChild(index)
-                parent.insertChild(new_index, item)
-                self._tree.setCurrentItem(item)
-        else:
-            index = self._tree.indexOfTopLevelItem(item)
-            new_index = index + delta
-            if 0 <= new_index < self._tree.topLevelItemCount():
-                self._tree.takeTopLevelItem(index)
-                self._tree.insertTopLevelItem(new_index, item)
-                self._tree.setCurrentItem(item)
-
-        if self._is_reorder_mode:
-            from PySide6.QtCore import QTimer
-
-            QTimer.singleShot(
-                10, lambda: self._restore_reorder_buttons_recursively(item)
-            )
-
-        self._update_order_after_drop(force_save=False)
-
-    def _restore_reorder_buttons_recursively(self, item: QTreeWidgetItem):
-        """항목과 그 모든 하위 시트의 버튼 위젯을 재귀적으로 다시 생성"""
-        data = item.data(0, Qt.ItemDataRole.UserRole)
-
-        # 1. 현재 항목 버튼 부착
-        is_bold = hasattr(data, "score_sheets") and not isinstance(data, ScoreSheet)
-
-        # 표시 텍스트 결정 (이전과 동일 로직)
-        display_text = ""
-        widget = self._tree.itemWidget(item, 0)
-        if widget:
-            label = widget.findChild(QLabel)
-            if label:
-                display_text = label.text()
-
-        if not display_text:
-            display_text = data.name  # Fallback
-
-        self._create_item_reorder_buttons(item, display_text, is_bold)
-
-        # 2. 자식들 버튼 재귀 부착
-        for i in range(item.childCount()):
-            self._restore_reorder_buttons_recursively(item.child(i))
-
-    def _on_reorder_mode_toggled(self, checked: bool):
-        """순서 편집 모드 토글 핸들러"""
-        self._is_reorder_mode = checked
-        if checked:
-            # 1. 현재 순서 백업 (단순 참조가 아닌 구조적 스냅샷)
-            self._reorder_backup = []
-            for song in self._project.selected_songs:
-                # 곡 정보와 시트 객체 리스트를 복사
-                self._reorder_backup.append(
-                    {"song": song, "sheets": list(song.score_sheets)}
+            if self._is_standalone:
+                reply = QMessageBox.question(
+                    self,
+                    "페이지 삭제",
+                    f"'{data.name}' 페이지를 삭제하시겠습니까?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 )
-
-            self._reorder_mode_btn.setText("완료")
-            self._reorder_cancel_btn.setVisible(True)
-            self._tree.expandAll()
-        else:
-            # 완료 시점: 최종 순서 파일 저장
-            self._reorder_mode_btn.setText("순서 편집")
-            self._reorder_cancel_btn.setVisible(False)
-            self._update_order_after_drop(force_save=True)
-
-        self.refresh_list()
-
-    def _on_reorder_cancel_clicked(self):
-        """순서 편집 취소: 백업된 데이터로 원복"""
-        if not self._reorder_backup or not self._project:
-            self._on_reorder_mode_toggled(False)
-            return
-
-        # 백업 데이터를 기반으로 모델 복구
-        new_songs = []
-        for entry in self._reorder_backup:
-            song = entry["song"]
-            song.score_sheets = entry["sheets"]
-            new_songs.append(song)
-
-        self._project.selected_songs = new_songs
-        self._is_reorder_mode = False
-        self._reorder_mode_btn.setChecked(False)
-        self._reorder_mode_btn.setText("순서 편집")
-        self._reorder_cancel_btn.setVisible(False)
-
-        self.refresh_list()
-        self._main_window._statusbar.showMessage("순서 변경이 취소되었습니다.", 2000)
+                if reply == QMessageBox.StandardButton.Yes:
+                    self._project.remove_score_sheet(data.id)
+                    self.refresh_list()
+                    self.song_removed.emit(data.id)
+                    if self._main_window:
+                        self._main_window._mark_dirty()
+                        self._main_window._save_project()
+        elif hasattr(data, "name"):
+            self._remove_song(data)
 
     def _on_context_menu(self, pos: QPoint) -> None:
-        """우클릭 컨텍스트 메뉴"""
         if not self._editable:
             return
         item = self._tree.itemAt(pos)
@@ -1144,24 +984,42 @@ class SongListWidget(QWidget):
         menu = QMenu(self)
         data = item.data(0, Qt.ItemDataRole.UserRole)
 
+        if self._is_standalone:
+            self._build_standalone_context_menu(menu, item, data)
+        elif isinstance(data, ScoreSheet):
+            return
+        else:
+            self._build_project_context_menu(menu, data)
+
+        menu.exec(self._tree.mapToGlobal(pos))
+
+    def _build_project_context_menu(self, menu: QMenu, song) -> None:
+        open_act = QAction("📂 곡 열기", self)
+        open_act.triggered.connect(lambda: self.song_edit_requested.emit(song))
+        menu.addAction(open_act)
+
+        folder_act = QAction("📁 폴더 열기", self)
+        folder_act.triggered.connect(lambda: self._open_song_folder(song))
+        menu.addAction(folder_act)
+
+        reload_act = QAction("🔄 새로고침", self)
+        reload_act.triggered.connect(lambda: self.song_reload_requested.emit(song))
+        menu.addAction(reload_act)
+
+        menu.addSeparator()
+
+        remove_act = QAction("✕ 프로젝트에서 제거", self)
+        remove_act.triggered.connect(lambda: self._remove_song(song))
+        menu.addAction(remove_act)
+
+    def _build_standalone_context_menu(self, menu: QMenu, item, data) -> None:
         if isinstance(data, ScoreSheet):
-            # [시트 노드] 이동, 이름 변경
-            move_up_action = QAction("🔼 위로 이동", self)
-            move_up_action.triggered.connect(lambda: self._on_move_item(item, -1))
-            menu.addAction(move_up_action)
-
-            move_down_action = QAction("🔽 아래로 이동", self)
-            move_down_action.triggered.connect(lambda: self._on_move_item(item, 1))
-            menu.addAction(move_down_action)
-
-            menu.addSeparator()
-
             rename_action = QAction("📝 시트 이름 변경", self)
             rename_action.triggered.connect(lambda: self._on_rename_clicked(item))
             menu.addAction(rename_action)
         else:
-            # [곡 노드] 폴더/PPT 열기 및 새로고침
             song = data
+
             open_folder_act = QAction("📂 폴더 열기", self)
             open_folder_act.triggered.connect(lambda: self._open_song_folder(song))
             menu.addAction(open_folder_act)
@@ -1169,6 +1027,10 @@ class SongListWidget(QWidget):
             edit_ppt_act = QAction("📽 PPT 편집", self)
             edit_ppt_act.triggered.connect(lambda: self._open_song_ppt(song))
             menu.addAction(edit_ppt_act)
+
+            import_ppt_act = QAction("📥 PPT 파일 가져오기", self)
+            import_ppt_act.triggered.connect(lambda: self._import_song_ppt(song))
+            menu.addAction(import_ppt_act)
 
             reload_ppt_act = QAction("🔄 슬라이드 새로고침", self)
             reload_ppt_act.triggered.connect(
@@ -1182,25 +1044,38 @@ class SongListWidget(QWidget):
             rename_action.triggered.connect(lambda: self._on_rename_clicked(item))
             menu.addAction(rename_action)
 
-            menu.addSeparator()
+    def _remove_song(self, song) -> None:
+        if not self._project:
+            return
 
-            move_up_action = QAction("🔼 곡 위로 이동", self)
-            move_up_action.triggered.connect(lambda: self._on_move_item(item, -1))
-            menu.addAction(move_up_action)
+        reply = QMessageBox.question(
+            self,
+            "곡 제거",
+            f"'{song.name}' 곡을 프로젝트에서 제거하시겠습니까?\n(곡 파일은 삭제되지 않습니다)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
 
-            move_down_action = QAction("🔽 곡 아래로 이동", self)
-            move_down_action.triggered.connect(lambda: self._on_move_item(item, 1))
-            menu.addAction(move_down_action)
+        if song in self._project.selected_songs:
+            self._project.selected_songs.remove(song)
+        if song.name in self._project.song_order:
+            self._project.song_order.remove(song.name)
 
-        menu.exec(self._tree.mapToGlobal(pos))
+        self.refresh_list()
+        self.song_removed.emit("ALL_OF_SONG")
+        if self._main_window:
+            self._main_window._mark_dirty()
+            self._main_window._save_project()
 
     def _open_song_folder(self, song):
-        """곡 폴더 열기"""
-        import os
-        import subprocess
-        import sys
+        """폴더 열기"""
+        import os, subprocess, sys
 
-        path = self._main_window._project_path.parent / song.folder
+        project_dir = self._get_project_dir()
+        if not project_dir:
+            return
+        path = project_dir / song.folder
         if sys.platform == "win32":
             os.startfile(path)
         elif sys.platform == "darwin":
@@ -1209,16 +1084,16 @@ class SongListWidget(QWidget):
             subprocess.Popen(["xdg-open", path])
 
     def _open_song_ppt(self, song):
-        """곡 PPT 열기"""
-        import os
-        import subprocess
-        import sys
+        """PPT 열기"""
+        import os, subprocess, sys
 
-        path = self._main_window._project_path.parent / song.folder / "slides.pptx"
+        project_dir = self._get_project_dir()
+        if not project_dir:
+            return
+        path = project_dir / song.folder / "slides.pptx"
         if not path.exists():
             QMessageBox.warning(self, "오류", "PPT 파일이 존재하지 않습니다.")
             return
-
         if sys.platform == "win32":
             os.startfile(path)
         elif sys.platform == "darwin":
@@ -1226,27 +1101,52 @@ class SongListWidget(QWidget):
         else:
             subprocess.Popen(["xdg-open", path])
 
+    def _import_song_ppt(self, song):
+        """외부 PPT 파일을 곡 폴더의 slides.pptx로 복사"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "가져올 PPT 파일 선택", "", "PowerPoint 파일 (*.pptx)"
+        )
+        if not file_path:
+            return
+
+        import shutil
+
+        dest_path = song.abs_slides_path
+
+        if dest_path.exists():
+            reply = QMessageBox.question(
+                self,
+                "파일 덮어쓰기",
+                "이미 슬라이드 파일이 존재합니다. 덮어쓰시겠습니까?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        try:
+            shutil.copy2(file_path, dest_path)
+            self.song_reload_requested.emit(song)
+            QMessageBox.information(self, "완료", "PPT 파일을 성공적으로 가져왔습니다.")
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"파일을 가져오는데 실패했습니다: {e}")
+
     def _on_rename_clicked(self, item: QTreeWidgetItem) -> None:
-        """곡 또는 페이지 이름 변경"""
+        """이름 변경"""
         if not self._project:
             return
         data = item.data(0, Qt.ItemDataRole.UserRole)
-        current_name = data.name
-
         new_name, ok = QInputDialog.getText(
-            self, "이름 변경", "새 이름을 입력하세요:", text=current_name
+            self, "이름 변경", "새 이름을 입력하세요:", text=data.name
         )
         if ok and new_name.strip():
             data.name = new_name.strip()
             self.refresh_list()
-
             if isinstance(data, ScoreSheet):
                 self.song_selected.emit(data)
             else:
-                valid_sheets = [s for s in data.score_sheets if s.image_path]
-                if valid_sheets:
-                    self.song_selected.emit(valid_sheets[0])
-
+                valid = [s for s in data.score_sheets if s.image_path]
+                if valid:
+                    self.song_selected.emit(valid[0])
             if self._main_window:
                 self._main_window._mark_dirty()
                 self._main_window._save_project()
