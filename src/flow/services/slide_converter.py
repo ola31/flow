@@ -20,7 +20,9 @@ class SlideConverter(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def convert_slide(self, pptx_path: Path, index: int) -> QImage:
+    def convert_slide(
+        self, pptx_path: Path, index: int, status_callback=None
+    ) -> QImage:
         """특정 슬라이드를 이미지로 변환"""
         pass
 
@@ -40,41 +42,46 @@ def _get_project_root() -> Path:
     return Path(__file__).parent.parent.parent.parent
 
 
-def _convert_pdf_to_images(pdf_path: Path, cache_dir: Path) -> bool:
+import threading
+
+_GLOBAL_CONVERT_LOCK = threading.Lock()
+
+
+def _convert_pdf_to_images(
+    pdf_path: Path, cache_dir: Path, status_callback=None
+) -> bool:
     """PDF의 모든 페이지를 고화질 PNG로 변환하여 캐시 디렉토리에 저장"""
     if not pdf_path.exists() or pdf_path.stat().st_size == 0:
         return False
 
-    try:
-        # with 문을 사용하여 문서가 자동으로 닫히도록 관리
-        with fitz.open(str(pdf_path)) as doc:
-            page_count = len(doc)
-            if page_count == 0:
-                return False
+    with _GLOBAL_CONVERT_LOCK:
+        try:
+            with fitz.open(str(pdf_path)) as doc:
+                page_count = len(doc)
+                if page_count == 0:
+                    return False
 
-            for i in range(page_count):
-                page = doc.load_page(i)
+                for i in range(page_count):
+                    if status_callback:
+                        status_callback(f"이미지 추출 중 ({i + 1}/{page_count})...")
 
-                # 2.0배 배율 (약 144 DPI) - 2K급 선명도 (속도와 화질의 균형)
-                # [수정] 배경을 검은색으로 채워 하얀 글씨가 보이도록 함 (Live 전송 시에도 가독성 확보)
-                pix = page.get_pixmap(
-                    matrix=fitz.Matrix(2.0, 2.0), colorspace=fitz.csRGB, alpha=False
-                )
+                    page = doc.load_page(i)
 
-                target = cache_dir / f"slide_{i}.png"
-                pix.save(str(target))
+                    pix = page.get_pixmap(
+                        matrix=fitz.Matrix(2.0, 2.0), colorspace=fitz.csRGB, alpha=False
+                    )
 
-        return True
-    except Exception as e:
-        # 가끔 subprocess 종료 직후 파일이 잠겨있을 수 있음
-        if "document closed" in str(e) or "cannot open" in str(e).lower():
-            import time
+                    target = cache_dir / f"slide_{i}.png"
+                    pix.save(str(target))
 
-            time.sleep(0.5)
-        return False
+            return True
+        except Exception as e:
+            # 가끔 subprocess 종료 직후 파일이 잠겨있을 수 있음
+            if "document closed" in str(e) or "cannot open" in str(e).lower():
+                import time
 
-
-import threading
+                time.sleep(0.5)
+            return False
 
 
 class OnlyOfficeSlideConverter(SlideConverter):
@@ -109,7 +116,9 @@ class OnlyOfficeSlideConverter(SlideConverter):
             shutil.rmtree(self._cache_dir, ignore_errors=True)
             self._cache_dir.mkdir(exist_ok=True)
 
-    def convert_slide(self, pptx_path: Path, index: int) -> QImage:
+    def convert_slide(
+        self, pptx_path: Path, index: int, status_callback=None
+    ) -> QImage:
         if not pptx_path:
             return QImage(1280, 720, QImage.Format.Format_RGB32)
         mtime = pptx_path.stat().st_mtime
@@ -149,11 +158,15 @@ class OnlyOfficeSlideConverter(SlideConverter):
             script_path.write_text(script_content, encoding="utf-8")
 
             try:
+                if status_callback:
+                    status_callback("ONLYOFFICE 엔진으로 PDF 변환 중...")
                 subprocess.run(
                     [str(self.exe), str(script_path)], check=True, capture_output=True
                 )
                 if pdf_path.exists():
-                    _convert_pdf_to_images(pdf_path, pptx_cache_dir)
+                    _convert_pdf_to_images(
+                        pdf_path, pptx_cache_dir, status_callback=status_callback
+                    )
                 else:
                     print(
                         f"[OnlyOfficeSlideConverter] 슬라이드 {index} 변환 실패 (PDF 생성 안됨)"
@@ -207,7 +220,9 @@ class WindowsSlideConverter(SlideConverter):
             self._has_pp = False
         return self._has_pp
 
-    def convert_slide(self, pptx_path: Path, index: int) -> QImage:
+    def convert_slide(
+        self, pptx_path: Path, index: int, status_callback=None
+    ) -> QImage:
         if not pptx_path:
             return QImage(1280, 720, QImage.Format.Format_RGB32)
         mtime = pptx_path.stat().st_mtime
@@ -225,7 +240,9 @@ class WindowsSlideConverter(SlideConverter):
 
         if self._check_powerpoint_installed():
             try:
-                self._convert_with_com_pdf(pptx_path, pptx_cache_dir)
+                self._convert_with_com_pdf(
+                    pptx_path, pptx_cache_dir, status_callback=status_callback
+                )
             except Exception as e:
                 print(f"[WindowsSlideConverter] 슬라이드 {index} 변환 실패: {e}")
 
@@ -235,11 +252,19 @@ class WindowsSlideConverter(SlideConverter):
         # Fallback to LibreOffice if available
         soffice = self._find_libreoffice()
         if soffice:
-            return _convert_with_libreoffice(pptx_path, index, self._cache_dir, soffice)
+            return _convert_with_libreoffice(
+                pptx_path,
+                index,
+                self._cache_dir,
+                soffice,
+                status_callback=status_callback,
+            )
 
         return QImage(1280, 720, QImage.Format.Format_RGB32)
 
-    def _convert_with_com_pdf(self, pptx_path: Path, cache_dir: Path):
+    def _convert_with_com_pdf(
+        self, pptx_path: Path, cache_dir: Path, status_callback=None
+    ):
         """PowerPoint COM을 사용하여 PDF로 저장 후 이미지 추출 (고속 방식)"""
         from win32com import client
         import pythoncom
@@ -247,6 +272,9 @@ class WindowsSlideConverter(SlideConverter):
         pdf_path = cache_dir / "temp.pdf"
         if pdf_path.exists() and (cache_dir / "slide_0.png").exists():
             return
+
+        if status_callback:
+            status_callback("PowerPoint 엔진을 사용하여 PDF 변환 중...")
 
         pythoncom.CoInitialize()
         pp = client.Dispatch("PowerPoint.Application")
@@ -258,7 +286,7 @@ class WindowsSlideConverter(SlideConverter):
             # 32 = ppSaveAsPDF
             pres.SaveAs(str(pdf_path.resolve()), 32)
             pres.Close()
-            _convert_pdf_to_images(pdf_path, cache_dir)
+            _convert_pdf_to_images(pdf_path, cache_dir, status_callback=status_callback)
         finally:
             # 파워포인트가 다른 창에서 열려있지 않다면 종료 시도 (선택적)
             # pp.Quit() # 다른 작업 중일 수 있으므로 주의해서 사용
@@ -285,9 +313,15 @@ class LinuxSlideConverter(SlideConverter):
     def get_engine_name(self) -> str:
         return "LibreOffice (Linux)"
 
-    def convert_slide(self, pptx_path: Path, index: int) -> QImage:
+    def convert_slide(
+        self, pptx_path: Path, index: int, status_callback=None
+    ) -> QImage:
         return _convert_with_libreoffice(
-            pptx_path, index, self._cache_dir, "libreoffice"
+            pptx_path,
+            index,
+            self._cache_dir,
+            "libreoffice",
+            status_callback=status_callback,
         )
 
     def invalidate_cache(self, pptx_path: Path) -> None:
@@ -302,7 +336,7 @@ class LinuxSlideConverter(SlideConverter):
 
 
 def _convert_with_libreoffice(
-    pptx_path: Path, index: int, cache_dir: Path, soffice_cmd: str
+    pptx_path: Path, index: int, cache_dir: Path, soffice_cmd: str, status_callback=None
 ) -> QImage:
     """LibreOffice를 사용한 공통 변환 로직 (디버깅 강화)"""
     from PySide6.QtCore import Qt
@@ -327,6 +361,8 @@ def _convert_with_libreoffice(
 
     pdf_path = pptx_cache_dir / "temp.pdf"
     if not pdf_path.exists():
+        if status_callback:
+            status_callback("PPT 구조 분석 및 PDF 변환 중...")
         try:
             # -env:UserInstallation을 사용하여 인스턴스 충돌 방지 (Linux 필수)
             user_install_dir = pptx_cache_dir / "lo_user"
@@ -355,7 +391,9 @@ def _convert_with_libreoffice(
             pass
 
     if pdf_path.exists():
-        _convert_pdf_to_images(pdf_path, pptx_cache_dir)
+        _convert_pdf_to_images(
+            pdf_path, pptx_cache_dir, status_callback=status_callback
+        )
 
     if img_path.exists():
         return QImage(str(img_path))

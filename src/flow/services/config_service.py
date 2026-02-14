@@ -11,7 +11,10 @@ class ConfigService:
         self._config_file = self._config_dir / "config.json"
         self._config = {
             "recent_projects": [],
-            "max_verses": 5,  # 기본 최대 절 수
+            "recent_songs": [],
+            "max_verses": 5,
+            "window_geometry": "",
+            "window_state": "",
         }
         self.load()
 
@@ -89,6 +92,41 @@ class ConfigService:
             self._config["recent_projects"] = new_recent
             self.save()
 
+    def get_recent_songs(self) -> list[str]:
+        """최근 단독 편집 곡 목록 반환"""
+        self.load()
+        recent = self._config.get("recent_songs", [])
+        return [p for p in recent if Path(p).exists()]
+
+    def add_recent_song(self, path: str):
+        """최근 단독 편집 곡 추가"""
+        if not path:
+            return
+        clean_path = str(path).replace("\\", "/")
+        try:
+            path_str = Path(clean_path).resolve().as_posix()
+        except:
+            path_str = clean_path
+
+        if not Path(path_str).exists():
+            return
+
+        self.load()
+        recent = self._config.get("recent_songs", [])
+        cleaned = [p for p in recent if p.lower() != path_str.lower()]
+        cleaned.insert(0, path_str)
+        self._config["recent_songs"] = cleaned[:10]
+        self.save()
+
+    def remove_recent_song(self, path: str):
+        """최근 단독 편집 곡 제거"""
+        self.load()
+        recent = self._config.get("recent_songs", [])
+        new_recent = [p for p in recent if p.lower() != path.lower()]
+        if len(new_recent) != len(recent):
+            self._config["recent_songs"] = new_recent
+            self.save()
+
     def get_max_verses(self) -> int:
         """최대 절 수 반환"""
         return self._config.get("max_verses", 5)
@@ -96,4 +134,17 @@ class ConfigService:
     def set_max_verses(self, count: int):
         """최대 절 수 설정"""
         self._config["max_verses"] = max(1, min(10, count))  # 1~10 사이로 제한
+        self.save()
+
+    def get_window_layout(self) -> tuple[str, str]:
+        """창 크기 및 상태 반환"""
+        return (
+            self._config.get("window_geometry", ""),
+            self._config.get("window_state", ""),
+        )
+
+    def set_window_layout(self, geometry: str, state: str):
+        """창 크기 및 상태 저장"""
+        self._config["window_geometry"] = geometry
+        self._config["window_state"] = state
         self.save()
