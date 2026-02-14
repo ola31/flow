@@ -33,85 +33,6 @@ if TYPE_CHECKING:
     from flow.domain.project import Project
 
 
-class ManagerTreeWidget(QTreeWidget):
-    """곡 관리용 드래그 앤 드롭 커스텀 트리"""
-
-    def __init__(self, parent_dialog, parent=None):
-        super().__init__(parent)
-        self.dialog = parent_dialog
-
-    def dragMoveEvent(self, event):
-        source_item = self.currentItem()
-        target_item = self.itemAt(event.position().toPoint())
-        if not source_item or not target_item:
-            event.ignore()
-            return
-
-        source_data = source_item.data(0, Qt.ItemDataRole.UserRole)
-        target_data = target_item.data(0, Qt.ItemDataRole.UserRole)
-
-        # 시트 드래그 제한 (같은 부모 내에서만)
-        if isinstance(source_data, ScoreSheet):
-            if isinstance(target_data, ScoreSheet):
-                if source_item.parent() != target_item.parent():
-                    event.ignore()
-                    return
-            elif hasattr(target_data, "score_sheets"):
-                if source_item.parent() != target_item:
-                    event.ignore()
-                    return
-            else:
-                event.ignore()
-                return
-
-        # 곡 드래그 제한 (최상위 레벨에서만)
-        elif isinstance(source_data, Song):
-            if target_item.parent() is not None:
-                event.ignore()
-                return
-
-        super().dragMoveEvent(event)
-
-    def dropEvent(self, event):
-        source_item = self.currentItem()
-        target_item = self.itemAt(event.position().toPoint())
-
-        if not source_item or not target_item:
-            event.ignore()
-            return
-
-        source_data = source_item.data(0, Qt.ItemDataRole.UserRole)
-        target_data = target_item.data(0, Qt.ItemDataRole.UserRole)
-
-        # 드롭 유효성 최종 검사
-        is_valid = False
-
-        # 1. 시트를 옮기는 경우
-        if isinstance(source_data, ScoreSheet):
-            if isinstance(target_data, ScoreSheet):
-                # 시트끼리 순서 변경 -> 부모가 같아야 함
-                if source_item.parent() == target_item.parent():
-                    is_valid = True
-            elif hasattr(target_data, "score_sheets"):
-                # 곡 제목에 드롭 -> 이미 내 부모인 경우에만 허용
-                if source_item.parent() == target_item:
-                    is_valid = True
-
-        # 2. 곡을 옮기는 경우
-        elif isinstance(source_data, Song):
-            # 곡은 최상위(루트)에서만 이동 가능
-            if target_item.parent() is None:
-                is_valid = True
-
-        if not is_valid:
-            event.ignore()
-            return
-
-        super().dropEvent(event)
-        # Segfault 방지를 위해 찰나의 지연 후 데이터 동기화
-        QTimer.singleShot(10, lambda: self.dialog._finalize_drop_sync())
-
-
 class SongManagerDialog(QDialog):
     """곡 추가/제거/순서 변경 다이얼로그 (트리 기반 통합 관리)"""
 
@@ -199,6 +120,8 @@ class SongManagerDialog(QDialog):
         """)
         self.song_tree.itemChanged.connect(self._on_item_changed)
         self.song_tree.itemDoubleClicked.connect(lambda: self._on_rename_clicked())
+        self.song_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.song_tree.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self.song_tree)
 
         # 3. 상단 툴바 스타일의 버튼 그룹
@@ -291,75 +214,82 @@ class SongManagerDialog(QDialog):
         super().keyPressEvent(event)
 
     def _scan_and_load(self):
-        """songs/ 폴더 스캔하여 모든 곡 및 시트 표시 (시각 효과 강화)"""
+        """곡 및 시트 목록 표시 (단독 모드 및 프로젝트 모드 통합)"""
         self.song_tree.blockSignals(True)
         self.song_tree.clear()
 
-        if not self.songs_dir.exists():
-            self.songs_dir.mkdir(parents=True, exist_ok=True)
+        if self.is_standalone:
+            # 1. 단독 모드: 현재 로드된 단일 곡만 표시
+            if self.project.selected_songs:
+                song = self.project.selected_songs[0]
+                self._add_song_to_tree(song, is_checked=True, is_fixed=True)
+        else:
+            # 2. 프로젝트 모드: songs/ 폴더 스캔
+            if not self.songs_dir.exists():
+                self.songs_dir.mkdir(parents=True, exist_ok=True)
 
-        actual_folders = {
-            f.name
-            for f in self.songs_dir.iterdir()
-            if f.is_dir() and (f / "song.json").exists()
-        }
+            actual_folders = {
+                f.name
+                for f in self.songs_dir.iterdir()
+                if f.is_dir() and (f / "song.json").exists()
+            }
 
-        ordered_list = [
-            name for name in self.project.song_order if name in actual_folders
-        ]
-        new_folders = sorted(list(actual_folders - set(ordered_list)))
-        ordered_list.extend(new_folders)
+            ordered_list = [
+                name for name in self.project.song_order if name in actual_folders
+            ]
+            new_folders = sorted(list(actual_folders - set(ordered_list)))
+            ordered_list.extend(new_folders)
+            self.project.song_order = ordered_list
 
-        self.project.song_order = ordered_list
+            for name in ordered_list:
+                song = next((s for s in self.selected_songs if s.name == name), None)
+                if not song:
+                    song = self._load_song_from_folder(name)
 
-        for name in ordered_list:
-            song = next((s for s in self.selected_songs if s.name == name), None)
-            if not song:
-                song = self._load_song_from_folder(name)
-
-            if not song:
-                continue
-
-            # 곡 노드 생성
-            song_item = QTreeWidgetItem()
-            if self.is_standalone:
-                # 단독 모드에서는 체크박스 비활성화 (해제 불가)
-                song_item.setFlags(song_item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
-            else:
-                song_item.setFlags(song_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-
-            song_item.setData(0, Qt.ItemDataRole.UserRole, song)
-            song_item.setCheckState(
-                0,
-                Qt.CheckState.Checked
-                if name in self._selected_names
-                else Qt.CheckState.Unchecked,
-            )
-
-            # 1번 열에 곡 이름과 버튼 배치
-            song_text = f"📂  {song.name}"
-            self.song_tree.addTopLevelItem(song_item)
-            self._create_inline_buttons(song_item, song_text, is_bold=True)
-
-            for i, sheet in enumerate(song.score_sheets):
-                display_name = sheet.name
-                prefix = f"{song.name} -"
-                if display_name.startswith(prefix):
-                    display_name = display_name[len(prefix) :].strip()
-
-                # 시트 노드 생성
-                sheet_item = QTreeWidgetItem()
-                sheet_item.setData(0, Qt.ItemDataRole.UserRole, sheet)
-                song_item.addChild(sheet_item)
-
-                # 1번 열에 시트 이름과 버튼 배치
-                sheet_text = f"📄  P{i + 1}: {display_name}"
-                self._create_inline_buttons(sheet_item, sheet_text)
-
-            if name in self._selected_names:
-                song_item.setExpanded(True)
+                if song:
+                    is_checked = name in self._selected_names
+                    self._add_song_to_tree(song, is_checked=is_checked)
 
         self.song_tree.blockSignals(False)
+
+    def _add_song_to_tree(self, song: Song, is_checked: bool, is_fixed: bool = False):
+        """곡 항목과 자식 시트들을 트리에 추가 (공통 로직)"""
+        song_item = QTreeWidgetItem()
+
+        # 체크박스 설정
+        if is_fixed:
+            # 단독 모드에서는 체크박스 기능은 보이되 조작은 불가능하게 (강제 체크)
+            song_item.setFlags(song_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            song_item.setFlags(song_item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+        else:
+            song_item.setFlags(song_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+
+        song_item.setData(0, Qt.ItemDataRole.UserRole, song)
+        song_item.setCheckState(
+            0, Qt.CheckState.Checked if is_checked else Qt.CheckState.Unchecked
+        )
+
+        # 1번 열에 곡 이름과 버튼 배치
+        song_text = f"📂  {song.name}"
+        self.song_tree.addTopLevelItem(song_item)
+        self._create_inline_buttons(song_item, song_text, is_bold=True)
+
+        for i, sheet in enumerate(song.score_sheets):
+            display_name = sheet.name
+            prefix = f"{song.name} -"
+            if display_name.startswith(prefix):
+                display_name = display_name[len(prefix) :].strip()
+
+            # 시트 노드 생성
+            sheet_item = QTreeWidgetItem()
+            sheet_item.setData(0, Qt.ItemDataRole.UserRole, sheet)
+            song_item.addChild(sheet_item)
+
+            # 1번 열에 시트 이름과 버튼 배치
+            sheet_text = f"📄  P{i + 1}: {display_name}"
+            self._create_inline_buttons(sheet_item, sheet_text)
+
+        song_item.setExpanded(True)
 
     def _create_inline_buttons(
         self, item: QTreeWidgetItem, text: str, is_bold: bool = False
@@ -421,6 +351,78 @@ class SongManagerDialog(QDialog):
         """인라인 버튼을 통한 아래로 이동"""
         self.song_tree.setCurrentItem(item)
         self._on_move_down()
+
+    def _on_context_menu(self, pos: QPoint):
+        """곡 관리 트리 우클릭 메뉴"""
+        item = self.song_tree.itemAt(pos)
+        if not item:
+            return
+
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        from PySide6.QtGui import QAction, QMenu
+
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu { background-color: #2a2a2a; color: #ccc; border: 1px solid #444; }
+            QMenu::item { padding: 6px 20px; }
+            QMenu::item:selected { background-color: #3d3d3d; color: white; }
+        """)
+
+        if isinstance(data, Song):
+            import_ppt_act = QAction("📥 PPT 파일 가져오기", self)
+            import_ppt_act.triggered.connect(lambda: self._import_song_ppt(data))
+            menu.addAction(import_ppt_act)
+
+            menu.addSeparator()
+
+            rename_act = QAction("📝 이름 변경 (F2)", self)
+            rename_act.triggered.connect(self._on_rename_clicked)
+            menu.addAction(rename_act)
+
+            delete_act = QAction("🗑 삭제 (Del)", self)
+            delete_act.triggered.connect(self._on_delete_clicked)
+            menu.addAction(delete_act)
+
+        elif isinstance(data, ScoreSheet):
+            rename_act = QAction("📝 이름 변경 (F2)", self)
+            rename_act.triggered.connect(self._on_rename_clicked)
+            menu.addAction(rename_act)
+
+            delete_act = QAction("🗑 삭제 (Del)", self)
+            delete_act.triggered.connect(self._on_delete_clicked)
+            menu.addAction(delete_act)
+
+        menu.exec(self.song_tree.mapToGlobal(pos))
+
+    def _import_song_ppt(self, song: Song):
+        """외부 PPT 파일을 곡 폴더의 slides.pptx로 복사"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "가져올 PPT 파일 선택", "", "PowerPoint 파일 (*.pptx)"
+        )
+        if not file_path:
+            return
+
+        import shutil
+
+        dest_path = song.abs_slides_path
+
+        if dest_path.exists():
+            reply = QMessageBox.question(
+                self,
+                "파일 덮어쓰기",
+                "이미 슬라이드 파일이 존재합니다. 덮어쓰시겠습니까?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        try:
+            shutil.copy2(file_path, dest_path)
+            # 메인 윈도우에 새로고침 요청 (다이얼로그 닫힌 후 반영됨)
+            self.songs_changed.emit()
+            QMessageBox.information(self, "완료", "PPT 파일을 성공적으로 가져왔습니다.")
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"파일을 가져오는데 실패했습니다: {e}")
 
     def _on_item_changed(self, item: QTreeWidgetItem, column: int):
         data = item.data(0, Qt.ItemDataRole.UserRole)
@@ -490,32 +492,25 @@ class SongManagerDialog(QDialog):
         name = name.strip()
         song_dir = self.songs_dir / name
 
-        if song_dir.exists():
-            QMessageBox.warning(self, "오류", f"'{name}' 폴더가 이미 존재합니다.")
-            return
+        try:
+            main_repo = getattr(self.parent(), "_repo", None)
+            if main_repo:
+                main_repo.init_song_folder(song_dir, name)
+            else:
+                song_dir.mkdir(parents=True)
+                (song_dir / "sheets").mkdir(exist_ok=True)
+                song_data = {"name": name, "sheets": []}
+                with open(song_dir / "song.json", "w", encoding="utf-8-sig") as f:
+                    json.dump(song_data, f, ensure_ascii=False, indent=2)
 
-        self.songs_dir.mkdir(exist_ok=True)
-        song_dir.mkdir(parents=True)
-
-        self._create_empty_pptx(song_dir / "slides.pptx")
-        (song_dir / "sheets").mkdir(exist_ok=True)
-
-        song_data = {"name": name, "sheets": []}
-        with open(song_dir / "song.json", "w", encoding="utf-8-sig") as f:
-            json.dump(song_data, f, ensure_ascii=False, indent=2)
-
-        self._scan_and_load()
-        QMessageBox.information(
-            self,
-            "완료",
-            f"'{name}' 곡이 생성되었습니다.\n체크하여 프로젝트에 추가하세요.",
-        )
-
-    def _create_empty_pptx(self, path: Path):
-        prs = Presentation()
-        blank_layout = prs.slide_layouts[6]
-        prs.slides.add_slide(blank_layout)
-        prs.save(str(path))
+            self._scan_and_load()
+            QMessageBox.information(
+                self,
+                "완료",
+                f"'{name}' 곡이 생성되었습니다.\n체크하여 프로젝트에 추가하세요.",
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "오류", f"곡 생성 실패: {e}")
 
     def _on_import_song(self):
         folder = QFileDialog.getExistingDirectory(
@@ -648,38 +643,6 @@ class SongManagerDialog(QDialog):
 
         self.song_tree.blockSignals(False)
 
-    def _finalize_drop_sync(self):
-        """드래그 앤 드롭 완료 후 전체 모델 동기화"""
-        # 1. 트리 구조에 맞춰 song_order 및 selected_songs 순서 갱신
-        new_song_order = []
-        new_selected_songs = []
-
-        for i in range(self.song_tree.topLevelItemCount()):
-            song_item = self.song_tree.topLevelItem(i)
-            song_data = song_item.data(0, Qt.ItemDataRole.UserRole)
-
-            if isinstance(song_data, Song):
-                new_song_order.append(song_data.name)
-                # 현재 선택된(체크된) 곡만 selected_songs에 유지
-                if song_data.name in self._selected_names:
-                    new_selected_songs.append(song_data)
-
-                # 자식 시트 순서 동기화
-                new_sheets = []
-                for j in range(song_item.childCount()):
-                    sheet_data = song_item.child(j).data(0, Qt.ItemDataRole.UserRole)
-                    if isinstance(sheet_data, ScoreSheet):
-                        new_sheets.append(sheet_data)
-                song_data.score_sheets = new_sheets
-                self._modified_songs[song_data.name] = song_data
-
-        self.project.song_order = new_song_order
-        self.project.selected_songs = new_selected_songs
-        self.selected_songs = new_selected_songs
-
-        # UI 레이블 번호(P1, P2...) 갱신을 위해 스캔 후 리로드
-        self._scan_and_load()
-
     def _sync_sheets_to_song(self, song_item: QTreeWidgetItem, auto_save: bool = True):
         song = song_item.data(0, Qt.ItemDataRole.UserRole)
         if not isinstance(song, Song):
@@ -765,6 +728,12 @@ class SongManagerDialog(QDialog):
                 self._scan_and_load()
 
         elif isinstance(data, Song):
+            if self.is_standalone:
+                QMessageBox.information(
+                    self, "정보", "단독 편집 모드에서는 현재 곡을 삭제할 수 없습니다."
+                )
+                return
+
             reply = QMessageBox.question(
                 self,
                 "곡 삭제 경고",

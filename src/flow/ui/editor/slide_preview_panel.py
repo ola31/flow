@@ -11,18 +11,37 @@ from PySide6.QtWidgets import (
     QPushButton,
     QProgressBar,
 )
-from PySide6.QtCore import Qt, Signal, QSize, QEvent
-from PySide6.QtGui import QPixmap, QIcon, QColor
+from PySide6.QtCore import Qt, Signal, QSize, QEvent, QMimeData
+from PySide6.QtGui import QPixmap, QIcon, QColor, QDrag
 from flow.services.slide_manager import SlideManager
 
 
-class SlidePreviewPanel(QWidget):
-    """PPT 슬라이드 썸네일 목록 뷰"""
+SLIDE_MIME_TYPE = "application/x-flow-slide-index"
 
-    slide_selected = Signal(int)  # 슬라이드 선택 (싱글클릭: 탐색/프리뷰)
-    slide_double_clicked = Signal(int)  # 슬라이드 더블클릭 (매핑)
-    slide_unlink_all_requested = Signal(int)  # 슬라이드 매핑 해제 요청
-    reload_all_requested = Signal()  # 전체 슬라이드 새로고침 요청
+
+class _DraggableSlideList(QListWidget):
+    def startDrag(self, supportedActions) -> None:
+        item = self.currentItem()
+        if not item:
+            return
+        index = item.data(Qt.ItemDataRole.UserRole)
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData(SLIDE_MIME_TYPE, str(index).encode())
+        drag.setMimeData(mime)
+
+        icon = item.icon()
+        if not icon.isNull():
+            drag.setPixmap(icon.pixmap(QSize(80, 45)))
+
+        drag.exec(Qt.DropAction.CopyAction)
+
+
+class SlidePreviewPanel(QWidget):
+    slide_selected = Signal(int)
+    slide_double_clicked = Signal(int)
+    slide_unlink_all_requested = Signal(int)
+    reload_all_requested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -82,12 +101,12 @@ class SlidePreviewPanel(QWidget):
         layout.addWidget(header_widget)
 
         # 목록 (수평 아이콘 모드)
-        self._list = QListWidget()
+        self._list = _DraggableSlideList()
         self._list.setViewMode(QListWidget.ViewMode.IconMode)
         self._list.setFlow(QListWidget.Flow.LeftToRight)  # 수평 흐름
         self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        self._list.setIconSize(QSize(112, 63))
+        self._list.setIconSize(QSize(144, 81))
         self._list.setResizeMode(QListWidget.ResizeMode.Adjust)
         self._list.setWrapping(False)
         self._list.setMovement(QListWidget.Movement.Static)
@@ -95,7 +114,8 @@ class SlidePreviewPanel(QWidget):
         self._list.setUniformItemSizes(True)
         self._list.setHorizontalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self._list.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
-        self._list.setFixedHeight(135)
+        self._list.setDragEnabled(True)
+        self._list.setFixedHeight(155)
         self._list.setStyleSheet("""
             QListWidget { 
                 background-color: #222; 
@@ -283,9 +303,15 @@ class SlidePreviewPanel(QWidget):
         """SlideManager 연결 및 초기화"""
         self._slide_manager = manager
         self._slide_manager.file_changed.connect(self.refresh_slides)
-        self._slide_manager.load_finished.connect(self.refresh_slides)
         self._slide_manager.load_error.connect(self.hide_loading)
+        self._slide_manager.load_status.connect(self._on_load_status_changed)
         self.refresh_slides()
+
+    def _on_load_status_changed(self, status: str) -> None:
+        self._loading_label.setText(status)
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.processEvents()
 
     def set_editable(self, editable: bool) -> None:
         """편집 모드 활성/비활성 제어"""
@@ -352,8 +378,13 @@ class SlidePreviewPanel(QWidget):
         mapped_indices = getattr(self, "_mapped_indices", set())
 
         for i in range(count):
-            qimg = self._slide_manager.get_slide_image(i)
-            pixmap = QPixmap.fromImage(qimg)
+            try:
+                qimg = self._slide_manager.get_slide_image(i)
+                if qimg is None:
+                    continue
+                pixmap = QPixmap.fromImage(qimg)
+            except Exception:
+                continue
 
             is_mapped = i in mapped_indices
             label = f"Slide {i + 1}"
@@ -361,10 +392,9 @@ class SlidePreviewPanel(QWidget):
                 label += " (🔗)"
 
             item = QListWidgetItem(label)
-            # 고품질 스케일링을 미리 수행하여 리스트 렌더링 부하 감소
             scaled_pixmap = pixmap.scaled(
-                160,
-                90,
+                192,
+                108,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
