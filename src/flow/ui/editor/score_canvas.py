@@ -4,13 +4,24 @@
 """
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QScrollArea, QMenu
-from PySide6.QtGui import QPixmap, QPainter, QColor, QPen, QMouseEvent, QAction, QFont
+from PySide6.QtGui import (
+    QPixmap,
+    QPainter,
+    QColor,
+    QPen,
+    QMouseEvent,
+    QAction,
+    QFont,
+    QDragEnterEvent,
+    QDropEvent,
+)
 from PySide6.QtCore import Signal, Qt, QPoint, QRect, QSize
 
 from pathlib import Path
 
 from flow.domain.score_sheet import ScoreSheet
 from flow.domain.hotspot import Hotspot
+from flow.ui.editor.hotspot_popover import HotspotPopover
 
 
 class ScoreCanvas(QWidget):
@@ -24,12 +35,16 @@ class ScoreCanvas(QWidget):
         hotspot_removed: 핫스팟이 삭제됨 (str: hotspot_id)
     """
 
-    hotspot_created_request = Signal(int, int, object)  # x, y 좌표, index(선택적)
-    hotspot_removed_request = Signal(object)  # Hotspot 객체
-    hotspot_selected = Signal(object)  # Hotspot
-    hotspot_removed = Signal(str)  # hotspot_id
-    hotspot_moved = Signal(object, tuple, tuple)  # Hotspot, old_pos, new_pos
-    hotspot_unmap_request = Signal(object)  # [복구] Hotspot
+    hotspot_created_request = Signal(int, int, object)
+    hotspot_removed_request = Signal(object)
+    hotspot_selected = Signal(object)
+    hotspot_removed = Signal(str)
+    hotspot_moved = Signal(object, tuple, tuple)
+    hotspot_unmap_request = Signal(object)
+    popover_mapping_requested = Signal(object, int)
+    popover_unmap_requested = Signal(object)
+    slide_dropped_on_hotspot = Signal(object, int)
+    live_hotspot_clicked = Signal(object)
 
     HOTSPOT_RADIUS = 15
     HOTSPOT_COLOR = QColor(
@@ -45,7 +60,8 @@ class ScoreCanvas(QWidget):
         self._pixmap: QPixmap | None = None
         self._selected_hotspot_id: str | None = None
         self._edit_mode = True
-        self._scaled_pixmap: QPixmap | None = None  # 캐시된 스케일 이미지
+        self._hotspot_editable = True
+        self._scaled_pixmap: QPixmap | None = None
         self._last_size = QSize(0, 0)
         self._scale_x = 1.0
         self._scale_y = 1.0
@@ -64,12 +80,15 @@ class ScoreCanvas(QWidget):
         self._font_placeholder.setPixelSize(14)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAcceptDrops(True)
 
-        # 드래그 관련 상태
+        self._popover = HotspotPopover(self)
+        self._popover.mapping_requested.connect(self._on_popover_mapping)
+        self._popover.unmap_requested.connect(self._on_popover_unmap)
+
         self._is_dragging = False
         self._drag_hotspot_id = None
 
-        # 이미지 캐시 (경로 -> QPixmap)
         self._pixmap_cache = {}
 
     def is_hotspot_editable(self, hotspot: Hotspot, verse_index: int) -> bool:
@@ -158,8 +177,10 @@ class ScoreCanvas(QWidget):
         self.update()
 
     def set_edit_mode(self, enabled: bool) -> None:
-        """편집 모드 설정"""
         self._edit_mode = enabled
+
+    def set_hotspot_editable(self, editable: bool) -> None:
+        self._hotspot_editable = editable
 
     def select_hotspot(self, hotspot_id: str | None) -> None:
         """핫스팟 선택"""
@@ -192,7 +213,7 @@ class ScoreCanvas(QWidget):
         painter.fillRect(self.rect(), QColor(26, 26, 26))
 
         if not self._score_sheet:
-            self._draw_placeholder(painter, "곡을 선택하세요")
+            self._draw_placeholder(painter, "왼쪽 곡 목록에서 곡을 선택하세요")
             return
 
         if self._pixmap:
@@ -225,7 +246,8 @@ class ScoreCanvas(QWidget):
             )
         else:
             self._draw_placeholder(
-                painter, f"악보: {self._score_sheet.name}\n(이미지를 추가하세요)"
+                painter,
+                f"{self._score_sheet.name}\n\n악보 이미지가 없습니다\n곡 편집에서 이미지를 추가해 주세요",
             )
 
         # 핫스팟 그리기
@@ -364,9 +386,8 @@ class ScoreCanvas(QWidget):
         return int(rel_x), int(rel_y)
 
     def keyPressEvent(self, event) -> None:
-        """키보드 이벤트 - Delete/Backspace로 핫스팟 삭제"""
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
-            if self._edit_mode and self._selected_hotspot_id:
+            if self._edit_mode and self._hotspot_editable and self._selected_hotspot_id:
                 hotspot = self.get_selected_hotspot()
                 if hotspot and self.is_hotspot_editable(hotspot, self._verse_index):
                     self._delete_hotspot(hotspot)
@@ -374,32 +395,56 @@ class ScoreCanvas(QWidget):
         super().keyPressEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        """마우스 클릭"""
-        self.setFocus()  # 클릭 시 키보드 포커스 획득
+        self.setFocus()
         if not self._score_sheet:
+            self._popover.dismiss()
             return
 
         pos = event.position().toPoint()
+        popover_was_visible = self._popover.isVisible()
+        popover_hotspot_id = (
+            self._popover._hotspot.id
+            if popover_was_visible and self._popover._hotspot
+            else None
+        )
 
-        # 기존 핫스팟 클릭 체크
+        if popover_was_visible and not self._popover.geometry().contains(pos):
+            self._popover.dismiss()
+
         clicked_hotspot = self._find_hotspot_at(pos)
 
         if event.button() == Qt.MouseButton.LeftButton:
             if clicked_hotspot:
-                # 선택 및 드래그 시작 준비
+                if popover_was_visible and clicked_hotspot.id == popover_hotspot_id:
+                    self.update()
+                    return
+
                 self._selected_hotspot_id = clicked_hotspot.id
                 self.hotspot_selected.emit(clicked_hotspot)
 
-                # [수정] 현재 모드에서 편집 가능한 경우에만 드래그 허용
-                if self._edit_mode and self.is_hotspot_editable(
-                    clicked_hotspot, self._verse_index
-                ):
+                if not self._edit_mode:
+                    self.live_hotspot_clicked.emit(clicked_hotspot)
+                    self.update()
+                    return
+
+                if not self._hotspot_editable:
+                    self.update()
+                    return
+
+                if self.is_hotspot_editable(clicked_hotspot, self._verse_index):
                     self._is_dragging = True
                     self._drag_hotspot_id = clicked_hotspot.id
                     self._drag_start_pos = (clicked_hotspot.x, clicked_hotspot.y)
                     self.setCursor(Qt.CursorShape.ClosedHandCursor)
-            elif self._edit_mode:
-                # 새 핫스팟 생성 요청
+
+                if self._edit_mode:
+                    anchor = self._image_to_widget_coords(
+                        clicked_hotspot.x, clicked_hotspot.y
+                    )
+                    self._popover.show_for_hotspot(
+                        clicked_hotspot, self._verse_index, anchor
+                    )
+            elif self._edit_mode and self._hotspot_editable and not popover_was_visible:
                 img_coords = self._widget_to_image_coords(pos.x(), pos.y())
                 if img_coords:
                     self.hotspot_created_request.emit(
@@ -409,8 +454,7 @@ class ScoreCanvas(QWidget):
             self.update()
 
         elif event.button() == Qt.MouseButton.RightButton and clicked_hotspot:
-            # [복구] 편집 모드에서만 우클릭 메뉴 허용
-            if self._edit_mode:
+            if self._edit_mode and self._hotspot_editable:
                 self._show_context_menu(pos, clicked_hotspot)
             else:
                 event.ignore()
@@ -427,11 +471,19 @@ class ScoreCanvas(QWidget):
                     hotspot.x, hotspot.y = img_coords
                     self.update()
         else:
-            # 마우스 커서 변경 (핫스팟 위에 있을 때)
-            if self._find_hotspot_at(pos):
+            hovered = self._find_hotspot_at(pos)
+            if hovered:
                 self.setCursor(Qt.CursorShape.PointingHandCursor)
+                slide_idx = hovered.get_slide_index(self._verse_index)
+                tip = f"#{hovered.order + 1}"
+                if hovered.lyric:
+                    tip += f"  {hovered.lyric}"
+                if slide_idx >= 0:
+                    tip += f"  →  슬라이드 {slide_idx + 1}"
+                self.setToolTip(tip)
             else:
                 self.setCursor(Qt.CursorShape.ArrowCursor)
+                self.setToolTip("")
 
         super().mouseMoveEvent(event)
 
@@ -451,8 +503,62 @@ class ScoreCanvas(QWidget):
 
         super().mouseReleaseEvent(event)
 
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        from flow.ui.editor.slide_preview_panel import SLIDE_MIME_TYPE
+
+        if (
+            event.mimeData().hasFormat(SLIDE_MIME_TYPE)
+            and self._edit_mode
+            and self._hotspot_editable
+        ):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:
+        from flow.ui.editor.slide_preview_panel import SLIDE_MIME_TYPE
+
+        if (
+            event.mimeData().hasFormat(SLIDE_MIME_TYPE)
+            and self._edit_mode
+            and self._hotspot_editable
+        ):
+            pos = event.position().toPoint()
+            hotspot = self._find_hotspot_at(pos)
+            if hotspot:
+                self._selected_hotspot_id = hotspot.id
+                self.update()
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        from flow.ui.editor.slide_preview_panel import SLIDE_MIME_TYPE
+
+        if (
+            not event.mimeData().hasFormat(SLIDE_MIME_TYPE)
+            or not self._edit_mode
+            or not self._hotspot_editable
+        ):
+            event.ignore()
+            return
+
+        pos = event.position().toPoint()
+        hotspot = self._find_hotspot_at(pos)
+        if not hotspot:
+            event.ignore()
+            return
+
+        data = event.mimeData().data(SLIDE_MIME_TYPE).data()
+        slide_index = int(data.decode())
+
+        self._selected_hotspot_id = hotspot.id
+        self.hotspot_selected.emit(hotspot)
+        self.slide_dropped_on_hotspot.emit(hotspot, slide_index)
+        self.update()
+        event.acceptProposedAction()
+
     def _find_hotspot_at(self, pos: QPoint) -> Hotspot | None:
-        """해당 위치의 핫스팟 찾기"""
         if not self._score_sheet:
             return None
 
@@ -532,11 +638,24 @@ class ScoreCanvas(QWidget):
         self.hotspot_created_request.emit(new_x, new_y, new_order)
 
     def _delete_hotspot(self, hotspot: Hotspot) -> None:
-        """핫스팟 삭제 요청"""
         if self._score_sheet:
             self.hotspot_removed_request.emit(hotspot)
 
+    def _on_popover_mapping(self, slide_index: int) -> None:
+        hotspot = self.get_selected_hotspot()
+        if hotspot:
+            self.popover_mapping_requested.emit(hotspot, slide_index)
+
+    def _on_popover_unmap(self) -> None:
+        hotspot = self.get_selected_hotspot()
+        if hotspot:
+            self.popover_unmap_requested.emit(hotspot)
+
+    @property
+    def popover(self) -> HotspotPopover:
+        return self._popover
+
     def resizeEvent(self, event) -> None:
-        """창 크기 변경 시 캐시된 이미지 무효화"""
         self._scaled_pixmap = None
+        self._popover.dismiss()
         super().resizeEvent(event)
