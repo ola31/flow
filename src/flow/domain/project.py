@@ -79,8 +79,15 @@ class Project:
         return False
 
     def find_score_sheet_by_id(self, sheet_id: str) -> ScoreSheet | None:
-        """ID로 시트 찾기"""
-        for s in self.all_score_sheets:
+        """ID로 시트 찾기 (image_path 유무와 무관하게 모든 시트 검색)"""
+        # 새 구조: 곡별 시트에서 검색
+        if self.selected_songs:
+            for song in self.selected_songs:
+                for s in song.score_sheets:
+                    if s.id == sheet_id:
+                        return s
+        # 레거시 구조: score_sheets에서 검색
+        for s in self.score_sheets:
             if s.id == sheet_id:
                 return s
         return None
