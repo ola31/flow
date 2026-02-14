@@ -248,7 +248,7 @@ class TestProjectRepositoryNewStructure:
         song1 = Song(
             name="곡1", folder=Path("songs/곡1"), project_dir=tmp_path, order=0
         )
-        sheet1 = ScoreSheet(name="시트1")
+        sheet1 = ScoreSheet(name="시트1", image_path="sheet1.png")
         sheet1.add_hotspot(Hotspot(x=10, y=20))
         song1.score_sheets.append(sheet1)
         project.selected_songs.append(song1)
@@ -257,7 +257,7 @@ class TestProjectRepositoryNewStructure:
         song2 = Song(
             name="곡2", folder=Path("songs/곡2"), project_dir=tmp_path, order=1
         )
-        sheet2 = ScoreSheet(name="시트2")
+        sheet2 = ScoreSheet(name="시트2", image_path="sheet2.png")
         sheet2.add_hotspot(Hotspot(x=30, y=40))
         song2.score_sheets.append(sheet2)
         project.selected_songs.append(song2)
