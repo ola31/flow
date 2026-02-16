@@ -1391,10 +1391,7 @@ class MainWindow(QMainWindow):
         self._canvas.set_score_sheet(sheet, base_path)
 
         # PPT 로드 (다중 곡 모드인 경우 생략 - 이미 load_songs로 로드됨)
-        ppt_to_load = ""
-        current_ppt = ""
         if self._project and self._project.selected_songs:
-            # 다중 곡 모드: 현재 선택된 시트가 속한 곡 찾기
             song = next(
                 (
                     s
@@ -1404,39 +1401,12 @@ class MainWindow(QMainWindow):
                 None,
             )
             if song and song.has_slides:
-                ppt_to_load = str(song.abs_slides_path)
-                self._slide_manager.start_watching(ppt_to_load)
-        else:
-            # 레거시 단일 PPT 모드
-            ppt_to_load = sheet.pptx_path or self._project.pptx_path
-            ppt_to_load = str(Path(ppt_to_load).resolve()) if ppt_to_load else ""
+                self._slide_manager.start_watching(str(song.abs_slides_path))
 
-            # 최적화: 현재 로드된 PPT와 동일하다면 새로고침 생략
-            current_ppt = (
-                str(self._slide_manager._pptx_path.resolve())
-                if self._slide_manager._pptx_path
-                else ""
-            )
-
-            if ppt_to_load != current_ppt:
-                if ppt_to_load:
-                    self._slide_manager.load_pptx(ppt_to_load)
-                    self._slide_manager.start_watching(ppt_to_load)
-                else:
-                    self._slide_manager.load_pptx("")
-
-            # [추가] 곡 전환 시 매핑 링크 기호 갱신
-            self._update_mapped_slides_ui()
         self._update_verse_buttons_state()
-
+        self._update_mapped_slides_ui()
         self._update_preview(None)
         self._canvas.setFocus()
-
-        # 최적화: PPT가 새로 로드된 경우 또는 다중 곡 모드에서 곡이 전환된 경우 매핑 UI 전체 갱신
-        if (ppt_to_load != current_ppt) or (
-            self._project and self._project.selected_songs
-        ):
-            self._update_mapped_slides_ui()
 
         if self._is_live:
             song = next(
@@ -1525,7 +1495,6 @@ class MainWindow(QMainWindow):
         # 현재 레이어 정보 주입
         hotspot.set_slide_index(-1, self._project.current_verse_index)
 
-        # UI 갱신 헬퍼 (생성 시 선택, 취소 시 해제)
         def refresh_ui(selected_id=None):
             self._canvas.select_hotspot(selected_id)
             if selected_id:
@@ -1533,7 +1502,8 @@ class MainWindow(QMainWindow):
             else:
                 self._update_preview(None)
             self._canvas.update()
-            self._update_verse_buttons_state()  # [추가] 핫스팟 생성 시 절 버튼 상태 갱신
+            self._update_verse_buttons_state()
+            self._update_mapped_slides_ui()
 
         command = AddHotspotCommand(
             sheet,
@@ -1553,7 +1523,6 @@ class MainWindow(QMainWindow):
         if not sheet or not hotspot:
             return
 
-        # UI 갱신 헬퍼 (삭제 시 해제, 취소 시 복구 및 선택)
         def refresh_ui(selected_id=None):
             self._canvas.select_hotspot(selected_id)
             if selected_id:
@@ -1561,7 +1530,8 @@ class MainWindow(QMainWindow):
             else:
                 self._update_preview(None)
             self._canvas.update()
-            self._update_verse_buttons_state()  # [추가] 핫스팟 삭제 시 절 버튼 상태 갱신
+            self._update_verse_buttons_state()
+            self._update_mapped_slides_ui()
 
         command = RemoveHotspotCommand(
             sheet,
@@ -1928,7 +1898,6 @@ class MainWindow(QMainWindow):
             if song:
                 return song.score_sheets
 
-        # 레거시 모드 또는 곡을 찾을 수 없는 경우
         return self._project.all_score_sheets
 
     def _on_slide_unlink_all_requested(self, index: int) -> None:
@@ -2356,7 +2325,6 @@ class MainWindow(QMainWindow):
             if song:
                 return self._project_path.parent / song.folder
 
-        # 레거시 모드 또는 곡을 못 찾은 경우 프로젝트 폴더 반환
         return self._project_path.parent
 
     def _globalize_project_indices(self):

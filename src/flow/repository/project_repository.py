@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +26,6 @@ class ProjectRepository:
         self.base_path = Path(base_path)
 
     def save(self, project: Project, file_path: Path | str | None = None) -> Path:
-        """프로젝트 저장 (새 구조 및 레거시 구조 모두 지원)"""
         if file_path:
             file_path = Path(file_path).resolve()
             file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -34,13 +34,7 @@ class ProjectRepository:
             file_path = (self.base_path / f"{project.id}.json").resolve()
 
         project_dir = file_path.parent
-
-        # 새 구조 감지: selected_songs가 있으면 새 구조로 저장
-        if project.selected_songs:
-            self._save_new_structure(project, file_path, project_dir)
-        else:
-            # 레거시 구조로 저장
-            self._save_legacy_structure(project, file_path, project_dir)
+        self._save_new_structure(project, file_path, project_dir)
 
         return file_path
 
@@ -85,49 +79,20 @@ class ProjectRepository:
         with open(file_path, "w", encoding="utf-8-sig") as f:
             json.dump(project_data, f, ensure_ascii=False, indent=2)
 
-    def _save_legacy_structure(
-        self, project: Project, file_path: Path, project_dir: Path
-    ) -> None:
-        """레거시 구조로 저장 (단일 JSON)"""
-        data = project.to_dict()
-
-        # PPT 경로 처리
-        if data.get("pptx_path"):
-            data["pptx_path"] = self._try_make_relative(data["pptx_path"], project_dir)
-
-        # 각 악보 이미지 경로 처리
-        for sheet_data in data.get("score_sheets", []):
-            if sheet_data.get("image_path"):
-                sheet_data["image_path"] = self._try_make_relative(
-                    sheet_data["image_path"], project_dir
-                )
-
-        with open(file_path, "w", encoding="utf-8-sig") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
-    def _try_make_relative(self, path_str: str, base_dir: Path) -> str:
-        """경로를 기준 디렉토리에 대한 상대 경로로 변환 시도"""
-        try:
-            p = Path(path_str).resolve()
-            if base_dir in p.parents or p.parent == base_dir:
-                return str(p.relative_to(base_dir))
-        except Exception:
-            pass
-        return path_str
-
     def load(self, file_path: Path | str) -> Project:
-        """프로젝트 로드 (새 구조 및 레거시 구조 자동 감지)"""
         file_path = Path(file_path).resolve()
         project_dir = file_path.parent
 
         with open(file_path, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
 
-        # 새 구조 감지: selected_songs 필드 존재 여부
-        if "selected_songs" in data:
-            return self._load_new_structure(data, project_dir)
-        else:
-            return self._load_legacy_structure(data, project_dir)
+        if "selected_songs" not in data:
+            raise ValueError(
+                f"지원하지 않는 프로젝트 형식입니다: {file_path}\n"
+                "selected_songs 필드가 필요합니다."
+            )
+
+        return self._load_new_structure(data, project_dir)
 
     def _load_new_structure(self, data: dict[str, Any], project_dir: Path) -> Project:
         """새 구조 로드 (곡별 폴더)"""
@@ -177,58 +142,6 @@ class ProjectRepository:
         )
 
         return project
-
-    def _load_legacy_structure(
-        self, data: dict[str, Any], project_dir: Path
-    ) -> Project:
-        """레거시 구조 로드 (단일 JSON)"""
-        # 상대 경로들을 절대 경로로 복구
-        if data.get("pptx_path"):
-            data["pptx_path"] = self._resolve_path(data["pptx_path"], project_dir)
-
-        for sheet_data in data.get("score_sheets", []):
-            if sheet_data.get("image_path"):
-                sheet_data["image_path"] = self._resolve_path(
-                    sheet_data["image_path"], project_dir
-                )
-
-        return Project.from_dict(data)
-
-    def _resolve_path(self, path_str: str, project_dir: Path) -> str:
-        """상대 경로를 절대 경로로 복구하고, 파일이 없으면 주변 검색 시도"""
-        p = Path(path_str)
-
-        # 이미 절대 경로로 존재하면 그대로 유지
-        if p.is_absolute() and p.exists():
-            return str(p)
-
-        # 1. 상대 경로인 경우 프로젝트 폴더 기반 확인
-        abs_p = (project_dir / p).resolve()
-        if abs_p.exists():
-            return str(abs_p)
-
-        # [NEW] 3. sheet <-> sheets 폴더명 불일치 및 서브폴더 검색 강화
-        filename = p.name
-        # 3.1 명시적인 폴더명 교체 시도
-        alt_path_str = path_str
-        if "sheets/" in alt_path_str:
-            alt_path_str = alt_path_str.replace("sheets/", "sheet/")
-        elif "sheet/" in alt_path_str:
-            alt_path_str = alt_path_str.replace("sheet/", "sheets/")
-
-        if alt_path_str != path_str:
-            alt_abs_p = (project_dir / Path(alt_path_str)).resolve()
-            if alt_abs_p.exists():
-                return str(alt_abs_p)
-
-        # 3.2 서브폴더(sheet, sheets) 직접 확인
-        for sub in ["sheet", "sheets"]:
-            sub_p = (project_dir / sub / filename).resolve()
-            if sub_p.exists():
-                return str(sub_p)
-
-        # 4. 그래도 없으면 원래 경로 반환 (UI에서 '찾을 수 없음' 표시용)
-        return str(p)
 
     def load_standalone_song(self, song_dir: Path | str) -> Project:
         """단일 곡 폴더를 가상 프로젝트로 로드"""

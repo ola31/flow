@@ -27,22 +27,22 @@ class TestProjectRepositorySave:
         assert file_path.suffix == ".json"
 
     def test_save_project_with_data(self, tmp_path: Path):
-        """데이터가 있는 프로젝트 저장"""
         repo = ProjectRepository(tmp_path)
         project = Project(name="테스트")
-        sheet = ScoreSheet(name="곡1", image_path="images/song1.jpg")
+        song = Song(name="곡1", folder=Path("songs/곡1"), project_dir=tmp_path)
+        sheet = ScoreSheet(name="시트1", image_path="images/song1.jpg")
         sheet.add_hotspot(Hotspot(x=100, y=200, lyric="가사1"))
-        project.add_score_sheet(sheet)
+        song.score_sheets.append(sheet)
+        project.selected_songs.append(song)
 
         file_path = repo.save(project)
 
-        # JSON 파일 내용 확인 (utf-8-sig for BOM compatibility)
         with open(file_path, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
 
         assert data["name"] == "테스트"
-        assert len(data["score_sheets"]) == 1
-        assert data["score_sheets"][0]["hotspots"][0]["lyric"] == "가사1"
+        assert "selected_songs" in data
+        assert data["selected_songs"][0]["name"] == "곡1"
 
     def test_save_creates_directory_if_not_exists(self, tmp_path: Path):
         """저장 시 디렉토리가 없으면 생성"""
@@ -60,19 +60,31 @@ class TestProjectRepositoryLoad:
     """프로젝트 로드 테스트"""
 
     def test_load_project(self, tmp_path: Path):
-        """프로젝트 로드"""
         repo = ProjectRepository(tmp_path)
         project = Project(name="원본 프로젝트")
-        sheet = ScoreSheet(name="곡1")
+        song = Song(name="곡1", folder=Path("songs/곡1"), project_dir=tmp_path)
+        sheet = ScoreSheet(name="시트1")
         sheet.add_hotspot(Hotspot(x=100, y=200, lyric="가사"))
-        project.add_score_sheet(sheet)
+        song.score_sheets.append(sheet)
+        project.selected_songs.append(song)
 
         file_path = repo.save(project)
         loaded = repo.load(file_path)
 
         assert loaded.name == "원본 프로젝트"
-        assert len(loaded.score_sheets) == 1
-        assert loaded.score_sheets[0].hotspots[0].lyric == "가사"
+        assert len(loaded.selected_songs) == 1
+        assert loaded.selected_songs[0].score_sheets[0].hotspots[0].lyric == "가사"
+
+    def test_load_legacy_format_raises_error(self, tmp_path: Path):
+        legacy_file = tmp_path / "legacy.json"
+        legacy_file.write_text(
+            json.dumps({"id": "x", "name": "old", "score_sheets": []}),
+            encoding="utf-8-sig",
+        )
+        repo = ProjectRepository(tmp_path)
+
+        with pytest.raises(ValueError, match="selected_songs"):
+            repo.load(legacy_file)
 
     def test_load_preserves_ids(self, tmp_path: Path):
         """로드 시 ID 보존"""
