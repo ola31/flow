@@ -665,7 +665,8 @@ class SongManagerDialog(QDialog):
         for song in self._modified_songs.values():
             self._save_song_metadata(song)
 
-        self.songs_changed.emit()
+        if self._modified_songs:
+            self.songs_changed.emit()
         self.accept()
 
     def _on_cancel_clicked(self):
@@ -702,8 +703,6 @@ class SongManagerDialog(QDialog):
                     final_selected.append(match)
 
         self.project.selected_songs = final_selected
-
-        self.songs_changed.emit()
         self.reject()
 
     def _on_delete_clicked(self):

@@ -147,6 +147,21 @@ class SlideWorker(QThread):
                 pass
             results.append((name, count))
 
+        total_slides = sum(c for _, c in results)
+        if total_slides > 0:
+            converted = 0
+            engine_info = self._converter.get_engine_name()
+            for name, abs_p in song_data_list:
+                count = next((c for n, c in results if n == name), 0)
+                for i in range(count):
+                    if self._abort_requested or self.isInterruptionRequested():
+                        return
+                    self._converter.convert_slide(
+                        abs_p, i, status_callback=self.status.emit
+                    )
+                    converted += 1
+                    self.progress.emit(converted, total_slides, engine_info)
+
         if not self._abort_requested and not self.isInterruptionRequested():
             self.metadata_finished.emit(results)
 

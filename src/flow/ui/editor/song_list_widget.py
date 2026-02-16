@@ -329,7 +329,6 @@ class SongListWidget(QWidget):
             self.refresh_list()
             if self._main_window:
                 self._main_window._mark_dirty()
-                self._main_window._save_project()
             QMessageBox.information(
                 self,
                 "가져오기 완료",
@@ -800,7 +799,6 @@ class SongListWidget(QWidget):
 
         self.refresh_list()
         self._main_window._mark_dirty()
-        self._main_window._save_project()
 
     def _load_song_from_folder(self, name: str, project_dir: Path) -> Song | None:
         song_dir = project_dir / "songs" / name
@@ -877,7 +875,6 @@ class SongListWidget(QWidget):
 
             self.refresh_list()
             self._main_window._mark_dirty()
-            self._main_window._save_project()
         except Exception as e:
             QMessageBox.warning(self, "오류", f"곡 생성 실패: {e}")
 
@@ -931,7 +928,6 @@ class SongListWidget(QWidget):
 
         if self._main_window:
             self._main_window._mark_dirty()
-            self._main_window._save_project()
 
     def select_sheet_by_id(self, sheet_id: str) -> None:
         """ID 기반 선택"""
@@ -970,7 +966,6 @@ class SongListWidget(QWidget):
                     self.song_removed.emit(data.id)
                     if self._main_window:
                         self._main_window._mark_dirty()
-                        self._main_window._save_project()
         elif hasattr(data, "name"):
             self._remove_song(data)
 
@@ -1066,7 +1061,6 @@ class SongListWidget(QWidget):
         self.song_removed.emit("ALL_OF_SONG")
         if self._main_window:
             self._main_window._mark_dirty()
-            self._main_window._save_project()
 
     def _open_song_folder(self, song):
         """폴더 열기"""
@@ -1149,4 +1143,3 @@ class SongListWidget(QWidget):
                     self.song_selected.emit(valid[0])
             if self._main_window:
                 self._main_window._mark_dirty()
-                self._main_window._save_project()
