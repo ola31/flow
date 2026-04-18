@@ -333,6 +333,13 @@ class ScoreCanvas(QWidget):
             painter.setPen(pen)
             painter.drawEllipse(pos, self.HOTSPOT_RADIUS, self.HOTSPOT_RADIUS)
 
+            # 키보드 포커스 링: 선택 상태일 때 바깥쪽 점선 링 추가
+            if is_selected and self.hasFocus():
+                focus_pen = QPen(QColor(255, 255, 255, 180), 1, Qt.PenStyle.DotLine)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(focus_pen)
+                painter.drawEllipse(pos, self.HOTSPOT_RADIUS + 4, self.HOTSPOT_RADIUS + 4)
+
             # 텍스트 드로잉 (잘림 방지를 위해 범위 확대 및 폰트 설정)
             painter.setPen(Qt.GlobalColor.white)
 
@@ -399,12 +406,60 @@ class ScoreCanvas(QWidget):
         return int(rel_x), int(rel_y)
 
     def keyPressEvent(self, event) -> None:
-        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+        key = event.key()
+
+        # Delete / Backspace: 선택된 핫스팟 삭제
+        if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             if self._edit_mode and self._hotspot_editable and self._selected_hotspot_id:
                 hotspot = self.get_selected_hotspot()
                 if hotspot and self.is_hotspot_editable(hotspot, self._verse_index):
                     self._delete_hotspot(hotspot)
                     return
+
+        # Escape: 선택 해제 + 팝오버 닫기
+        if key == Qt.Key.Key_Escape:
+            if self._popover.isVisible():
+                self._popover.dismiss()
+                event.accept()
+                return
+            if self._selected_hotspot_id:
+                self._selected_hotspot_id = None
+                self.update()
+                event.accept()
+                return
+
+        # Tab / Shift+Tab: 현재 레이어 내 핫스팟 순환
+        if key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab) and self._score_sheet:
+            ordered = self._score_sheet.get_ordered_hotspots()
+            visible = [
+                h for h in ordered
+                if self.is_hotspot_editable(h, self._verse_index)
+                or h.id == self._selected_hotspot_id
+            ]
+            if not visible:
+                super().keyPressEvent(event)
+                return
+
+            if not self._selected_hotspot_id:
+                target = visible[0] if key == Qt.Key.Key_Tab else visible[-1]
+            else:
+                ids = [h.id for h in visible]
+                try:
+                    idx = ids.index(self._selected_hotspot_id)
+                except ValueError:
+                    idx = -1
+                if key == Qt.Key.Key_Tab:
+                    idx = (idx + 1) % len(visible)
+                else:
+                    idx = (idx - 1) % len(visible)
+                target = visible[idx]
+
+            self._selected_hotspot_id = target.id
+            self.hotspot_selected.emit(target)
+            self.update()
+            event.accept()
+            return
+
         super().keyPressEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
