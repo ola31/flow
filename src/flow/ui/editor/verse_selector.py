@@ -14,36 +14,32 @@ class VerseSelector(QWidget):
 
     _BASE_STYLE = """
         QPushButton {
-            background-color: #333;
-            border: 1px solid #444;
+            background-color: #222222;
+            border: none;
             border-radius: 6px;
-            color: #999;
+            color: #a0a0a0;
             font-size: 12px;
-            font-weight: bold;
             padding: 0 6px;
         }
         QPushButton:hover {
-            background-color: #3a3a3a;
-            color: #ddd;
+            background-color: #2a2a2a;
+            color: #e8e8e8;
         }
         QPushButton:checked {
-            background-color: #1a2a40;
-            color: #64b5f6;
-            font-weight: 900;
-            border: 1px solid #42a5f5;
-            border-bottom: 3px solid #42a5f5;
+            background-color: #1e2d4a;
+            color: #5b8def;
+            border-bottom: 2px solid #5b8def;
         }
     """
 
     _MAPPED_PATCH = {
-        "border: 1px solid #444;": "border: 1px solid #546e7a;",
-        "color: #999;": "color: #cfd8dc;",
+        "color: #a0a0a0;": "color: #c8d8e8;",
     }
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setFixedHeight(42)
-        self.setStyleSheet("background-color: #252525; border-bottom: 1px solid #333;")
+        self.setStyleSheet("background-color: #1a1a1a; border-bottom: 1px solid #2e2e2e;")
 
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(12, 0, 12, 0)

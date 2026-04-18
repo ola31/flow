@@ -62,15 +62,15 @@ class SlidePreviewPanel(QWidget):
 
         self._title = QLabel("PPT 슬라이드 (0)")
         self._title.setStyleSheet("""
-            font-weight: 800; 
-            font-size: 12px; 
-            color: #2196f3;
-            letter-spacing: 0.2px;
+            font-weight: 500;
+            font-size: 12px;
+            color: #5b8def;
         """)
         header_layout.addWidget(self._title, 1)
 
         self._btn_reload = QPushButton("새로고침")
-        self._btn_reload.setFixedSize(80, 24)
+        self._btn_reload.setFixedHeight(26)
+        self._btn_reload.setMinimumWidth(70)
         self._btn_reload.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_reload.setToolTip("모든 곡의 슬라이드 새로고침")
         self._btn_reload.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -85,7 +85,9 @@ class SlidePreviewPanel(QWidget):
         header_layout.addWidget(self._btn_reload)
 
         self._btn_close = QPushButton("닫기")
-        self._btn_close.setFixedSize(70, 24)
+        self._btn_close.setFixedHeight(26)
+        self._btn_close.setMinimumWidth(56)
+        self._btn_close.hide()  # PPT 닫기는 혼란을 주므로 숨김
         self._btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_close.setToolTip("PPT 닫기")
         self._btn_close.setFocusPolicy(Qt.FocusPolicy.NoFocus)
