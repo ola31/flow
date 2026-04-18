@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal, QPoint
+from PySide6.QtCore import Qt, Signal, QPoint, QRect
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtGui import QPixmap, QColor
 from PySide6.QtWidgets import (
     QFrame,
@@ -164,22 +165,48 @@ class HotspotPopover(QFrame):
             self._no_mapping_row.show()
 
     def _position_at(self, anchor: QPoint) -> None:
-        if not self.parentWidget():
+        parent = self.parentWidget()
+        if not parent:
             return
 
-        parent = self.parentWidget()
-        pw, ph = parent.width(), parent.height()
-        w, h = self.sizeHint().width(), self.sizeHint().height()
+        self.ensurePolished()
+        w = self.sizeHint().width()
+        h = self.sizeHint().height()
 
+        # 기본 위치: anchor 아래 중앙 (부모 로컬 좌표)
         x = anchor.x() - w // 2
         y = anchor.y() + 24
+        margin = 8
 
-        if x < 8:
-            x = 8
-        if x + w > pw - 8:
-            x = pw - w - 8
-        if y + h > ph - 8:
+        # 1. 부모 위젯 경계 내 클램핑
+        pw, ph = parent.width(), parent.height()
+        if x < margin:
+            x = margin
+        if x + w > pw - margin:
+            x = pw - margin - w
+        if y + h > ph - margin:
             y = anchor.y() - h - 24
+        if y < margin:
+            y = margin
+
+        # 2. 멀티모니터 대응: 화면 경계 내 클램핑 (글로벌 좌표 기준)
+        global_pos = parent.mapToGlobal(QPoint(x, y))
+        screen = QGuiApplication.screenAt(parent.mapToGlobal(anchor))
+        if screen is None:
+            screen = QGuiApplication.primaryScreen()
+        if screen:
+            avail: QRect = screen.availableGeometry()
+            gx, gy = global_pos.x(), global_pos.y()
+            if gx < avail.left() + margin:
+                gx = avail.left() + margin
+            if gx + w > avail.right() - margin:
+                gx = avail.right() - margin - w
+            if gy + h > avail.bottom() - margin:
+                gy = parent.mapToGlobal(anchor).y() - h - 24
+            if gy < avail.top() + margin:
+                gy = avail.top() + margin
+            local = parent.mapFromGlobal(QPoint(gx, gy))
+            x, y = local.x(), local.y()
 
         self.move(x, y)
 
