@@ -600,7 +600,8 @@ class _SongCard(QFrame):
             self.setStyleSheet(f"""
                 QFrame#SongCard {{
                     background: {ACCENT_SURFACE};
-                    border: 1px solid {ACCENT};
+                    border-left: 3px solid {ACCENT};
+                    border-top: none; border-right: none; border-bottom: none;
                     border-radius: {RADIUS_LG}px;
                 }}
             """)
@@ -608,12 +609,11 @@ class _SongCard(QFrame):
             self.setStyleSheet(f"""
                 QFrame#SongCard {{
                     background: {BG_ELEVATED};
-                    border: 1px solid {BORDER};
+                    border: none;
                     border-radius: {RADIUS_LG}px;
                 }}
                 QFrame#SongCard:hover {{
                     background: {BG_HOVER};
-                    border: 1px solid {BORDER_FOCUS};
                 }}
             """)
 
@@ -846,7 +846,7 @@ class SongListWidget(QWidget):
     # ── UI 구성 ──────────────────────────────────────────────────────────
 
     def _setup_ui(self) -> None:
-        self.setStyleSheet("background: #1a1a1a;")
+        self.setStyleSheet(f"background: {BG_SURFACE};")
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)

@@ -174,11 +174,12 @@ class MappingPanel(QFrame):
         self.hide()
 
     def _setup_ui(self) -> None:
-        self.setStyleSheet("""
-            QFrame#MappingPanel {
-                background: #1a1a1a;
-                border-left: 1px solid #333;
-            }
+        from flow.ui.styles import BG_SURFACE, BORDER
+        self.setStyleSheet(f"""
+            QFrame#MappingPanel {{
+                background: {BG_SURFACE};
+                border-left: 1px solid {BORDER};
+            }}
         """)
 
         root = QVBoxLayout(self)
