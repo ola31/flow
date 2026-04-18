@@ -71,7 +71,7 @@ class _SheetTab(QPushButton):
         super().__init__(label, parent)
         self._sheet = sheet
         self.setFixedHeight(24)
-        self.setMinimumWidth(32)
+        self.setMinimumWidth(36)
         self.setCheckable(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -159,7 +159,8 @@ class _SongCard(QFrame):
 
         # 편집 버튼 (hover 시 표시)
         self._btn_edit = QPushButton("편집")
-        self._btn_edit.setFixedSize(42, 22)
+        self._btn_edit.setFixedHeight(22)
+        self._btn_edit.setMinimumWidth(46)
         self._btn_edit.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._btn_edit.setStyleSheet("""

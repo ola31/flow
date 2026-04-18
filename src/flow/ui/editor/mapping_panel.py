@@ -51,7 +51,8 @@ class _VerseRow(QFrame):
 
         color = _VERSE_COLORS[self._verse_index]
         self._badge = QLabel(_VERSE_NAMES[self._verse_index])
-        self._badge.setFixedSize(32, 20)
+        self._badge.setFixedHeight(20)
+        self._badge.setMinimumWidth(34)
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._badge.setStyleSheet(
             f"background: transparent; color: {color}; "
@@ -65,7 +66,8 @@ class _VerseRow(QFrame):
         header.addStretch()
 
         self._btn_unmap = QPushButton("해제")
-        self._btn_unmap.setFixedSize(36, 20)
+        self._btn_unmap.setFixedHeight(20)
+        self._btn_unmap.setMinimumWidth(40)
         self._btn_unmap.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_unmap.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._btn_unmap.setStyleSheet("""
