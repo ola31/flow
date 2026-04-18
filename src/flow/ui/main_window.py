@@ -1167,7 +1167,16 @@ class MainWindow(QMainWindow):
 
     def _toggle_live_mode(self) -> None:
         if self._is_live:
-            self._exit_live()
+            msg = QMessageBox(self)
+            msg.setWindowTitle("라이브 모드 종료")
+            msg.setText("라이브 모드를 종료하시겠습니까?")
+            msg.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            msg.setDefaultButton(QMessageBox.StandardButton.No)
+            msg.setMinimumWidth(320)
+            if msg.exec() == QMessageBox.StandardButton.Yes:
+                self._exit_live()
         else:
             self._enter_live()
 
