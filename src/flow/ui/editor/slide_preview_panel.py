@@ -130,23 +130,19 @@ class SlidePreviewPanel(QWidget):
                 border-radius: 8px;
                 padding: 5px;
             }
-            QListWidget::item { 
-                background-color: #2a2a2a;
-                border: 1px solid #444; 
-                border-radius: 6px; 
-                padding: 4px; 
+            QListWidget::item {
+                border: 1px solid #2e2e2e;
+                border-radius: 6px;
+                padding: 4px;
                 color: #888;
                 font-size: 10px;
             }
-            QListWidget::item:hover { 
-                background-color: #333;
-                border: 1px solid #2196f3;
+            QListWidget::item:hover {
+                border: 1px solid #5b8def;
             }
-            QListWidget::item:selected { 
-                background-color: #2d3d50; 
-                border: 2px solid #2196f3;
-                color: #2196f3;
-                font-weight: 500;
+            QListWidget::item:selected {
+                border: 2px solid #5b8def;
+                color: #5b8def;
             }
             
             /* 스크롤바 스타일링 고도화 */
@@ -360,7 +356,7 @@ class SlidePreviewPanel(QWidget):
             if item.text() != label:
                 item.setText(label)
 
-            target_color = QColor("#1e2d4a") if is_mapped else QColor("transparent")
+            target_color = QColor("#1e2d4a") if is_mapped else QColor("#222222")
             if item.background().color() != target_color:
                 item.setBackground(target_color)
 
@@ -407,8 +403,7 @@ class SlidePreviewPanel(QWidget):
             item.setIcon(QIcon(scaled_pixmap))
             item.setData(Qt.ItemDataRole.UserRole, i)
 
-            if is_mapped:
-                item.setBackground(QColor("#1e2d4a"))
+            item.setBackground(QColor("#1e2d4a") if is_mapped else QColor("#222222"))
 
             self._list.addItem(item)
 
