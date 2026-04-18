@@ -1147,7 +1147,15 @@ class MainWindow(QMainWindow):
 
     def _toggle_live_mode(self) -> None:
         if self._is_live:
-            self._exit_live()
+            reply = QMessageBox.question(
+                self,
+                "라이브 종료",
+                "라이브 모드를 종료하시겠습니까?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._exit_live()
         else:
             self._enter_live()
 
@@ -1184,7 +1192,9 @@ class MainWindow(QMainWindow):
         self._project_screen.set_live_mode(True)
         self._update_toolbar_for_mode("live")
         self._canvas.setFocus()
-        self._statusbar.showMessage("라이브 — 핫스팟을 클릭하세요")
+        self._statusbar.showMessage("라이브 — 핫스팟 클릭 → Enter로 송출  |  Esc로 종료")
+        title = self.windowTitle().replace(" [LIVE]", "")
+        self.setWindowTitle(title + " [LIVE]")
 
     def _exit_live(self) -> None:
         self._is_live = False
@@ -1197,6 +1207,8 @@ class MainWindow(QMainWindow):
         self._project_screen.set_live_mode(False)
         self._update_toolbar_for_mode("default")
         self._statusbar.showMessage("편집 모드")
+        title = self.windowTitle().replace(" [LIVE]", "")
+        self.setWindowTitle(title)
 
     def _toggle_display(self) -> None:
         """송출 시작/중지 토글"""
@@ -1234,7 +1246,9 @@ class MainWindow(QMainWindow):
         self._close_project_action.setEnabled(True)
 
         # 편집 관련 액션만 제어
-        self._manage_songs_action.setEnabled(editable)  # 곡 관리 버튼
+        _live_tip = "" if editable else "라이브 모드 중에는 편집할 수 없습니다"
+        self._manage_songs_action.setEnabled(editable)
+        self._manage_songs_action.setToolTip(_live_tip)
         self._undo_action.setEnabled(editable)
         self._redo_action.setEnabled(editable)
 
