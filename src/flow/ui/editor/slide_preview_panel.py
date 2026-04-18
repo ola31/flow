@@ -76,7 +76,7 @@ class SlidePreviewPanel(QWidget):
         self._btn_reload.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._btn_reload.setStyleSheet("""
             QPushButton {
-                background-color: #333; color: #ccc; border: 1px solid #444; border-radius: 4px; font-size: 10px; font-weight: bold;
+                background-color: #333; color: #ccc; border: 1px solid #444; border-radius: 4px; font-size: 10px; font-weight: 500;
             }
             QPushButton:hover { background-color: #444; color: white; border: 1px solid #2196f3; }
             QPushButton:disabled { color: #555; background-color: #222; border: 1px solid #333; }
@@ -139,7 +139,7 @@ class SlidePreviewPanel(QWidget):
                 background-color: #2d3d50; 
                 border: 2px solid #2196f3;
                 color: #2196f3;
-                font-weight: bold;
+                font-weight: 500;
             }
             
             /* 스크롤바 스타일링 고도화 */
@@ -191,7 +191,7 @@ class SlidePreviewPanel(QWidget):
         self._loading_label.setStyleSheet("""
             QLabel {
                 color: #2196f3;
-                font-weight: bold;
+                font-weight: 500;
                 background-color: transparent;
                 font-size: 13px;
             }

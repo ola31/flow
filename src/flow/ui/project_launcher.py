@@ -98,6 +98,9 @@ class _RecentCard(QFrame):
             QFrame#RecentCard:hover {{
                 background: {BG_HOVER};
             }}
+            QFrame#RecentCard QLabel {{
+                background: transparent;
+            }}
         """)
 
         layout = QVBoxLayout(self)
@@ -164,6 +167,12 @@ class _Panel(QFrame):
                 background: {BG_SURFACE};
                 border: none;
                 border-radius: {RADIUS_XL}px;
+            }}
+            QFrame#HomePanel QLabel {{
+                background: transparent;
+            }}
+            QFrame#HomePanel QPushButton {{
+                background: transparent;
             }}
         """)
         _shadow(self, blur=32, offset=6, opacity=60)
@@ -246,7 +255,7 @@ class _Panel(QFrame):
                 QPushButton {{
                     background: {ACCENT}; color: #fff;
                     border: none; border-radius: {RADIUS_MD}px;
-                    font-size: {FONT_MD}px; font-weight: bold; padding: 0 {SP_LG}px;
+                    font-size: {FONT_MD}px; font-weight: 500; padding: 0 {SP_LG}px;
                 }}
                 QPushButton:hover {{ background: {ACCENT_HOVER}; }}
             """)

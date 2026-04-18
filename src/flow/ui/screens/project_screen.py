@@ -46,7 +46,7 @@ class _PIPPane(QFrame):
         self._badge.setFixedHeight(16)
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._badge.setStyleSheet(
-            f"font-size: 10px; font-weight: 900; color: {color}; letter-spacing: 1px;"
+            f"font-size: 10px; font-weight: 500; color: {color}; letter-spacing: 1px;"
         )
         layout.addWidget(self._badge)
 
@@ -305,7 +305,7 @@ class ProjectScreen(QWidget):
         _nav_btn_style = """
             QPushButton {
                 background: #2a2a2a; color: #aaa; border: 1px solid #444;
-                border-radius: 4px; padding: 2px 10px; font-size: 11px; font-weight: bold;
+                border-radius: 4px; padding: 2px 10px; font-size: 11px; font-weight: 500;
             }
             QPushButton:hover { background: #3a3a3a; color: white; }
         """
@@ -320,7 +320,7 @@ class ProjectScreen(QWidget):
         self._nav_song_name = QLabel("")
         self._nav_song_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._nav_song_name.setStyleSheet(
-            "font-size: 13px; font-weight: bold; color: #e0e0e0;"
+            "font-size: 13px; font-weight: 500; color: #e0e0e0;"
         )
         nav_layout.addWidget(self._nav_song_name, 1)
 
@@ -339,13 +339,13 @@ class ProjectScreen(QWidget):
         _verse_btn_style = """
             QPushButton {
                 background: #2a2a2a; color: #999; border: 1px solid #444;
-                border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: bold;
+                border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: 500;
                 min-width: 32px;
             }
             QPushButton:hover { background: #3a3a3a; color: white; }
             QPushButton:checked {
                 background: #1a2a40; color: #64b5f6;
-                border: 1px solid #42a5f5; font-weight: 900;
+                border: 1px solid #42a5f5; font-weight: 500;
             }
         """
 

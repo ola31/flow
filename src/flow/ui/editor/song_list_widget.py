@@ -194,7 +194,7 @@ class _LibrarySongCard(QFrame):
             QPushButton {{
                 background: {ACCENT}; color: #fff;
                 border: none; border-radius: {RADIUS_MD}px;
-                font-size: {FONT_MD}px; font-weight: bold; padding: 0 14px;
+                font-size: {FONT_MD}px; font-weight: 500; padding: 0 14px;
             }}
             QPushButton:hover {{ background: {ACCENT_HOVER}; }}
         """)
@@ -486,7 +486,7 @@ class _SongCard(QFrame):
         self._btn_remove.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; color: {TEXT_TERTIARY}; border: none;
-                font-size: {FONT_SM}px; font-weight: bold;
+                font-size: {FONT_SM}px;
             }}
             QPushButton:hover {{ color: {RED}; }}
         """)
@@ -685,7 +685,7 @@ class _StandalonePanel(QWidget):
         # 곡 이름 헤더
         self._song_name = QLabel("—")
         self._song_name.setStyleSheet(
-            f"font-size: {FONT_XL}px; font-weight: 600; color: {ACCENT};"
+            f"font-size: {FONT_XL}px; font-weight: 500; color: {ACCENT};"
         )
         layout.addWidget(self._song_name)
 
@@ -705,7 +705,7 @@ class _StandalonePanel(QWidget):
             QPushButton {{
                 background: {BG_HOVER}; color: {TEXT_SECONDARY};
                 border: 1px solid {BORDER_FOCUS}; border-radius: {RADIUS_MD}px;
-                font-size: {FONT_SM}px; font-weight: bold;
+                font-size: {FONT_SM}px;
             }}
             QPushButton:hover {{ background: {BG_ELEVATED}; border-color: {ACCENT}; color: {TEXT_PRIMARY}; }}
         """)
@@ -721,7 +721,7 @@ class _StandalonePanel(QWidget):
             QPushButton {{
                 background: {ACCENT}; color: {TEXT_INVERSE};
                 border: none; border-radius: {RADIUS_MD}px;
-                font-size: {FONT_SM}px; font-weight: bold;
+                font-size: {FONT_SM}px;
             }}
             QPushButton:hover {{ background: {ACCENT_HOVER}; }}
         """)
@@ -794,7 +794,7 @@ class _PageCard(QFrame):
 
         name_lbl = QLabel(self._sheet.name)
         name_lbl.setStyleSheet(
-            f"font-size: {FONT_MD}px; color: #fff; font-weight: bold;"
+            f"font-size: {FONT_MD}px; color: #fff;"
             if active else
             f"font-size: {FONT_MD}px; color: {TEXT_SECONDARY};"
         )
@@ -863,7 +863,7 @@ class SongListWidget(QWidget):
 
         self._title_label = QLabel("셋리스트")
         self._title_label.setStyleSheet(
-            f"font-size: {FONT_LG}px; font-weight: 600; color: {ACCENT}; letter-spacing: 0.5px;"
+            f"font-size: {FONT_LG}px; font-weight: 500; color: {ACCENT};"
         )
         header_layout.addWidget(self._title_label)
 
@@ -917,7 +917,7 @@ class SongListWidget(QWidget):
             QPushButton {{
                 background: {ACCENT}; color: #fff;
                 border: none; border-radius: {RADIUS_MD}px;
-                font-size: {FONT_SM}px; font-weight: bold;
+                font-size: {FONT_SM}px;
             }}
             QPushButton:hover {{ background: {ACCENT_HOVER}; }}
             QPushButton:disabled {{ background: {BG_HOVER}; color: {TEXT_TERTIARY}; }}
@@ -956,13 +956,13 @@ class SongListWidget(QWidget):
         if standalone:
             self._title_label.setText("곡 편집")
             self._title_label.setStyleSheet(
-                f"font-size: {FONT_LG}px; font-weight: 600; color: {ACCENT}; letter-spacing: 0.5px;"
+                f"font-size: {FONT_LG}px; font-weight: 500; color: {ACCENT};"
             )
             self._footer.setVisible(False)
         else:
             self._title_label.setText("셋리스트")
             self._title_label.setStyleSheet(
-                f"font-size: {FONT_LG}px; font-weight: 600; color: {ACCENT}; letter-spacing: 0.5px;"
+                f"font-size: {FONT_LG}px; font-weight: 500; color: {ACCENT};"
             )
             self._footer.setVisible(True)
 

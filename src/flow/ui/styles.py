@@ -89,7 +89,7 @@ GLOBAL_STYLESHEET = f"""
         background-color: transparent;
         padding: {SP_SM}px {SP_MD}px;
         border-radius: {RADIUS_MD}px;
-        font-weight: bold;
+        font-weight: 500;
         font-size: {FONT_SM}px;
         color: {TEXT_SECONDARY};
     }}
@@ -175,7 +175,7 @@ _TOOLBAR_BUTTON_BASE = f"""
         background-color: transparent;
         padding: {SP_SM}px {SP_MD}px;
         border-radius: {RADIUS_MD}px;
-        font-weight: bold;
+        font-weight: 500;
         font-size: {FONT_SM}px;
         color: {TEXT_SECONDARY};
     }}

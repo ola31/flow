@@ -330,7 +330,7 @@ class MainWindow(QMainWindow):
             QPushButton {{
                 background: transparent; color: {RED};
                 border: 1px solid {RED}; border-radius: {RADIUS_MD}px;
-                font-size: {FONT_MD}px; font-weight: bold; padding: 0 18px;
+                font-size: {FONT_MD}px; font-weight: 500; padding: 0 18px;
             }}
             QPushButton:hover {{
                 background: {RED}; color: #fff;

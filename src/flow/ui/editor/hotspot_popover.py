@@ -58,7 +58,7 @@ class HotspotPopover(QFrame):
         root.setSpacing(8)
 
         self._info = QLabel()
-        self._info.setStyleSheet("font-size: 12px; font-weight: bold; color: #ccc;")
+        self._info.setStyleSheet("font-size: 12px; font-weight: 500; color: #ccc;")
         root.addWidget(self._info)
 
         self._preview_row = QWidget()
@@ -94,7 +94,7 @@ class HotspotPopover(QFrame):
         self._btn_unmap.setStyleSheet("""
             QPushButton {
                 background: #444; color: #e57373; border: none;
-                border-radius: 4px; font-size: 11px; font-weight: bold; padding: 0 10px;
+                border-radius: 4px; font-size: 11px; padding: 0 10px;
             }
             QPushButton:hover { background: #555; }
         """)

@@ -56,7 +56,7 @@ class _VerseRow(QFrame):
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._badge.setStyleSheet(
             f"background: transparent; color: {color}; "
-            "font-size: 11px; font-weight: 900; border: none;"
+            "font-size: 11px; font-weight: 500; border: none;"
         )
         header.addWidget(self._badge)
 
@@ -191,7 +191,7 @@ class MappingPanel(QFrame):
         header.setContentsMargins(0, 0, 0, 0)
         self._title = QLabel("핫스팟 매핑")
         self._title.setStyleSheet(
-            "font-size: 13px; font-weight: 900; color: #ccc; border: none;"
+            "font-size: 13px; font-weight: 500; color: #ccc; border: none;"
         )
         header.addWidget(self._title)
         header.addStretch()
