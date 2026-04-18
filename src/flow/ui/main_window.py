@@ -59,6 +59,10 @@ from flow.ui.styles import (
     TOOLBAR_DEFAULT,
     TOOLBAR_LIVE,
     TOOLBAR_SONG_EDIT,
+    RED,
+    RED_HOVER,
+    RADIUS_MD,
+    FONT_MD,
 )
 
 
@@ -322,15 +326,15 @@ class MainWindow(QMainWindow):
         self._btn_exit_live.setFixedHeight(32)
         self._btn_exit_live.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_exit_live.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_exit_live.setStyleSheet("""
-            QPushButton {
-                background: transparent; color: #ff6666;
-                border: 1px solid #ff4444; border-radius: 6px;
-                font-size: 12px; font-weight: bold; padding: 0 18px;
-            }
-            QPushButton:hover {
-                background: #ff4444; color: #fff;
-            }
+        self._btn_exit_live.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {RED};
+                border: 1px solid {RED}; border-radius: {RADIUS_MD}px;
+                font-size: {FONT_MD}px; font-weight: bold; padding: 0 18px;
+            }}
+            QPushButton:hover {{
+                background: {RED}; color: #fff;
+            }}
         """)
         self._btn_exit_live.clicked.connect(self._toggle_live_mode)
         self._btn_exit_live.hide()
