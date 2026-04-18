@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+# === 핫스팟 상태 색상 ===
+HOTSPOT_DEFAULT_FILL = (255, 160, 0, 150)      # 주황 — 매핑 없음 (기본)
+HOTSPOT_SELECTED_FILL = (33, 150, 243, 180)    # 브랜드 블루 — 선택됨
+HOTSPOT_MAPPED_FILL = (76, 175, 80, 160)       # 초록 — 매핑 완료
+HOTSPOT_UNMAPPED_BORDER = (255, 193, 7, 220)   # 노란 점선 테두리 — 미매핑 경고
+
 GLOBAL_STYLESHEET = """
     QMainWindow { background-color: #1a1a1a; }
     QWidget { color: #ddd; font-family: 'Malgun Gothic', 'Segoe UI', sans-serif; }

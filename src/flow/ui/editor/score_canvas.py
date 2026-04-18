@@ -22,6 +22,12 @@ from pathlib import Path
 from flow.domain.score_sheet import ScoreSheet
 from flow.domain.hotspot import Hotspot
 from flow.ui.editor.hotspot_popover import HotspotPopover
+from flow.ui.styles import (
+    HOTSPOT_DEFAULT_FILL,
+    HOTSPOT_SELECTED_FILL,
+    HOTSPOT_MAPPED_FILL,
+    HOTSPOT_UNMAPPED_BORDER,
+)
 
 
 class ScoreCanvas(QWidget):
@@ -47,12 +53,10 @@ class ScoreCanvas(QWidget):
     live_hotspot_clicked = Signal(object)
 
     HOTSPOT_RADIUS = 15
-    HOTSPOT_COLOR = QColor(
-        255, 160, 0, 150
-    )  # 비선택: 선명한 주황 (가시성 + 투명도 밸런스)
-    HOTSPOT_SELECTED_COLOR = QColor(
-        33, 150, 243, 180
-    )  # 선택: 브랜드 블루 (투명도 조절)
+    HOTSPOT_COLOR = QColor(*HOTSPOT_DEFAULT_FILL)
+    HOTSPOT_SELECTED_COLOR = QColor(*HOTSPOT_SELECTED_FILL)
+    HOTSPOT_MAPPED_COLOR = QColor(*HOTSPOT_MAPPED_FILL)
+    HOTSPOT_UNMAPPED_PEN_COLOR = QColor(*HOTSPOT_UNMAPPED_BORDER)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -303,17 +307,26 @@ class ScoreCanvas(QWidget):
                 int(hotspot.y * self._scale_y + self._offset_y),
             )
 
-            # 모든 버튼을 보이게 하되, 타 레이어 버튼은 외곽선 스타일로 '편집 잠금' 표시
+            # 현재 레이어에서 매핑 여부 확인
+            current_slide_idx = hotspot.get_slide_index(v_idx)
+            is_mapped = current_slide_idx >= 0
+
+            # 색상/테두리: 선택 > 매핑완료 > 미매핑 > 타레이어 잠금 순서
             if is_selected:
                 color = self.HOTSPOT_SELECTED_COLOR
                 pen = QPen(Qt.GlobalColor.white, 2)
-            else:
+            elif not is_editable:
+                # 타 레이어 전용 버튼: 연한 점선 외곽선
                 color = self.HOTSPOT_COLOR
-                if is_editable:
-                    pen = QPen(Qt.GlobalColor.white, 1)
-                else:
-                    # 타 레이어 전용 버튼 (Verse 모드에서만 보임): 연한 점선 외곽선
-                    pen = QPen(QColor(200, 200, 200, 180), 1, Qt.PenStyle.DashLine)
+                pen = QPen(QColor(200, 200, 200, 180), 1, Qt.PenStyle.DashLine)
+            elif is_mapped:
+                # 매핑 완료: 초록 채우기 + 흰 테두리
+                color = self.HOTSPOT_MAPPED_COLOR
+                pen = QPen(Qt.GlobalColor.white, 1)
+            else:
+                # 미매핑: 주황 채우기 + 노란 점선 테두리 (경고)
+                color = self.HOTSPOT_COLOR
+                pen = QPen(self.HOTSPOT_UNMAPPED_PEN_COLOR, 2, Qt.PenStyle.DashLine)
 
             # 원 그리기
             painter.setBrush(color)
