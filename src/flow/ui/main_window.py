@@ -267,12 +267,6 @@ class MainWindow(QMainWindow):
         self._back_to_project_action = QAction("⬅️ 프로젝트로 돌아가기", self)
         self._back_to_project_action.triggered.connect(self._exit_song_edit_mode)
 
-        # 곡 관리
-        self._manage_songs_action = QAction("🎵 곡 관리", self)
-        self._manage_songs_action.setToolTip("곡 추가/제거/관리")
-        self._manage_songs_action.setEnabled(False)
-        self._manage_songs_action.triggered.connect(self._manage_songs)
-
         # 설정
         self._settings_action = QAction("⚙️ 설정", self)
         self._settings_action.setToolTip("환경설정")
@@ -313,7 +307,6 @@ class MainWindow(QMainWindow):
         self._btn_home = create_tool_btn(self._close_project_action)
         self._btn_save = create_tool_btn(self._save_action)
         self._btn_save_as = create_tool_btn(self._save_as_action)
-        self._btn_manage_songs = create_tool_btn(self._manage_songs_action)
         self._btn_settings = create_tool_btn(self._settings_action)
         self._btn_undo = create_tool_btn(self._undo_action)
         self._btn_redo = create_tool_btn(self._redo_action)
@@ -324,7 +317,6 @@ class MainWindow(QMainWindow):
         # 구분선 인스턴스
         self._sep_edit1 = create_sep()
         self._sep_edit2 = create_sep()
-        self._sep_edit3 = create_sep()
         self._sep_live1 = create_sep()
         self._sep_song1 = create_sep()
 
@@ -336,8 +328,6 @@ class MainWindow(QMainWindow):
                 self._btn_save,
                 self._btn_save_as,
                 self._sep_edit2,
-                self._btn_manage_songs,
-                self._sep_edit3,
                 self._btn_settings,
                 "stretch",
                 self._btn_undo,
@@ -380,7 +370,6 @@ class MainWindow(QMainWindow):
             self._btn_home,
             self._btn_save,
             self._btn_save_as,
-            self._btn_manage_songs,
             self._btn_settings,
             self._btn_undo,
             self._btn_redo,
@@ -392,7 +381,6 @@ class MainWindow(QMainWindow):
         for sep in [
             self._sep_edit1,
             self._sep_edit2,
-            self._sep_edit3,
             self._sep_live1,
             self._sep_song1,
         ]:
@@ -1255,9 +1243,6 @@ class MainWindow(QMainWindow):
         self._close_project_action.setEnabled(True)
 
         # 편집 관련 액션만 제어
-        _live_tip = "" if editable else "라이브 모드 중에는 편집할 수 없습니다"
-        self._manage_songs_action.setEnabled(editable)
-        self._manage_songs_action.setToolTip(_live_tip)
         self._undo_action.setEnabled(editable)
         self._redo_action.setEnabled(editable)
 
