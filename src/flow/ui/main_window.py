@@ -286,6 +286,10 @@ class MainWindow(QMainWindow):
         self._live_mode_action.triggered.connect(self._toggle_live_mode)
         self._is_live = False
 
+        # 라이브 종료
+        self._exit_live_action = QAction("라이브 종료", self)
+        self._exit_live_action.triggered.connect(self._toggle_live_mode)
+
         # 송출
         self._display_action = QAction("📺 송출 시작", self)
         self._display_action.setShortcut("F11")
@@ -314,6 +318,23 @@ class MainWindow(QMainWindow):
         self._btn_display = create_tool_btn(self._display_action)
         self._btn_back = create_tool_btn(self._back_to_project_action)
 
+        self._btn_exit_live = QPushButton("라이브 종료  Esc")
+        self._btn_exit_live.setFixedHeight(32)
+        self._btn_exit_live.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_exit_live.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_exit_live.setStyleSheet("""
+            QPushButton {
+                background: transparent; color: #ff6666;
+                border: 1px solid #ff4444; border-radius: 6px;
+                font-size: 12px; font-weight: bold; padding: 0 18px;
+            }
+            QPushButton:hover {
+                background: #ff4444; color: #fff;
+            }
+        """)
+        self._btn_exit_live.clicked.connect(self._toggle_live_mode)
+        self._btn_exit_live.hide()
+
         # 구분선 인스턴스
         self._sep_edit1 = create_sep()
         self._sep_edit2 = create_sep()
@@ -339,6 +360,7 @@ class MainWindow(QMainWindow):
                 self._btn_home,
                 "stretch",
                 self._btn_display,
+                self._btn_exit_live,
             ],
             "song_edit": [
                 self._btn_back,
@@ -376,6 +398,7 @@ class MainWindow(QMainWindow):
             self._btn_to_live,
             self._btn_display,
             self._btn_back,
+            self._btn_exit_live,
         ]:
             btn.hide()
         for sep in [
