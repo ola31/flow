@@ -344,7 +344,7 @@ class ProjectLauncher(QWidget):
         self._song_panel = _Panel(
             "곡 라이브러리",
             "악보 · PPT · 핫스팟 매핑의 기본 단위",
-            "library",
+            "music_note",
         )
         self._btn_new_song = self._song_panel.add_action_btn("새 곡 만들기", primary=True)
         self._btn_open_song = self._song_panel.add_action_btn("폴더에서 열기")
@@ -355,7 +355,7 @@ class ProjectLauncher(QWidget):
         self._proj_panel = _Panel(
             "프로젝트",
             "곡을 조합해 예배 셋리스트로 사용",
-            "queue_music",
+            "view_list",
         )
         self._btn_new_proj = self._proj_panel.add_action_btn("새 프로젝트", primary=True)
         self._btn_open_proj = self._proj_panel.add_action_btn("폴더에서 열기")

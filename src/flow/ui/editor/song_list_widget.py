@@ -847,7 +847,7 @@ class SongListWidget(QWidget):
         header_layout.setSpacing(6)
 
         from flow.ui.icons import icon_label
-        self._title_icon = icon_label("queue_music", 16, ACCENT, header_frame)
+        self._title_icon = icon_label("view_list", 16, ACCENT, header_frame)
         header_layout.addWidget(self._title_icon)
 
         self._title_label = QLabel("셋리스트")
@@ -951,7 +951,7 @@ class SongListWidget(QWidget):
         else:
             self._title_label.setText("셋리스트")
             self._title_icon.setFont(icon_font(16))
-            self._title_icon.setText(icon("queue_music"))
+            self._title_icon.setText(icon("view_list"))
             self._title_label.setStyleSheet(
                 f"font-size: {FONT_LG}px; font-weight: 500; color: {ACCENT};"
             )

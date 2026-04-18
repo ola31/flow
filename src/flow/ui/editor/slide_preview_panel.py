@@ -354,13 +354,13 @@ class SlidePreviewPanel(QWidget):
             is_mapped = idx in mapped_indices
             label = f"Slide {idx + 1}"
             if is_mapped:
-                label += " (🔗)"
+                label += "  ·  매핑됨"
 
             # 텍스트와 배경색만 변경 (아이콘 유지)
             if item.text() != label:
                 item.setText(label)
 
-            target_color = QColor("#2a3a4f") if is_mapped else QColor("transparent")
+            target_color = QColor("#1e2d4a") if is_mapped else QColor("transparent")
             if item.background().color() != target_color:
                 item.setBackground(target_color)
 
@@ -395,7 +395,7 @@ class SlidePreviewPanel(QWidget):
             is_mapped = i in mapped_indices
             label = f"Slide {i + 1}"
             if is_mapped:
-                label += " (🔗)"
+                label += "  ·  매핑됨"
 
             item = QListWidgetItem(label)
             scaled_pixmap = pixmap.scaled(
@@ -408,7 +408,7 @@ class SlidePreviewPanel(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, i)
 
             if is_mapped:
-                item.setBackground(QColor("#2a3a4f"))
+                item.setBackground(QColor("#1e2d4a"))
 
             self._list.addItem(item)
 
@@ -437,7 +437,7 @@ class SlidePreviewPanel(QWidget):
 
         menu = QMenu(self)
 
-        unlink_action = menu.addAction("🔗 매핑 해제")
+        unlink_action = menu.addAction("매핑 해제")
         unlink_action.triggered.connect(
             lambda: self.slide_unlink_all_requested.emit(index)
         )
