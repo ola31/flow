@@ -354,7 +354,7 @@ class SlidePreviewPanel(QWidget):
             is_mapped = idx in mapped_indices
             label = f"Slide {idx + 1}"
             if is_mapped:
-                label += "  ·  매핑됨"
+                label += " ●"
 
             # 텍스트와 배경색만 변경 (아이콘 유지)
             if item.text() != label:
@@ -395,7 +395,7 @@ class SlidePreviewPanel(QWidget):
             is_mapped = i in mapped_indices
             label = f"Slide {i + 1}"
             if is_mapped:
-                label += "  ·  매핑됨"
+                label += " ●"
 
             item = QListWidgetItem(label)
             scaled_pixmap = pixmap.scaled(

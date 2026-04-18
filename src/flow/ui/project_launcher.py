@@ -182,13 +182,6 @@ class _Panel(QFrame):
         root.setContentsMargins(SP_XL, SP_XL, SP_XL, SP_XL)
         root.setSpacing(0)
 
-        # 아이콘 (큰 사이즈)
-        if icon_name:
-            from flow.ui.icons import icon_label as _icon_label
-            ic = _icon_label(icon_name, 36, ACCENT)
-            root.addWidget(ic)
-            root.addSpacing(SP_MD)
-
         # 제목
         lbl_title = QLabel(title)
         lbl_title.setStyleSheet(
