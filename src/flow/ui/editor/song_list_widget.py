@@ -12,11 +12,13 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal, QEvent, QPoint
 from PySide6.QtGui import QAction, QColor, QFont
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QMenu,
     QMessageBox,
     QPushButton,
@@ -58,6 +60,297 @@ def _song_status(song: Song) -> dict:
         "total_hotspots": total_hs,
         "mapped_hotspots": mapped_hs,
     }
+
+
+def _scan_library_song(song_dir: Path) -> dict:
+    """라이브러리의 곡 폴더를 스캔해 상태 정보 반환."""
+    result = {"name": song_dir.name, "path": song_dir}
+
+    # 악보 이미지 확인
+    sheet_count = 0
+    for sub in ("sheets", "sheet"):
+        d = song_dir / sub
+        if d.is_dir():
+            sheet_count += sum(
+                1 for f in d.iterdir()
+                if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}
+            )
+    result["sheet_count"] = sheet_count
+
+    # PPT 확인
+    result["has_ppt"] = (song_dir / "slides.pptx").exists()
+
+    # song.json에서 핫스팟 수 확인
+    total_hs, mapped_hs = 0, 0
+    song_json = song_dir / "song.json"
+    if song_json.exists():
+        try:
+            with open(song_json, encoding="utf-8-sig") as f:
+                data = json.load(f)
+            for sheet_data in data.get("sheets", []):
+                for h in sheet_data.get("hotspots", []):
+                    total_hs += 1
+                    if h.get("slide_mappings") or h.get("slide_index", -1) >= 0:
+                        mapped_hs += 1
+        except Exception:
+            pass
+    result["total_hotspots"] = total_hs
+    result["mapped_hotspots"] = mapped_hs
+    return result
+
+
+class _LibrarySongCard(QFrame):
+    """라이브러리 다이얼로그 안의 곡 카드."""
+
+    add_clicked = Signal(str)  # song name
+
+    def __init__(self, info: dict, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("LibSongCard")
+        self._name = info["name"]
+        self._setup_ui(info)
+
+    def _setup_ui(self, info: dict) -> None:
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet("""
+            QFrame#LibSongCard {
+                background: #222;
+                border: 1px solid #2e2e2e;
+                border-radius: 8px;
+            }
+            QFrame#LibSongCard:hover {
+                background: #282828;
+                border: 1px solid #444;
+            }
+        """)
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(12, 10, 12, 10)
+        root.setSpacing(12)
+
+        # 왼쪽: 이름 + 상태
+        left = QVBoxLayout()
+        left.setSpacing(4)
+
+        name_lbl = QLabel(info["name"])
+        name_lbl.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #eee; background: transparent;"
+        )
+        left.addWidget(name_lbl)
+
+        status_row = QHBoxLayout()
+        status_row.setSpacing(10)
+
+        # 악보
+        sc = info["sheet_count"]
+        if sc > 0:
+            s_lbl = QLabel(f"🖼 악보 {sc}장")
+            s_lbl.setStyleSheet("font-size: 11px; color: #4caf50; background: transparent;")
+        else:
+            s_lbl = QLabel("🖼 악보 없음")
+            s_lbl.setStyleSheet("font-size: 11px; color: #888; background: transparent;")
+        status_row.addWidget(s_lbl)
+
+        # PPT
+        if info["has_ppt"]:
+            p_lbl = QLabel("📊 PPT")
+            p_lbl.setStyleSheet("font-size: 11px; color: #4caf50; background: transparent;")
+        else:
+            p_lbl = QLabel("📊 PPT 없음")
+            p_lbl.setStyleSheet("font-size: 11px; color: #888; background: transparent;")
+        status_row.addWidget(p_lbl)
+
+        # 매핑
+        total, mapped = info["total_hotspots"], info["mapped_hotspots"]
+        if total > 0:
+            m_lbl = QLabel(f"🔵 {mapped}/{total}")
+            color = "#4caf50" if mapped == total else "#ff9800"
+            m_lbl.setStyleSheet(f"font-size: 11px; color: {color}; background: transparent;")
+            status_row.addWidget(m_lbl)
+
+        status_row.addStretch()
+        left.addLayout(status_row)
+        root.addLayout(left, 1)
+
+        # 오른쪽: 추가 버튼
+        btn = QPushButton("추가")
+        btn.setFixedHeight(30)
+        btn.setMinimumWidth(56)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn.setStyleSheet("""
+            QPushButton {
+                background: #2196f3; color: #fff;
+                border: none; border-radius: 6px;
+                font-size: 12px; font-weight: bold; padding: 0 14px;
+            }
+            QPushButton:hover { background: #1e88e5; }
+        """)
+        btn.clicked.connect(lambda: self.add_clicked.emit(self._name))
+        root.addWidget(btn)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.add_clicked.emit(self._name)
+        super().mousePressEvent(event)
+
+
+class SongLibraryDialog(QDialog):
+    """곡 라이브러리 브라우저 다이얼로그."""
+
+    song_chosen = Signal(str)  # 선택된 곡 이름
+
+    def __init__(self, songs_dir: Path, included_names: set[str], parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("곡 라이브러리")
+        self.setMinimumSize(480, 400)
+        self.resize(520, 500)
+        self._songs_dir = songs_dir
+        self._included = included_names
+        self._all_infos: list[dict] = []
+        self._cards: list[_LibrarySongCard] = []
+        self._setup_ui()
+        self._scan()
+
+    def _setup_ui(self) -> None:
+        self.setStyleSheet("""
+            QDialog {
+                background: #1a1a1a; color: #ddd;
+                border: 1px solid #333;
+            }
+        """)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
+
+        # 헤더
+        header = QLabel("곡 라이브러리")
+        header.setStyleSheet(
+            "font-size: 18px; font-weight: 900; color: #2196f3;"
+        )
+        root.addWidget(header)
+
+        sub = QLabel("셋리스트에 추가할 곡을 선택하세요")
+        sub.setStyleSheet("font-size: 12px; color: #666;")
+        root.addWidget(sub)
+
+        # 검색
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("🔍  곡 이름 검색...")
+        self._search.setFixedHeight(34)
+        self._search.setStyleSheet("""
+            QLineEdit {
+                background: #252525; color: #ddd;
+                border: 1px solid #333; border-radius: 6px;
+                padding: 0 10px; font-size: 12px;
+            }
+            QLineEdit:focus { border-color: #2196f3; }
+        """)
+        self._search.textChanged.connect(self._filter)
+        root.addWidget(self._search)
+
+        # 카드 스크롤 영역
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setStyleSheet("""
+            QScrollArea { background: transparent; border: none; }
+            QScrollBar:vertical {
+                border: none; background: transparent; width: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background: #444; border-radius: 3px; min-height: 20px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+        """)
+
+        self._list_widget = QWidget()
+        self._list_widget.setStyleSheet("background: transparent;")
+        self._list_layout = QVBoxLayout(self._list_widget)
+        self._list_layout.setContentsMargins(0, 0, 0, 0)
+        self._list_layout.setSpacing(6)
+        self._list_layout.addStretch()
+
+        self._scroll.setWidget(self._list_widget)
+        root.addWidget(self._scroll, 1)
+
+        # 빈 상태 라벨
+        self._empty_label = QLabel()
+        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_label.setStyleSheet("font-size: 12px; color: #555; padding: 20px;")
+        self._empty_label.hide()
+        root.addWidget(self._empty_label)
+
+        # 하단 닫기
+        btn_close = QPushButton("닫기")
+        btn_close.setFixedHeight(34)
+        btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_close.setStyleSheet("""
+            QPushButton {
+                background: #2a2a2a; color: #aaa;
+                border: 1px solid #333; border-radius: 6px;
+                font-size: 12px; padding: 0 20px;
+            }
+            QPushButton:hover { background: #333; color: #ddd; }
+        """)
+        btn_close.clicked.connect(self.close)
+        root.addWidget(btn_close)
+
+    def _scan(self) -> None:
+        """songs 폴더를 스캔해 사용 가능한 곡 정보 로드."""
+        self._all_infos.clear()
+        if not self._songs_dir.exists():
+            self._show_empty("곡 폴더가 아직 없습니다")
+            return
+
+        for folder in sorted(self._songs_dir.iterdir()):
+            if folder.is_dir() and (folder / "song.json").exists():
+                if folder.name not in self._included:
+                    self._all_infos.append(_scan_library_song(folder))
+
+        self._render(self._all_infos)
+
+    def _filter(self, query: str) -> None:
+        q = query.strip().lower()
+        if not q:
+            self._render(self._all_infos)
+            return
+        filtered = [info for info in self._all_infos if q in info["name"].lower()]
+        self._render(filtered)
+
+    def _render(self, infos: list[dict]) -> None:
+        for card in self._cards:
+            self._list_layout.removeWidget(card)
+            card.deleteLater()
+        self._cards.clear()
+
+        if not infos:
+            if self._all_infos:
+                self._show_empty("검색 결과가 없습니다")
+            else:
+                self._show_empty("추가 가능한 곡이 없습니다\n새 곡을 먼저 만들어 주세요")
+            return
+
+        self._empty_label.hide()
+        self._scroll.show()
+
+        for info in infos:
+            card = _LibrarySongCard(info)
+            card.add_clicked.connect(self._on_song_added)
+            self._cards.append(card)
+            self._list_layout.insertWidget(self._list_layout.count() - 1, card)
+
+    def _show_empty(self, text: str) -> None:
+        self._empty_label.setText(text)
+        self._empty_label.show()
+
+    def _on_song_added(self, name: str) -> None:
+        self.song_chosen.emit(name)
+        # 추가된 곡의 카드를 즉시 제거 (이미 셋리스트에 들어감)
+        self._included.add(name)
+        self._all_infos = [i for i in self._all_infos if i["name"] != name]
+        self._filter(self._search.text())
 
 
 # ─── 시트 탭 버튼 ───────────────────────────────────────────────────────────
@@ -829,7 +1122,7 @@ class SongListWidget(QWidget):
         return self._main_window._project_path.parent
 
     def _on_add_clicked(self) -> None:
-        """라이브러리에서 곡 추가 — 사용 가능한 곡 목록 메뉴."""
+        """라이브러리 브라우저 다이얼로그를 열어 곡 추가."""
         if not self._project or not self._main_window:
             return
 
@@ -839,38 +1132,10 @@ class SongListWidget(QWidget):
             songs_dir.mkdir(parents=True, exist_ok=True)
 
         included = {s.name for s in self._project.selected_songs}
-        available = [
-            f.name
-            for f in sorted(songs_dir.iterdir())
-            if f.is_dir() and (f / "song.json").exists() and f.name not in included
-        ]
 
-        menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background: #252525; color: #ccc;
-                border: 1px solid #3a3a3a; border-radius: 6px;
-                padding: 4px 0;
-            }
-            QMenu::item { padding: 8px 20px; font-size: 12px; }
-            QMenu::item:selected { background: #333; color: #fff; }
-            QMenu::item:disabled { color: #555; }
-            QMenu::separator { height: 1px; background: #3a3a3a; margin: 4px 8px; }
-        """)
-
-        if available:
-            title = menu.addAction("라이브러리")
-            title.setEnabled(False)
-            for name in available:
-                act = menu.addAction(f"  {name}")
-                act.triggered.connect(
-                    lambda checked, n=name: self._add_existing_song(n)
-                )
-        else:
-            empty = menu.addAction("추가 가능한 곡이 없습니다")
-            empty.setEnabled(False)
-
-        menu.exec(self._btn_add_lib.mapToGlobal(QPoint(0, -menu.sizeHint().height())))
+        dlg = SongLibraryDialog(songs_dir, included, self)
+        dlg.song_chosen.connect(self._add_existing_song)
+        dlg.exec()
 
     def _add_existing_song(self, name: str) -> None:
         if not self._project or not self._main_window:
