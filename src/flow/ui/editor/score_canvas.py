@@ -93,6 +93,8 @@ class ScoreCanvas(QWidget):
         self._is_dragging = False
         self._drag_hotspot_id = None
 
+        self._mouse_pos: QPoint | None = None  # 위젯 좌표 (고스트용)
+
         self._pixmap_cache = {}
 
     def is_hotspot_editable(self, hotspot: Hotspot, verse_index: int) -> bool:
@@ -257,11 +259,69 @@ class ScoreCanvas(QWidget):
         # 핫스팟 그리기
         self._draw_hotspots(painter)
 
+        # 빈 상태 안내 (핫스팟 없을 때)
+        if (
+            self._score_sheet
+            and self._edit_mode
+            and self._hotspot_editable
+            and not self._score_sheet.hotspots
+        ):
+            self._draw_empty_hint(painter)
+
+        # 고스트 핫스팟 (마우스 따라다니는 미리보기)
+        if (
+            self._score_sheet
+            and self._edit_mode
+            and self._hotspot_editable
+            and self._mouse_pos
+            and not self._is_dragging
+        ):
+            self._draw_ghost_hotspot(painter)
+
     def _draw_placeholder(self, painter: QPainter, text: str) -> None:
         """플레이스홀더 텍스트 그리기"""
         painter.setPen(QColor(150, 150, 150))
         painter.setFont(self._font_placeholder)
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, text)
+
+    def _draw_empty_hint(self, painter: QPainter) -> None:
+        """핫스팟이 없을 때 '클릭해서 추가' 안내 오버레이"""
+        painter.save()
+        painter.setPen(QColor(255, 255, 255, 60))
+        f = QFont("Malgun Gothic")
+        f.setPixelSize(16)
+        painter.setFont(f)
+        painter.drawText(
+            self.rect(),
+            Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter,
+            "클릭해서 핫스팟 추가  |  Tab: 이동  |  Delete: 삭제",
+        )
+        painter.restore()
+
+    def _draw_ghost_hotspot(self, painter: QPainter) -> None:
+        """마우스 커서 위치에 반투명 핫스팟 미리보기"""
+        if not self._mouse_pos:
+            return
+
+        pos = self._mouse_pos
+
+        # 이미지 영역 밖이면 그리지 않음
+        img_coords = self._widget_to_image_coords(pos.x(), pos.y())
+        if not img_coords:
+            return
+
+        # 기존 핫스팟에 가까우면 고스트 숨김
+        if self._find_hotspot_at(pos) is not None:
+            return
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        ghost_color = QColor(*HOTSPOT_DEFAULT_FILL[:3], 70)  # 더 연하게
+        painter.setBrush(ghost_color)
+        ghost_pen = QPen(QColor(*HOTSPOT_UNMAPPED_BORDER[:3], 120), 1, Qt.PenStyle.DashLine)
+        painter.setPen(ghost_pen)
+        painter.drawEllipse(pos, self.HOTSPOT_RADIUS, self.HOTSPOT_RADIUS)
+        painter.restore()
 
     def _draw_hotspots(self, painter: QPainter) -> None:
         """핫스팟들 그리기"""
@@ -549,11 +609,28 @@ class ScoreCanvas(QWidget):
                 if slide_idx >= 0:
                     tip += f"  →  슬라이드 {slide_idx + 1}"
                 self.setToolTip(tip)
+            elif (
+                self._edit_mode
+                and self._hotspot_editable
+                and self._score_sheet
+                and self._widget_to_image_coords(pos.x(), pos.y())
+            ):
+                self.setCursor(Qt.CursorShape.CrossCursor)
+                self.setToolTip("클릭해서 핫스팟 추가")
             else:
                 self.setCursor(Qt.CursorShape.ArrowCursor)
                 self.setToolTip("")
 
+        # 고스트 핫스팟 갱신
+        self._mouse_pos = pos
+        self.update()
+
         super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._mouse_pos = None
+        self.update()
+        super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """마우스 뗌 (드래그 종료)"""
