@@ -162,7 +162,6 @@ class SlidePreviewPanel(QWidget):
             }
         """)
         self._list.itemDoubleClicked.connect(self._on_item_double_clicked)
-        self._list.itemClicked.connect(self._on_item_clicked)
         self._list.currentItemChanged.connect(self._on_current_item_changed)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._show_context_menu)
@@ -409,17 +408,9 @@ class SlidePreviewPanel(QWidget):
     def _on_current_item_changed(
         self, current: QListWidgetItem, previous: QListWidgetItem
     ) -> None:
-        """방향키 등을 통한 선택 변경 대응"""
         if current:
             index = current.data(Qt.ItemDataRole.UserRole)
             self.slide_selected.emit(index)
-
-    def _on_item_clicked(self, item: QListWidgetItem) -> None:
-        index = item.data(Qt.ItemDataRole.UserRole)
-        self.slide_selected.emit(index)
-        # 아이템 클릭 후에는 화살표 키가 가사 탐색으로 가기 쉽도록 포커스 제어 고려 가능
-        # (하지만 사용자가 명시적으로 화살표로 슬라이드를 이동하고 싶을 수도 있으므로
-        #  여기서는 강제로 뺏지는 않고 MainWindow에서 분기 처리)
 
     def _on_item_double_clicked(self, item: QListWidgetItem) -> None:
         index = item.data(Qt.ItemDataRole.UserRole)

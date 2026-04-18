@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QAction, QKeySequence, QPixmap, QUndoStack
 from PySide6 import QtGui
-from PySide6.QtCore import Qt, QTimer, QEvent
+from PySide6.QtCore import Qt, QEvent
 from flow.ui.undo_commands import (
     AddHotspotCommand,
     RemoveHotspotCommand,
@@ -87,12 +87,6 @@ class MainWindow(QMainWindow):
         self._undo_stack = QUndoStack(self)
         self._undo_stack.setUndoLimit(100)
         self._undo_stack.cleanChanged.connect(self._on_undo_stack_clean_changed)
-
-        # 슬라이드 클릭/더블클릭 구분용 타이머
-        self._slide_click_timer = QTimer(self)
-        self._slide_click_timer.setSingleShot(True)
-        self._slide_click_timer.timeout.connect(self._execute_slide_navigation)
-        self._pending_slide_index = -1
 
         self._is_dirty = False
         self._in_transition = False
@@ -1674,90 +1668,15 @@ class MainWindow(QMainWindow):
         self._slide_manager.reload_song(song)
 
     def _on_slide_selected(self, index: int) -> None:
-        """상단 슬라이드 목록에서 슬라이드 클릭 시 핸들러 - 타이머로 더블클릭 대기"""
+        """슬라이드 선택 시 즉시 미리보기 업데이트"""
         if not self._project:
             return
-
-        self._pending_slide_index = index
-        # 더블클릭 속도(보통 200~300ms)만큼 대기 후 내비게이션 실행
-        self._slide_click_timer.start(250)
-
-    def _execute_slide_navigation(self) -> None:
-        """지연된 슬라이드 내비게이션 실행 (싱글클릭일 때만 실행됨)"""
-        if not self._project or self._pending_slide_index < 0:
-            return
-
-        index = self._pending_slide_index
-        self._pending_slide_index = -1
-
-        # 역방향 검색: 이 슬라이드가 매핑된 곡과 핫스팟 찾기
-        found_sheet = None
-        found_hotspot = None
-
-        # 1. 모든 곡(ScoreSheet) 탐색
-        for sheet in self._project.all_score_sheets:
-            for hotspot in sheet.hotspots:
-                # 모든 절 매핑을 검사
-                for v_idx_str, s_idx in hotspot.slide_mappings.items():
-                    if s_idx == index:
-                        found_sheet = sheet
-                        found_hotspot = hotspot
-                        # 찾은 경우 해당 절로 전환 시도
-                        v_idx = int(v_idx_str)
-                        if self._project.current_verse_index != v_idx:
-                            self._on_verse_changed(v_idx)
-                            self._verse_selector.set_current_verse(v_idx)
-                        break
-                if found_sheet:
-                    break
-            if found_sheet:
-                break
-
-        # 2. 결과에 따른 처리
-        if found_sheet and found_hotspot:
-            # 매핑된 항목이 있으면 해당 곡으로 전환하고 핫스팟 선택
-            # 버그 수정: 캔버스가 비어있을 수 있으므로 항상 또는 조건부로 강제 설정
-            if self._canvas._score_sheet != found_sheet:
-                self._on_song_selected(found_sheet)
-
-                # 곡 목록 UI 동기화
-                # 트리/리스트 내에서 정확한 시트 선택
-                self._song_list.select_sheet_by_id(found_sheet.id)
-
-            # 핫스팟 선택 및 프리뷰 갱신
-            self._canvas.select_hotspot(found_hotspot.id)
-
-            # (수정: 모드와 무관하게 항상 LiveController의 Preview를 업데이트하여 송출 대기)
-            self._live_controller.set_preview(found_hotspot)
-            self._update_preview(found_hotspot)
-
-            self.statusBar().showMessage(
-                f"탐색: 슬라이드 {index + 1} - '{found_sheet.name}'", 2000
-            )
-        else:
-            # 대응되는 핫스팟이 없으면 악보 영역 초기화 여부 결정
-            # (수정: 현재 핫스팟이 선택되어 있다면 매핑 시도로 보고 악보를 지우지 않음)
-            if not self._canvas.get_selected_hotspot():
-                self._canvas.set_score_sheet(None)
-                self._song_list.clear_selection()  # 곡 목록 선택도 해제
-                msg = f"미리보기: 슬라이드 {index + 1} (매칭 없음 - 악보 가림)"
-            else:
-                msg = f"미리보기: 슬라이드 {index + 1} (매칭 없음 - 매핑 대기 중)"
-
-            # 라이브 컨트롤러에도 알려서 Enter 입력 시 송출 가능하게 함
-            # (수정: 대기 상태 유지를 위해 편집/라이브 모드와 관계없이 항상 설정)
-            self._live_controller.set_preview_slide(index)
-
-            # 매칭된 항목이 없으면 단순히 프리뷰 이미지만 갱신 (매핑하지 않음)
-            self._update_preview_with_index(index)
-            self.statusBar().showMessage(msg, 2000)
+        self._live_controller.set_preview_slide(index)
+        self._update_preview_with_index(index)
 
     def _on_slide_double_clicked(self, index: int) -> None:
         if not self._project:
             return
-
-        self._slide_click_timer.stop()
-        self._pending_slide_index = -1
 
         if self._is_live or not self._is_standalone:
             return
@@ -2072,10 +1991,6 @@ class MainWindow(QMainWindow):
         focused = self.focusWidget()
 
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            if self._pending_slide_index >= 0:
-                self._slide_click_timer.stop()
-                self._execute_slide_navigation()
-
             if self._is_live or not isinstance(
                 focused, (QLineEdit, QTextEdit, QPlainTextEdit)
             ):
