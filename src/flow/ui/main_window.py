@@ -2044,7 +2044,7 @@ class MainWindow(QMainWindow):
             # [수정] 뷰포트가 아닌 위젯 본체만 감시하여 이벤트 흐름 단일화 (중복 호출 차단)
             is_slide_list = watched == self._slide_preview._list
             is_song_tree = (
-                hasattr(self, "_song_list") and watched == self._song_list._tree
+                hasattr(self, "_song_list") and watched == self._song_list._scroll
             )
 
             if is_slide_list or is_song_tree:
