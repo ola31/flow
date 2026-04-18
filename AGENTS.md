@@ -2,11 +2,15 @@
 
 ## Project Overview
 
-**Flow** is a desktop slide broadcasting system for worship/presentation contexts.  
+**Flow** is a desktop slide broadcasting system for worship/presentation contexts.
 Maps hotspots on score sheet images to PPT slides for one-click live broadcasting.
 
-**Core Stack**: Python 3.10+, PySide6 (Qt), python-pptx, PyInstaller  
+**Core Stack**: Python 3.10+, PySide6 (Qt Widgets), python-pptx, PyInstaller
 **Architecture**: Domain → Services → UI (layered)
+
+**Two-tier structure**:
+- **Song** — reusable unit: score sheet images + PPT + hotspot mappings
+- **Project** — setlist: ordered collection of songs for one worship session
 
 ---
 
@@ -21,29 +25,16 @@ flow
 # or: python -m flow.main
 
 # === TESTING ===
-# Run all tests
-pytest
-
-# Run single test file
-pytest tests/domain/test_hotspot.py
-
-# Run single test class
-pytest tests/domain/test_hotspot.py::TestHotspotCreation
-
-# Run single test method
-pytest tests/domain/test_hotspot.py::TestHotspotCreation::test_create_hotspot_with_coordinates
-
-# Run with coverage
-pytest --cov=flow --cov-report=term-missing
-
-# Run tests matching pattern
-pytest -k "test_preview"
+pytest                                    # All tests
+pytest tests/domain/test_hotspot.py       # Single file
+pytest tests/domain/test_hotspot.py::TestHotspotCreation::test_create_hotspot_with_coordinates  # Single test
+pytest --cov=flow --cov-report=term-missing  # With coverage
 
 # === LINTING ===
-ruff check src/ tests/           # Lint
-ruff check --fix src/ tests/     # Auto-fix
-black src/ tests/                 # Format
-mypy src/                         # Type check
+ruff check src/ tests/
+ruff check --fix src/ tests/
+black src/ tests/
+mypy src/
 
 # === BUILD ===
 pyinstaller Flow.spec --noconfirm
@@ -60,8 +51,14 @@ src/flow/
 ├── services/         # Business logic
 │   ├── config_service.py, slide_manager.py, slide_converter.py
 ├── repository/       # Data persistence
+├── resources/        # Bundled assets (icon font)
 └── ui/               # PySide6 UI layer
-    ├── editor/, live/, display/
+    ├── styles.py     # Design tokens (colors, spacing, typography)
+    ├── icons.py      # Material Symbols icon helper
+    ├── screens/      # Home screen, project screen
+    ├── editor/       # Score canvas, song list, mapping panel, verse selector
+    ├── live/         # Live controller
+    └── display/      # Display window (fullscreen output)
 
 tests/
 ├── conftest.py       # Shared fixtures (headless Qt: --platform offscreen)
@@ -70,86 +67,67 @@ tests/
 
 ---
 
+## Design System
+
+### Color Palette (defined in `styles.py`)
+
+All colors must be referenced from `styles.py` tokens. Never hardcode hex values.
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `BG_DEEP` | `#121212` | Window background |
+| `BG_SURFACE` | `#1a1a1a` | Panel/sidebar background |
+| `BG_ELEVATED` | `#222222` | Cards, elevated surfaces |
+| `BG_HOVER` | `#2a2a2a` | Hover state |
+| `BORDER` | `#2e2e2e` | Default border |
+| `TEXT_PRIMARY` | `#e8e8e8` | Body text, titles |
+| `TEXT_SECONDARY` | `#a0a0a0` | Supporting text |
+| `TEXT_TERTIARY` | `#606060` | Disabled, hints |
+| `ACCENT` | `#5b8def` | Selection, CTA, links |
+| `GREEN` | `#34d399` | Success, mapped |
+| `AMBER` | `#f59e0b` | Warning, incomplete |
+| `RED` | `#ef4444` | Live mode, danger |
+
+### Typography
+- Font weights: 300 (light, titles), 500 (medium, body/buttons), 600 (semibold, section headers)
+- **Never use `font-weight: bold` or `900`** — causes smudgy text at small sizes
+- Sizes defined as tokens: `FONT_SM`(11), `FONT_MD`(12), `FONT_LG`(13), `FONT_XL`(14), `FONT_2XL`(18)
+
+### Icons
+- Material Symbols Rounded (subset, 66KB TTF in `resources/`)
+- Use `icons.py`: `icon_qicon("home")` for QAction, `icon_label("save")` for QLabel
+- Render via `icon_pixmap()` / `icon_qicon()` for toolbar buttons
+
+### Spacing (8px base)
+- `SP_XS`(4), `SP_SM`(8), `SP_MD`(12), `SP_LG`(16), `SP_XL`(24), `SP_2XL`(32)
+
+### Visual Depth
+- Use background color difference, not borders, to separate regions
+- `QGraphicsDropShadowEffect` for floating panels (blur 24-32, offset 4-6)
+- Selected state: left accent bar (3px) instead of full border
+
+---
+
 ## Code Style Guidelines
 
-### Imports (order: stdlib → third-party → local)
+### Imports
 ```python
 from __future__ import annotations  # ALWAYS first
-import uuid
-from dataclasses import dataclass, field
-from PySide6.QtCore import QObject, Signal
-from flow.domain.hotspot import Hotspot
 ```
 
 ### Type Hints (Python 3.10+ syntax)
 ```python
 def get_slide_index(self, verse_index: int = 0) -> int: ...
-def __init__(self, parent: QObject | None = None) -> None: ...
-slide_mappings: dict[str, int] = field(default_factory=dict)  # Not Dict[]
-```
-
-### Naming Conventions
-
-| Element | Convention | Example |
-|---------|------------|---------|
-| Classes | PascalCase | `LiveController`, `ScoreSheet` |
-| Functions/methods | snake_case | `get_slide_index`, `send_to_live` |
-| Private members | `_prefix` | `self._preview_hotspot` |
-| Qt Signals | snake_case | `preview_changed`, `load_finished` |
-| Test classes/methods | `Test*` / `test_*` | `TestHotspotCreation`, `test_create_hotspot` |
-
-### Dataclasses (Domain Models)
-```python
-@dataclass
-class Hotspot:
-    x: int
-    y: int
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    
-    def to_dict(self) -> dict[str, Any]: ...      # JSON serialization
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Hotspot: ...
+slide_mappings: dict[str, int] = field(default_factory=dict)
 ```
 
 ### Qt/PySide6 Patterns
 ```python
 class LiveController(QObject):
     preview_changed = Signal(str)  # Signals as class attributes
-    
+
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
-        self._preview_hotspot: Hotspot | None = None
-```
-
-### Error Handling
-```python
-class SlideLoadError(Exception):
-    """PPTX load failure"""
-
-try:
-    prs = Presentation(str(path))
-except PackageNotFoundError:
-    raise SlideLoadError(f"Invalid PPTX format: {path}")
-```
-
----
-
-## Testing Guidelines
-
-### SignalSpy Pattern (for Qt signals)
-```python
-class SignalSpy:
-    def __init__(self, signal):
-        self.called = False
-        self.args = None
-        signal.connect(self.callback)
-    def callback(self, *args):
-        self.called = True
-        self.args = args
-
-spy = SignalSpy(controller.preview_changed)
-controller.set_preview(hotspot)
-assert spy.called and spy.args[0] == "Expected"
 ```
 
 ---
@@ -162,24 +140,29 @@ assert spy.called and spy.args[0] == "Expected"
 
 ### Navigation Flow
 - **Up/Down**: Move through hotspots (Preview only, NOT Live)
-- **Enter**: Confirm Preview → Live
+- **Enter/Space**: Confirm Preview → Live
 - **Left/Right**: Switch songs (ScoreSheets)
-- **Number keys 1-6**: Change verse, triggers `sync_live()`
+- **Number keys 1-5, C**: Change verse
+- **B**: Blackout (live mode)
+- **Esc**: Exit live mode (with confirmation)
+- **Tab/Shift+Tab**: Cycle hotspots within current verse layer
 
-### Path Handling
-```python
-path_str = Path(path).as_posix()  # CORRECT: forward slashes for JSON
-# NOT: str(Path(path))  # WRONG: backslashes on Windows
-```
+### UI Modes
+- **Edit mode** (default): hotspot creation/editing, mapping panel visible
+- **Song edit mode**: standalone single-song editing, yellow accent toolbar
+- **Live mode** (F5): red accent, PIP panel, keyboard hint bar, editing locked
 
 ---
 
 ## Anti-Patterns to Avoid
 
-| ❌ Don't | ✅ Do Instead |
-|----------|---------------|
+| Don't | Do Instead |
+|-------|------------|
 | Connect both `currentItemChanged` + `itemClicked` | Use only `currentItemChanged` |
-| Hardcode styles in widgets | Centralize in `MainWindow` stylesheet |
-| Mutate domain directly (`hotspot.x = 10`) | Use `undo_commands` for undo/redo chain |
+| Hardcode color values in widgets | Import tokens from `styles.py` |
+| Use `font-weight: bold` or `900` | Use `500` (medium) or `600` (semibold) |
+| Use emoji in UI text | Use Material Symbols via `icons.py` |
+| Mutate domain directly | Use `undo_commands` for undo/redo chain |
 | Block UI thread with PPT conversion | Use `QThread` worker pattern |
-| Edit during live mode | Guard with `if self._is_live_mode: return` |
+| Edit during live mode | Guard with `if self._is_live: return` |
+| Use `setBackground()` on QListWidget items | Stylesheet overrides it; use `setForeground()` |
