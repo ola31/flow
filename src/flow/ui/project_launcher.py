@@ -109,15 +109,15 @@ class _RecentCard(QFrame):
         top.setSpacing(SP_SM)
         name_lbl = QLabel(title)
         name_lbl.setStyleSheet(
-            f"font-size: {FONT_LG}px; font-weight: bold; color: {TEXT_PRIMARY};"
+            f"font-size: {FONT_LG}px; color: {TEXT_PRIMARY};"
         )
         top.addWidget(name_lbl, 1)
 
         if badge:
             b = QLabel(badge)
             b.setStyleSheet(
-                f"font-size: 10px; font-weight: bold; color: {badge_color}; "
-                f"background: {BG_SURFACE}; border-radius: 3px; padding: 2px 6px;"
+                f"font-size: 10px; color: {badge_color}; "
+                f"padding: 0 2px;"
             )
             top.addWidget(b)
 
@@ -175,7 +175,7 @@ class _Panel(QFrame):
         # 제목
         lbl_title = QLabel(title)
         lbl_title.setStyleSheet(
-            f"font-size: {FONT_2XL}px; font-weight: 900; color: {TEXT_PRIMARY};"
+            f"font-size: {FONT_2XL}px; font-weight: 600; color: {TEXT_PRIMARY};"
         )
         root.addWidget(lbl_title)
         root.addSpacing(4)
@@ -196,8 +196,8 @@ class _Panel(QFrame):
         # "최근" 레이블
         self._recent_label = QLabel("최근 항목")
         self._recent_label.setStyleSheet(
-            f"font-size: {FONT_SM}px; font-weight: 600; color: {TEXT_TERTIARY}; "
-            "letter-spacing: 1px; text-transform: uppercase;"
+            f"font-size: {FONT_SM}px; color: {TEXT_TERTIARY}; "
+            "letter-spacing: 1px;"
         )
         root.addWidget(self._recent_label)
         root.addSpacing(SP_SM)
@@ -307,8 +307,8 @@ class ProjectLauncher(QWidget):
         title = QLabel("FLOW")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet(
-            f"font-size: 40px; font-weight: 900; color: {ACCENT}; "
-            "letter-spacing: 6px;"
+            f"font-size: 36px; font-weight: 300; color: {ACCENT}; "
+            "letter-spacing: 8px;"
         )
         hdr.addWidget(title)
 

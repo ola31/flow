@@ -143,7 +143,7 @@ class _LibrarySongCard(QFrame):
 
         name_lbl = QLabel(info["name"])
         name_lbl.setStyleSheet(
-            f"font-size: {FONT_XL}px; font-weight: bold; color: {TEXT_PRIMARY}; background: transparent;"
+            f"font-size: {FONT_XL}px; font-weight: 500; color: {TEXT_PRIMARY}; background: transparent;"
         )
         left.addWidget(name_lbl)
 
@@ -239,7 +239,7 @@ class SongLibraryDialog(QDialog):
         # 헤더
         header = QLabel("곡 라이브러리")
         header.setStyleSheet(
-            f"font-size: 18px; font-weight: 900; color: {ACCENT};"
+            f"font-size: 18px; font-weight: 600; color: {ACCENT};"
         )
         root.addWidget(header)
 
@@ -393,7 +393,7 @@ class _SheetTab(QPushButton):
                 QPushButton {{
                     background: {ACCENT}; color: #fff;
                     border: none; border-radius: {RADIUS_SM}px;
-                    font-size: 10px; font-weight: bold; padding: 0 6px;
+                    font-size: 10px; padding: 0 6px;
                 }}
             """)
         else:
@@ -449,13 +449,13 @@ class _SongCard(QFrame):
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._badge.setStyleSheet(
             f"background: {BG_ELEVATED}; color: {TEXT_TERTIARY}; border-radius: 11px; "
-            f"font-size: 10px; font-weight: bold;"
+            f"font-size: 10px;"
         )
         top_row.addWidget(self._badge)
 
         self._name_label = QLabel(self._song.name)
         self._name_label.setStyleSheet(
-            f"font-size: {FONT_LG}px; font-weight: bold; color: {TEXT_PRIMARY}; background: transparent;"
+            f"font-size: {FONT_LG}px; font-weight: 500; color: {TEXT_PRIMARY}; background: transparent;"
         )
         self._name_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
@@ -471,7 +471,7 @@ class _SongCard(QFrame):
         self._btn_edit.setStyleSheet(f"""
             QPushButton {{
                 background: {ACCENT_MUTED}; color: {ACCENT}; border: 1px solid {ACCENT_SURFACE};
-                border-radius: {RADIUS_MD}px; font-size: 10px; font-weight: bold; padding: 0 8px;
+                border-radius: {RADIUS_MD}px; font-size: 10px; padding: 0 8px;
             }}
             QPushButton:hover {{ background: {ACCENT_SURFACE}; }}
         """)
@@ -566,15 +566,15 @@ class _SongCard(QFrame):
         self._current_sheet_id = current_sheet_id
         self._badge.setStyleSheet(
             f"background: {ACCENT}; color: #fff; border-radius: 11px; "
-            "font-size: 10px; font-weight: bold;"
+            "font-size: 10px;"
             if selected else
             f"background: {BG_ELEVATED}; color: {TEXT_TERTIARY}; border-radius: 11px; "
-            "font-size: 10px; font-weight: bold;"
+            "font-size: 10px;"
         )
         self._name_label.setStyleSheet(
-            f"font-size: {FONT_LG}px; font-weight: bold; color: #fff; background: transparent;"
+            f"font-size: {FONT_LG}px; font-weight: 500; color: #fff; background: transparent;"
             if selected else
-            f"font-size: {FONT_LG}px; font-weight: bold; color: {TEXT_PRIMARY}; background: transparent;"
+            f"font-size: {FONT_LG}px; font-weight: 500; color: {TEXT_PRIMARY}; background: transparent;"
         )
         self._refresh_tabs(current_sheet_id)
         self._tabs_container.setVisible(selected and bool(self._sheet_tabs))
@@ -685,7 +685,7 @@ class _StandalonePanel(QWidget):
         # 곡 이름 헤더
         self._song_name = QLabel("—")
         self._song_name.setStyleSheet(
-            f"font-size: {FONT_XL}px; font-weight: 900; color: {ACCENT};"
+            f"font-size: {FONT_XL}px; font-weight: 600; color: {ACCENT};"
         )
         layout.addWidget(self._song_name)
 
@@ -785,10 +785,10 @@ class _PageCard(QFrame):
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setStyleSheet(
             f"background: {ACCENT}; color: {TEXT_INVERSE}; border-radius: 13px; "
-            "font-size: 10px; font-weight: bold;"
+            "font-size: 10px;"
             if active else
             f"background: {BG_ELEVATED}; color: {TEXT_TERTIARY}; border-radius: 13px; "
-            "font-size: 10px; font-weight: bold;"
+            "font-size: 10px;"
         )
         layout.addWidget(badge)
 
@@ -863,7 +863,7 @@ class SongListWidget(QWidget):
 
         self._title_label = QLabel("셋리스트")
         self._title_label.setStyleSheet(
-            f"font-size: {FONT_LG}px; font-weight: 900; color: {ACCENT}; letter-spacing: 0.5px;"
+            f"font-size: {FONT_LG}px; font-weight: 600; color: {ACCENT}; letter-spacing: 0.5px;"
         )
         header_layout.addWidget(self._title_label)
 
@@ -956,13 +956,13 @@ class SongListWidget(QWidget):
         if standalone:
             self._title_label.setText("곡 편집")
             self._title_label.setStyleSheet(
-                f"font-size: {FONT_LG}px; font-weight: 900; color: {ACCENT}; letter-spacing: 0.5px;"
+                f"font-size: {FONT_LG}px; font-weight: 600; color: {ACCENT}; letter-spacing: 0.5px;"
             )
             self._footer.setVisible(False)
         else:
             self._title_label.setText("셋리스트")
             self._title_label.setStyleSheet(
-                f"font-size: {FONT_LG}px; font-weight: 900; color: {ACCENT}; letter-spacing: 0.5px;"
+                f"font-size: {FONT_LG}px; font-weight: 600; color: {ACCENT}; letter-spacing: 0.5px;"
             )
             self._footer.setVisible(True)
 
