@@ -131,6 +131,7 @@ class SlidePreviewPanel(QWidget):
                 padding: 5px;
             }
             QListWidget::item {
+                background-color: transparent;
                 border: 1px solid #2e2e2e;
                 border-radius: 6px;
                 padding: 4px;
@@ -352,13 +353,15 @@ class SlidePreviewPanel(QWidget):
             if is_mapped:
                 label += " ●"
 
-            # 텍스트와 배경색만 변경 (아이콘 유지)
             if item.text() != label:
                 item.setText(label)
 
-            target_color = QColor("#1e2d4a") if is_mapped else QColor("#222222")
-            if item.background().color() != target_color:
-                item.setBackground(target_color)
+            # 텍스트 색상으로 매핑 상태 표시 (stylesheet에 무시 안 됨)
+            mapped_color = QColor("#5b8def")
+            normal_color = QColor("#888888")
+            target = mapped_color if is_mapped else normal_color
+            if item.foreground().color() != target:
+                item.setForeground(target)
 
     def refresh_slides(self) -> None:
         """목록 완전 갱신 (PPT가 바뀌었을 때만 호출 권장)"""
@@ -403,7 +406,8 @@ class SlidePreviewPanel(QWidget):
             item.setIcon(QIcon(scaled_pixmap))
             item.setData(Qt.ItemDataRole.UserRole, i)
 
-            item.setBackground(QColor("#1e2d4a") if is_mapped else QColor("#222222"))
+            if is_mapped:
+                item.setForeground(QColor("#5b8def"))
 
             self._list.addItem(item)
 
