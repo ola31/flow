@@ -247,33 +247,33 @@ class MainWindow(QMainWindow):
 
         # === 모든 액션 생성 (단축키 유지를 위해) ===
         # 파일 액션들 (런처에서만 사용, 툴�에서는 제외)
-        self._new_song_action = QAction("🎵 새 곡", self)
+        self._new_song_action = QAction("새 곡", self)
         self._new_song_action.triggered.connect(self._new_song)
 
-        self._open_action = QAction("📂 열기", self)
+        self._open_action = QAction("열기", self)
         self._open_action.setShortcut(QKeySequence.StandardKey.Open)
         self._open_action.triggered.connect(self._open_project)
 
-        self._save_action = QAction("💾 저장", self)
+        self._save_action = QAction("저장", self)
         self._save_action.setShortcut(QKeySequence.StandardKey.Save)
         self._save_action.triggered.connect(self._save_project)
 
-        self._save_as_action = QAction("💾 다른 이름 저장", self)
+        self._save_as_action = QAction("다른 이름 저장", self)
         self._save_as_action.triggered.connect(self._save_project_as)
 
-        self._close_project_action = QAction("🏠 닫기", self)
+        self._close_project_action = QAction("홈", self)
         self._close_project_action.triggered.connect(self._close_current_project)
 
-        self._back_to_project_action = QAction("⬅️ 프로젝트로 돌아가기", self)
+        self._back_to_project_action = QAction("프로젝트로 돌아가기", self)
         self._back_to_project_action.triggered.connect(self._exit_song_edit_mode)
 
         # 설정
-        self._settings_action = QAction("⚙️ 설정", self)
+        self._settings_action = QAction("설정", self)
         self._settings_action.setToolTip("환경설정")
         self._settings_action.triggered.connect(self._show_settings)
 
         # 슬라이드 목록 토글 (단축키만 유지, 툴�에서는 제외)
-        self._toggle_slide_action = QAction("🖼 슬라이드 목록", self)
+        self._toggle_slide_action = QAction("슬라이드 목록", self)
         self._toggle_slide_action.setCheckable(True)
         self._toggle_slide_action.setChecked(True)
         self._toggle_slide_action.setShortcut("Ctrl+H")
@@ -281,7 +281,7 @@ class MainWindow(QMainWindow):
         self.addAction(self._toggle_slide_action)  # 단축키 유지
 
         # 라이브 모드 (F5 진입, Esc 퇴장)
-        self._live_mode_action = QAction("▶ 라이브 F5", self)
+        self._live_mode_action = QAction("라이브 F5", self)
         self._live_mode_action.setCheckable(True)
         self._live_mode_action.triggered.connect(self._toggle_live_mode)
         self._is_live = False
@@ -291,18 +291,18 @@ class MainWindow(QMainWindow):
         self._exit_live_action.triggered.connect(self._toggle_live_mode)
 
         # 송출
-        self._display_action = QAction("📺 송출 시작", self)
+        self._display_action = QAction("송출 시작", self)
         self._display_action.setShortcut("F11")
         self._display_action.setEnabled(False)
         self._display_action.triggered.connect(self._toggle_display)
 
         # 실행 취소/다시 실행
-        undo_action = self._undo_stack.createUndoAction(self, "↩️ 실행 취소")
+        undo_action = self._undo_stack.createUndoAction(self, "실행 취소")
         undo_action.setShortcut(QKeySequence.Undo)
         self._undo_action = undo_action
         self.addAction(undo_action)
 
-        redo_action = self._undo_stack.createRedoAction(self, "↪️ 다시 실행")
+        redo_action = self._undo_stack.createRedoAction(self, "다시 실행")
         redo_action.setShortcuts([QKeySequence.Redo, QtGui.QKeySequence("Ctrl+Y")])
         self._redo_action = redo_action
         self.addAction(redo_action)
@@ -668,7 +668,7 @@ class MainWindow(QMainWindow):
             self._song_list.set_project(self._project)
 
             self._back_to_project_action.setText(
-                f"⬅️ '{self._parent_project.name}' 프로젝트로 돌아가기"
+                f"'{self._parent_project.name}' 프로젝트로 돌아가기"
             )
             self._update_toolbar_for_mode("song_edit")
 
@@ -1249,12 +1249,12 @@ class MainWindow(QMainWindow):
             # [중요] 송출창이 열린 후 현재 라이브 상태를 즉시 동기화
             self._live_controller.sync_live()
 
-            self._display_action.setText("⏹ 송출 중지")
+            self._display_action.setText("송출 중지")
             self._statusbar.showMessage("송출이 시작되었습니다 (F11로 중지)")
 
     def _on_display_closed(self) -> None:
         """송출창이 닫혔을 때 (ESC로 닫거나 버튼으로 닫혔을 때 공통)"""
-        self._display_action.setText("📺 송출 시작")
+        self._display_action.setText("송출 시작")
         self._statusbar.showMessage("송출이 중지되었습니다")
 
     def _set_project_editable(self, editable: bool) -> None:
@@ -1336,7 +1336,7 @@ class MainWindow(QMainWindow):
     def _on_ppt_load_started(self) -> None:
         if self._in_transition or self._slide_manager.signalsBlocked():
             return
-        self._statusbar.showMessage("📽 PPT 변환 중... 잠시만 기다려주세요.", 0)
+        self._statusbar.showMessage("PPT 변환 중... 잠시만 기다려주세요.", 0)
         self._slide_preview.show_loading()
 
     def _on_ppt_load_progress(self, current: int, total: int, engine_name: str) -> None:
@@ -1344,13 +1344,13 @@ class MainWindow(QMainWindow):
             return
         self._slide_preview.update_progress(current, total, engine_name)
         self._statusbar.showMessage(
-            f"📽 이미지 생성 중... ({current}/{total}) - 엔진: {engine_name}", 0
+            f"이미지 생성 중... ({current}/{total}) — {engine_name}", 0
         )
 
     def _on_ppt_load_status(self, status: str) -> None:
         if self._in_transition or self._slide_manager.signalsBlocked():
             return
-        self._statusbar.showMessage(f"📽 {status}", 0)
+        self._statusbar.showMessage(f"{status}", 0)
 
     def _on_ppt_load_finished(self, count: int) -> None:
         if self._in_transition or self._slide_manager.signalsBlocked():
@@ -1360,12 +1360,12 @@ class MainWindow(QMainWindow):
         self._canvas.popover.set_slide_source(
             count, self._slide_manager.get_slide_image
         )
-        self._statusbar.showMessage(f"✅ PPT 로드 완료 ({count} 슬라이드)", 3000)
+        self._statusbar.showMessage(f"PPT 로드 완료 ({count} 슬라이드)", 3000)
 
     def _on_songs_metadata_started(self) -> None:
         if self._in_transition or self._slide_manager.signalsBlocked():
             return
-        self._statusbar.showMessage("📽 곡 정보를 불러오는 중...", 0)
+        self._statusbar.showMessage("곡 정보를 불러오는 중...", 0)
         self._slide_preview.show_loading("곡 정보를 불러오는 중...")
 
     def _on_songs_metadata_finished(self, total_slides: int) -> None:
@@ -1373,7 +1373,7 @@ class MainWindow(QMainWindow):
             return
         self._slide_preview.hide_loading()
         self._statusbar.showMessage(
-            f"✅ 곡 정보를 불러왔습니다 ({total_slides} 슬라이드)", 3000
+            f"곡 정보를 불러왔습니다 ({total_slides} 슬라이드)", 3000
         )
 
         if self._project:
@@ -1402,7 +1402,7 @@ class MainWindow(QMainWindow):
         self._slide_preview.hide_loading()
         self._slide_preview.refresh_slides()
         QMessageBox.warning(self, "PPT 로딩 오류", message)
-        self._statusbar.showMessage("❌ PPT 로드 실패", 3000)
+        self._statusbar.showMessage("PPT 로드 실패", 3000)
 
     # === 이벤트 핸들러 ===
 

@@ -753,7 +753,7 @@ class ScoreCanvas(QWidget):
 
             menu.addSeparator()
 
-            delete_action = QAction("🗑️ 삭제", self)
+            delete_action = QAction("삭제", self)
             delete_action.triggered.connect(lambda: self._delete_hotspot(hotspot))
             menu.addAction(delete_action)
 

@@ -144,26 +144,26 @@ class _LibrarySongCard(QFrame):
         # 악보
         sc = info["sheet_count"]
         if sc > 0:
-            s_lbl = QLabel(f"🖼 악보 {sc}장")
+            s_lbl = QLabel(f"악보 {sc}장")
             s_lbl.setStyleSheet("font-size: 11px; color: #4caf50; background: transparent;")
         else:
-            s_lbl = QLabel("🖼 악보 없음")
+            s_lbl = QLabel("악보 없음")
             s_lbl.setStyleSheet("font-size: 11px; color: #888; background: transparent;")
         status_row.addWidget(s_lbl)
 
         # PPT
         if info["has_ppt"]:
-            p_lbl = QLabel("📊 PPT")
+            p_lbl = QLabel("PPT")
             p_lbl.setStyleSheet("font-size: 11px; color: #4caf50; background: transparent;")
         else:
-            p_lbl = QLabel("📊 PPT 없음")
+            p_lbl = QLabel("PPT 없음")
             p_lbl.setStyleSheet("font-size: 11px; color: #888; background: transparent;")
         status_row.addWidget(p_lbl)
 
         # 매핑
         total, mapped = info["total_hotspots"], info["mapped_hotspots"]
         if total > 0:
-            m_lbl = QLabel(f"🔵 {mapped}/{total}")
+            m_lbl = QLabel(f"{mapped}/{total}")
             color = "#4caf50" if mapped == total else "#ff9800"
             m_lbl.setStyleSheet(f"font-size: 11px; color: {color}; background: transparent;")
             status_row.addWidget(m_lbl)
@@ -518,18 +518,18 @@ class _SongCard(QFrame):
 
         # 악보
         if st["has_sheets"]:
-            self._lbl_sheets.setText("🖼 악보")
+            self._lbl_sheets.setText("악보")
             self._lbl_sheets.setStyleSheet("font-size: 10px; color: #4caf50; background: transparent;")
         else:
-            self._lbl_sheets.setText("🖼 악보 없음")
+            self._lbl_sheets.setText("악보 없음")
             self._lbl_sheets.setStyleSheet("font-size: 10px; color: #ff9800; background: transparent;")
 
         # PPT
         if st["has_ppt"]:
-            self._lbl_ppt.setText("📊 PPT")
+            self._lbl_ppt.setText("PPT")
             self._lbl_ppt.setStyleSheet("font-size: 10px; color: #4caf50; background: transparent;")
         else:
-            self._lbl_ppt.setText("📊 PPT 없음")
+            self._lbl_ppt.setText("PPT 없음")
             self._lbl_ppt.setStyleSheet("font-size: 10px; color: #ff9800; background: transparent;")
 
         # 매핑
@@ -539,10 +539,10 @@ class _SongCard(QFrame):
             self._lbl_mapping.setText("핫스팟 없음")
             self._lbl_mapping.setStyleSheet("font-size: 10px; color: #666; background: transparent;")
         elif mapped == total:
-            self._lbl_mapping.setText(f"🔵 {total}개 매핑 완료")
+            self._lbl_mapping.setText(f"{total}개 매핑 완료")
             self._lbl_mapping.setStyleSheet("font-size: 10px; color: #4caf50; background: transparent;")
         else:
-            self._lbl_mapping.setText(f"🔵 {mapped}/{total} 매핑")
+            self._lbl_mapping.setText(f"{mapped}/{total} 매핑")
             self._lbl_mapping.setStyleSheet("font-size: 10px; color: #ff9800; background: transparent;")
 
     def set_selected(self, selected: bool, current_sheet_id: str | None = None) -> None:
@@ -629,16 +629,16 @@ class _SongCard(QFrame):
             QMenu::item:selected { background: #333; color: #fff; }
             QMenu::separator { height: 1px; background: #3a3a3a; margin: 4px 0; }
         """)
-        edit_act = QAction("✏  곡 편집", self)
+        edit_act = QAction("곡 편집", self)
         edit_act.triggered.connect(lambda: self.edit_requested.emit(self._song))
         menu.addAction(edit_act)
 
-        reload_act = QAction("🔄  슬라이드 새로고침", self)
+        reload_act = QAction("슬라이드 새로고침", self)
         reload_act.triggered.connect(lambda: self.reload_requested.emit(self._song))
         menu.addAction(reload_act)
 
         menu.addSeparator()
-        remove_act = QAction("✕  셋리스트에서 제거", self)
+        remove_act = QAction("셋리스트에서 제거", self)
         remove_act.triggered.connect(lambda: self.remove_requested.emit(self._song))
         menu.addAction(remove_act)
 
@@ -681,7 +681,7 @@ class _StandalonePanel(QWidget):
         layout.addStretch()
 
         # PPT 가져오기 버튼
-        self._btn_ppt = QPushButton("📥  PPT 가져오기")
+        self._btn_ppt = QPushButton("PPT 가져오기")
         self._btn_ppt.setFixedHeight(34)
         self._btn_ppt.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_ppt.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -909,7 +909,7 @@ class SongListWidget(QWidget):
         self._btn_add_lib.clicked.connect(self._on_add_clicked)
         footer_layout.addWidget(self._btn_add_lib)
 
-        self._btn_new_song = QPushButton("✚  새 곡 만들기")
+        self._btn_new_song = QPushButton("새 곡 만들기")
         self._btn_new_song.setFixedHeight(30)
         self._btn_new_song.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_new_song.setFocusPolicy(Qt.FocusPolicy.NoFocus)

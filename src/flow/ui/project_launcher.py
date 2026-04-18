@@ -32,11 +32,11 @@ def _song_status(song_path: str) -> tuple[str, str]:
     has_ppt = (p / "slides.pptx").exists()
 
     if has_sheet and has_ppt:
-        return "✅", "악보 · PPT 준비완료"
+        return "준비완료", "악보 · PPT 준비완료"
     if has_sheet:
-        return "⚠️", "PPT 없음"
+        return "미완성", "PPT 없음"
     if has_ppt:
-        return "⚠️", "악보 없음"
+        return "미완성", "악보 없음"
     return "○", "아직 설정 안 됨"
 
 
@@ -245,7 +245,7 @@ class ProjectLauncher(QWidget):
 
         # ── 곡 라이브러리 패널 ──
         self._song_panel = _Panel(
-            "🎵  곡 라이브러리",
+            "곡 라이브러리",
             "악보 · PPT · 핫스팟 매핑의 기본 단위",
             "#4caf50",
         )
@@ -262,7 +262,7 @@ class ProjectLauncher(QWidget):
 
         # ── 프로젝트 패널 ──
         self._proj_panel = _Panel(
-            "📋  프로젝트 / 셋리스트",
+            "프로젝트 / 셋리스트",
             "여러 곡을 순서대로 조합해 예배에서 사용",
             "#2196f3",
         )
@@ -305,7 +305,7 @@ class ProjectLauncher(QWidget):
             p = Path(p_path)
             name = p.parent.name if p.name == "project.json" else p.stem
             count = _project_song_count(p_path)
-            line1 = f"📋  {name}"
+            line1 = name
             line2 = f"      {count}  ·  {p_path}" if count else f"      {p_path}"
             proj_items.append((p_path, "project", line1, line2))
         self._proj_panel.set_items(proj_items)

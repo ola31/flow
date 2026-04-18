@@ -69,7 +69,7 @@ class SlidePreviewPanel(QWidget):
         """)
         header_layout.addWidget(self._title, 1)
 
-        self._btn_reload = QPushButton("🔄 새로고침")
+        self._btn_reload = QPushButton("새로고침")
         self._btn_reload.setFixedSize(80, 24)
         self._btn_reload.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_reload.setToolTip("모든 곡의 슬라이드 새로고침")
@@ -84,7 +84,7 @@ class SlidePreviewPanel(QWidget):
         self._btn_reload.clicked.connect(self.reload_all_requested.emit)
         header_layout.addWidget(self._btn_reload)
 
-        self._btn_close = QPushButton("✕ 닫기")
+        self._btn_close = QPushButton("닫기")
         self._btn_close.setFixedSize(70, 24)
         self._btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_close.setToolTip("PPT 닫기")
@@ -174,7 +174,7 @@ class SlidePreviewPanel(QWidget):
         overlay_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # 엔진 정보 라벨
-        self._engine_label = QLabel("📽 PPT 변환 엔진")
+        self._engine_label = QLabel("PPT 변환 엔진")
         self._engine_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._engine_label.setStyleSheet("""
             QLabel {
@@ -258,7 +258,7 @@ class SlidePreviewPanel(QWidget):
         # 프로그레스 바 초기화
         self._progress_bar.setValue(0)
         self._progress_text.setText("준비 중...")
-        self._engine_label.setText("📽 PPT 변환 엔진")
+        self._engine_label.setText("PPT 변환 엔진")
 
         # [수정] 오버레이 크기를 현재 리스트 크기에 맞게 강제 조정 및 최상단 배치
         self._loading_overlay.setGeometry(self._list.rect())
@@ -278,7 +278,7 @@ class SlidePreviewPanel(QWidget):
             percent = int((current / total) * 100)
             self._progress_bar.setValue(percent)
             self._progress_text.setText(f"{current} / {total} 슬라이드")
-            self._engine_label.setText(f"📽 엔진: {engine_name}")
+            self._engine_label.setText(f"엔진: {engine_name}")
             self._loading_label.setText("이미지 생성 중...")
 
     def hide_loading(self) -> None:

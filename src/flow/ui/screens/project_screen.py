@@ -104,8 +104,8 @@ class LivePIP(QFrame):
         root.setContentsMargins(6, 6, 6, 6)
         root.setSpacing(6)
 
-        self._preview_pane = _PIPPane("▶  PREVIEW", "#64b5f6")
-        self._live_pane = _PIPPane("🔴  LIVE", "#ff4444")
+        self._preview_pane = _PIPPane("PREVIEW", "#5b8def")
+        self._live_pane = _PIPPane("LIVE", "#ef4444")
 
         root.addWidget(self._preview_pane, 1)
 
@@ -299,7 +299,7 @@ class ProjectScreen(QWidget):
             QPushButton:hover { background: #3a3a3a; color: white; }
         """
 
-        btn_prev = QPushButton("◀ 이전곡")
+        btn_prev = QPushButton("이전곡")
         btn_prev.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn_prev.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_prev.setStyleSheet(_nav_btn_style)
@@ -313,7 +313,7 @@ class ProjectScreen(QWidget):
         )
         nav_layout.addWidget(self._nav_song_name, 1)
 
-        btn_next = QPushButton("다음곡 ▶")
+        btn_next = QPushButton("다음곡")
         btn_next.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn_next.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_next.setStyleSheet(_nav_btn_style)
