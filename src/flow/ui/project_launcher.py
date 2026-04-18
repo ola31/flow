@@ -1,309 +1,361 @@
+from __future__ import annotations
+
 from pathlib import Path
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
+    QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QListWidget,
     QListWidgetItem,
-    QFrame,
-    QSizePolicy,
-    QFileDialog,
+    QMenu,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtGui import QFont, QIcon, QColor
-from PySide6.QtCore import Qt, Signal, QSize
+
+from PySide6.QtGui import QAction
+
+
+def _song_status(song_path: str) -> tuple[str, str]:
+    """곡 폴더를 빠르게 검사해 (아이콘, 툴팁) 반환 — JSON 파싱 없이 파일 존재만 확인."""
+    p = Path(song_path)
+    has_sheet = any(
+        f.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}
+        for d in (p / "sheets", p / "sheet")
+        if d.is_dir()
+        for f in d.iterdir()
+    )
+    has_ppt = (p / "slides.pptx").exists()
+
+    if has_sheet and has_ppt:
+        return "✅", "악보 · PPT 준비완료"
+    if has_sheet:
+        return "⚠️", "PPT 없음"
+    if has_ppt:
+        return "⚠️", "악보 없음"
+    return "○", "아직 설정 안 됨"
+
+
+def _project_song_count(project_path: str) -> str:
+    """project.json에서 song_order 개수만 빠르게 읽어 반환."""
+    try:
+        import json
+        p = Path(project_path)
+        with open(p, encoding="utf-8-sig") as f:
+            data = json.load(f)
+        count = len(data.get("song_order", []))
+        return f"{count}곡" if count else ""
+    except Exception:
+        return ""
+
+
+class _PanelList(QListWidget):
+    """패널 전용 리스트 위젯 (공통 스타일)."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("""
+            QListWidget {
+                background: transparent;
+                border: none;
+                outline: none;
+            }
+            QListWidget::item {
+                background: #2a2a2a;
+                border-radius: 6px;
+                margin-bottom: 4px;
+                padding: 10px 12px;
+                color: #ddd;
+                border: 1px solid transparent;
+            }
+            QListWidget::item:hover {
+                background: #333;
+                border: 1px solid #3d3d3d;
+            }
+            QListWidget::item:selected {
+                background: #263545;
+                border: 1px solid #2196f3;
+                color: #fff;
+            }
+            QScrollBar:vertical {
+                border: none; background: transparent; width: 6px; margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background: #444; border-radius: 3px; min-height: 20px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+        """)
+        self.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.setWordWrap(True)
+
+
+class _Panel(QFrame):
+    """좌/우 패널 컨테이너."""
+    def __init__(self, title: str, subtitle: str, accent: str, parent=None):
+        super().__init__(parent)
+        self._accent = accent
+        self.setStyleSheet(f"""
+            QFrame {{
+                background: #1e1e1e;
+                border: 1px solid #2e2e2e;
+                border-top: 3px solid {accent};
+                border-radius: 10px;
+            }}
+        """)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 18, 20, 18)
+        root.setSpacing(0)
+
+        # 제목
+        lbl_title = QLabel(title)
+        lbl_title.setStyleSheet(
+            f"font-size: 15px; font-weight: 900; color: {accent}; background: transparent; border: none;"
+        )
+        root.addWidget(lbl_title)
+
+        # 부제
+        lbl_sub = QLabel(subtitle)
+        lbl_sub.setStyleSheet(
+            "font-size: 11px; color: #666; background: transparent; border: none; margin-bottom: 14px;"
+        )
+        root.addWidget(lbl_sub)
+
+        # 버튼 영역
+        self._btn_layout = QHBoxLayout()
+        self._btn_layout.setSpacing(8)
+        self._btn_layout.setContentsMargins(0, 0, 0, 12)
+        root.addLayout(self._btn_layout)
+
+        # 구분선
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("background: #2e2e2e; max-height: 1px; border: none;")
+        root.addWidget(sep)
+        root.addSpacing(10)
+
+        # 최근 항목 레이블
+        self._recent_label = QLabel("최근 항목")
+        self._recent_label.setStyleSheet(
+            "font-size: 11px; font-weight: bold; color: #555; background: transparent; border: none; margin-bottom: 6px;"
+        )
+        root.addWidget(self._recent_label)
+
+        # 리스트
+        self.list = _PanelList()
+        root.addWidget(self.list, 1)
+
+        # 빈 상태
+        self._empty = QLabel("아직 없습니다")
+        self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty.setStyleSheet(
+            "font-size: 12px; color: #444; background: transparent; border: none; padding: 20px 0;"
+        )
+        root.addWidget(self._empty)
+
+    def add_action_btn(self, text: str, primary: bool = False) -> QPushButton:
+        btn = QPushButton(text)
+        btn.setFixedHeight(36)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        if primary:
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: {self._accent}; color: #fff;
+                    border: none; border-radius: 6px;
+                    font-size: 12px; font-weight: bold; padding: 0 14px;
+                }}
+                QPushButton:hover {{ background: {self._accent}cc; }}
+            """)
+        else:
+            btn.setStyleSheet("""
+                QPushButton {
+                    background: #2a2a2a; color: #aaa;
+                    border: 1px solid #3a3a3a; border-radius: 6px;
+                    font-size: 12px; padding: 0 14px;
+                }
+                QPushButton:hover { background: #333; color: #ddd; border-color: #555; }
+            """)
+        self._btn_layout.addWidget(btn)
+        return btn
+
+    def set_items(self, items: list[tuple[str, str, str, str]]) -> None:
+        """items: [(path, type, display_line1, display_line2), ...]"""
+        self.list.clear()
+        for path, kind, line1, line2 in items:
+            item = QListWidgetItem()
+            item.setData(Qt.ItemDataRole.UserRole, path)
+            item.setData(Qt.ItemDataRole.UserRole + 1, kind)
+            item.setText(f"{line1}\n{line2}" if line2 else line1)
+            f = QFont("Malgun Gothic")
+            f.setPixelSize(13)
+            item.setFont(f)
+            self.list.addItem(item)
+
+        has = self.list.count() > 0
+        self.list.setVisible(has)
+        self._empty.setVisible(not has)
+        if has:
+            self.list.setCurrentRow(0)
+            self.list.setFocus()
 
 
 class ProjectLauncher(QWidget):
-    """애플리케이션 시작 시 표시되는 프로젝트 선택 화면"""
-
-    project_selected = Signal(str)  # 프로젝트 경로
-    song_selected = Signal(str)  # 단일 곡 폴더 경로
+    project_selected = Signal(str)
+    song_selected = Signal(str)
     new_project_requested = Signal()
-    new_song_requested = Signal()  # 새 곡 생성 요청
+    new_song_requested = Signal()
     open_project_requested = Signal()
-    remove_recent_requested = Signal(str, str)  # path, type ('project' or 'song')
+    remove_recent_requested = Signal(str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._setup_ui()
 
+    # ── UI 구성 ──────────────────────────────────────────────────
+
     def _setup_ui(self):
-        # 전체 위젯의 강제 배경색 제거 (부모 스타일 따름)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(60, 50, 60, 50)
-        layout.setSpacing(40)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(48, 36, 48, 36)
+        root.setSpacing(0)
 
-        # 1. 헤더 (로고/타이틀)
-        header = QVBoxLayout()
+        # 헤더
+        hdr = QVBoxLayout()
+        hdr.setSpacing(4)
         title = QLabel("FLOW")
-        title.setStyleSheet("""
-            font-size: 56px; 
-            font-weight: 900; 
-            color: #2196f3; 
-            letter-spacing: 2px;
-        """)
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.addWidget(title)
-
-        subtitle = QLabel("슬라이드 이동을 더 편리하게")
-        subtitle.setStyleSheet("font-size: 16px; color: #888; font-weight: 400;")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.addWidget(subtitle)
-        layout.addLayout(header)
-
-        # 2. 메인 영역
-        content_layout = QHBoxLayout()
-        content_layout.setSpacing(50)
-
-        # 왼쪽: 시작 옵션 (심플 레이아웃으로 복구)
-        actions_layout = QVBoxLayout()
-        actions_layout.setSpacing(15)
-        actions_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        label_start = QLabel("시작하기")
-        label_start.setStyleSheet(
-            "font-size: 18px; font-weight: bold; color: #ccc; margin-bottom: 5px;"
+        title.setStyleSheet(
+            "font-size: 52px; font-weight: 900; color: #2196f3; letter-spacing: 3px; background: transparent;"
         )
-        actions_layout.addWidget(label_start)
+        hdr.addWidget(title)
 
-        btn_new = QPushButton("📄 새 프로젝트 만들기")
-        btn_new.setFixedSize(220, 52)
-        btn_new.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_new.setStyleSheet("""
-            QPushButton {
-                background-color: #2196f3; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold;
-            }
-            QPushButton:hover { background-color: #1e88e5; }
-        """)
-        btn_new.clicked.connect(self.new_project_requested.emit)
-        actions_layout.addWidget(btn_new)
+        sub = QLabel("예배 슬라이드 송출 시스템")
+        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sub.setStyleSheet("font-size: 13px; color: #555; background: transparent;")
+        hdr.addWidget(sub)
+        root.addLayout(hdr)
+        root.addSpacing(32)
 
-        btn_new_song = QPushButton("🎵 새 곡 만들기")
-        btn_new_song.setFixedSize(220, 52)
-        btn_new_song.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_new_song.setStyleSheet("""
-            QPushButton {
-                background-color: #4caf50; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold;
-            }
-            QPushButton:hover { background-color: #43a047; }
-        """)
-        btn_new_song.clicked.connect(self.new_song_requested.emit)
-        actions_layout.addWidget(btn_new_song)
+        # 두 패널
+        body = QHBoxLayout()
+        body.setSpacing(20)
 
-        btn_open = QPushButton("📂 열기...")
-        btn_open.setFixedSize(220, 52)
-        btn_open.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_open.setStyleSheet("""
-            QPushButton {
-                background-color: #333; color: #ccc; border: 1px solid #444; border-radius: 8px; font-size: 14px;
-            }
-            QPushButton:hover { background-color: #444; color: white; }
-        """)
-        btn_open.clicked.connect(self.open_project_requested.emit)
-        actions_layout.addWidget(btn_open)
-
-        btn_song = QPushButton("🎵 곡 열기...")
-        btn_song.setFixedSize(220, 52)
-        btn_song.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_song.setStyleSheet("""
-            QPushButton {
-                background-color: #333; color: #ccc; border: 1px solid #444; border-radius: 8px; font-size: 14px;
-            }
-            QPushButton:hover { background-color: #444; color: #ffeb3b; border: 1px solid #fbc02d; }
-        """)
-        btn_song.clicked.connect(self._on_open_song_clicked)
-        actions_layout.addWidget(btn_song)
-
-        content_layout.addLayout(actions_layout)
-
-        # 오른쪽: 최근 프로젝트 목록 (고대비 카드 스타일 유지)
-        recent_panel = QFrame()
-        recent_panel.setStyleSheet("""
-            QFrame {
-                background-color: #2a2a2a;
-                border-radius: 12px;
-                border: 1px solid #3d3d3d;
-            }
-            QLabel { border: none; background: transparent; }
-        """)
-        recent_layout = QVBoxLayout(recent_panel)
-        recent_layout.setContentsMargins(20, 25, 20, 25)
-
-        recent_label = QLabel("최근 항목")
-        recent_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #fff;")
-        recent_layout.addWidget(recent_label)
-        recent_layout.addSpacing(10)
-
-        self._empty_hint = QLabel("최근 사용한 프로젝트와 곡이\n여기에 표시됩니다.")
-        self._empty_hint.setStyleSheet("font-size: 13px; color: #666; padding: 30px 0;")
-        self._empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_hint.setWordWrap(True)
-        recent_layout.addWidget(self._empty_hint)
-
-        self.recent_list = QListWidget()
-        self.recent_list.setStyleSheet("""
-            QListWidget {
-                background-color: transparent; border: none; outline: none;
-            }
-            QListWidget::item {
-                background-color: #333;
-                border-radius: 6px;
-                margin-bottom: 6px;
-                padding: 12px;
-                color: #fff;
-                border: 1px solid transparent;
-            }
-            QListWidget::item:hover {
-                background-color: #3d3d3d;
-                border: 1px solid #2196f3;
-            }
-            QListWidget::item:selected {
-                background-color: #444;
-                border: 1px solid #2196f3;
-            }
-            QScrollBar:vertical {
-                border: none;
-                background: #2a2a2a;
-                width: 8px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background: #444;
-                min-height: 20px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #555;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-        """)
-        self.recent_list.itemDoubleClicked.connect(self._on_item_double_clicked)
-        # 키보드 엔터 키로 선택 지원
-        self.recent_list.itemActivated.connect(self._on_item_double_clicked)
-        self.recent_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.recent_list.customContextMenuRequested.connect(
-            self._on_recent_context_menu
+        # ── 곡 라이브러리 패널 ──
+        self._song_panel = _Panel(
+            "🎵  곡 라이브러리",
+            "악보 · PPT · 핫스팟 매핑의 기본 단위",
+            "#4caf50",
         )
-        self.recent_list.setTextElideMode(Qt.TextElideMode.ElideNone)
-        self.recent_list.setWordWrap(True)
-        recent_layout.addWidget(self.recent_list)
+        self._btn_new_song = self._song_panel.add_action_btn("+ 새 곡 만들기", primary=True)
+        self._btn_open_song = self._song_panel.add_action_btn("폴더에서 열기...")
+        self._btn_new_song.clicked.connect(self.new_song_requested.emit)
+        self._btn_open_song.clicked.connect(self._on_open_song_clicked)
+        self._song_panel.list.itemActivated.connect(self._on_item_activated)
+        self._song_panel.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._song_panel.list.customContextMenuRequested.connect(
+            lambda pos: self._on_context_menu(self._song_panel.list, pos)
+        )
+        body.addWidget(self._song_panel, 1)
 
-        content_layout.addWidget(recent_panel, 1)
-        layout.addLayout(content_layout)
+        # ── 프로젝트 패널 ──
+        self._proj_panel = _Panel(
+            "📋  프로젝트 / 셋리스트",
+            "여러 곡을 순서대로 조합해 예배에서 사용",
+            "#2196f3",
+        )
+        self._btn_new_proj = self._proj_panel.add_action_btn("+ 새 프로젝트", primary=True)
+        self._btn_open_proj = self._proj_panel.add_action_btn("폴더에서 열기...")
+        self._btn_new_proj.clicked.connect(self.new_project_requested.emit)
+        self._btn_open_proj.clicked.connect(self.open_project_requested.emit)
+        self._proj_panel.list.itemActivated.connect(self._on_item_activated)
+        self._proj_panel.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._proj_panel.list.customContextMenuRequested.connect(
+            lambda pos: self._on_context_menu(self._proj_panel.list, pos)
+        )
+        body.addWidget(self._proj_panel, 1)
 
-        # 3. 푸터
-        footer = QLabel("v1.0.0 | Flow")
-        footer.setStyleSheet("color: #555; font-size: 11px;")
+        root.addLayout(body, 1)
+        root.addSpacing(16)
+
+        # 푸터
+        footer = QLabel("v1.0.0")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(footer)
+        footer.setStyleSheet("font-size: 10px; color: #333; background: transparent;")
+        root.addWidget(footer)
 
-    def set_recent_items(self, projects: list[str], songs: list[str]):
-        self.recent_list.clear()
+    # ── 데이터 설정 ─────────────────────────────────────────────
 
-        for p_path in projects:
-            path = Path(p_path)
-            name = path.parent.name if path.name == "project.json" else path.stem
-
-            item = QListWidgetItem()
-            item.setData(Qt.ItemDataRole.UserRole, p_path)
-            item.setData(Qt.ItemDataRole.UserRole + 1, "project")
-
-            item.setText(f"📄  {name}\n     {p_path}")
-            font = QFont("Malgun Gothic")
-            font.setPixelSize(14)
-            font.setBold(True)
-            item.setFont(font)
-            self.recent_list.addItem(item)
-
+    def set_recent_items(self, projects: list[str], songs: list[str]) -> None:
+        # 곡 항목
+        song_items = []
         for s_path in songs:
-            path = Path(s_path)
-            name = path.name
+            p = Path(s_path)
+            icon, tip = _song_status(s_path)
+            line1 = f"{icon}  {p.name}"
+            line2 = f"      {tip}  ·  {s_path}"
+            song_items.append((s_path, "song", line1, line2))
+        self._song_panel.set_items(song_items)
 
-            item = QListWidgetItem()
-            item.setData(Qt.ItemDataRole.UserRole, s_path)
-            item.setData(Qt.ItemDataRole.UserRole + 1, "song")
+        # 프로젝트 항목
+        proj_items = []
+        for p_path in projects:
+            p = Path(p_path)
+            name = p.parent.name if p.name == "project.json" else p.stem
+            count = _project_song_count(p_path)
+            line1 = f"📋  {name}"
+            line2 = f"      {count}  ·  {p_path}" if count else f"      {p_path}"
+            proj_items.append((p_path, "project", line1, line2))
+        self._proj_panel.set_items(proj_items)
 
-            item.setText(f"🎵  {name}\n     {s_path}")
-            font = QFont("Malgun Gothic")
-            font.setPixelSize(14)
-            font.setBold(True)
-            item.setFont(font)
-            item.setForeground(QColor("#ffeb3b"))
-            self.recent_list.addItem(item)
+    # ── 이벤트 핸들러 ───────────────────────────────────────────
 
-        has_items = self.recent_list.count() > 0
-        self._empty_hint.setVisible(not has_items)
-        self.recent_list.setVisible(has_items)
-
-        if has_items:
-            self.recent_list.setCurrentRow(0)
-            self.recent_list.setFocus()
-
-    def _on_item_double_clicked(self, item):
+    def _on_item_activated(self, item: QListWidgetItem) -> None:
         path = item.data(Qt.ItemDataRole.UserRole)
-        item_type = item.data(Qt.ItemDataRole.UserRole + 1)
-
-        if item_type == "project":
+        kind = item.data(Qt.ItemDataRole.UserRole + 1)
+        if kind == "project":
             self.project_selected.emit(path)
         else:
             self.song_selected.emit(path)
 
-    def _on_recent_context_menu(self, pos):
-        """최근 목록 우클릭 메뉴"""
-        item = self.recent_list.itemAt(pos)
+    def _on_open_song_clicked(self) -> None:
+        folder = QFileDialog.getExistingDirectory(
+            self, "곡 폴더 선택", "", QFileDialog.Option.ShowDirsOnly
+        )
+        if not folder:
+            return
+        p = Path(folder)
+        if (p / "song.json").exists():
+            self.song_selected.emit(str(p))
+            return
+        if (p.parent / "song.json").exists():
+            self.song_selected.emit(str(p.parent))
+            return
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.warning(
+            self,
+            "곡 폴더를 찾을 수 없습니다",
+            "선택한 폴더에 song.json 파일이 없습니다.\n올바른 곡 폴더를 선택해 주세요.",
+        )
+
+    def _on_context_menu(self, list_widget: _PanelList, pos) -> None:
+        item = list_widget.itemAt(pos)
         if not item:
             return
-
         path = item.data(Qt.ItemDataRole.UserRole)
-        item_type = item.data(Qt.ItemDataRole.UserRole + 1)
-
-        from PySide6.QtGui import QAction
-        from PySide6.QtWidgets import QMenu
+        kind = item.data(Qt.ItemDataRole.UserRole + 1)
 
         menu = QMenu(self)
         menu.setStyleSheet("""
-            QMenu { background-color: #2a2a2a; color: #ccc; border: 1px solid #444; }
-            QMenu::item { padding: 6px 20px; }
-            QMenu::item:selected { background-color: #3d3d3d; color: white; }
+            QMenu { background: #252525; color: #ccc; border: 1px solid #3a3a3a; }
+            QMenu::item { padding: 6px 18px; }
+            QMenu::item:selected { background: #333; color: #fff; }
         """)
-
-        remove_act = QAction("목록에서 제거", self)
-        remove_act.triggered.connect(
-            lambda: self.remove_recent_requested.emit(path, item_type)
+        remove = QAction("목록에서 제거", self)
+        remove.triggered.connect(
+            lambda: self.remove_recent_requested.emit(path, kind)
         )
-        menu.addAction(remove_act)
-
-        menu.exec(self.recent_list.mapToGlobal(pos))
-
-    def _on_open_song_clicked(self):
-        """곡 폴더 직접 선택 (유효성 검사 포함)"""
-        folder_str = QFileDialog.getExistingDirectory(
-            self, "편집할 곡 폴더 선택", "", QFileDialog.Option.ShowDirsOnly
-        )
-        if not folder_str:
-            return
-
-        folder = Path(folder_str)
-
-        # 1. 선택한 폴더에 song.json이 있는지 확인
-        if (folder / "song.json").exists():
-            self.song_selected.emit(str(folder))
-            return
-
-        # 2. 실수로 sheets/ 폴더 등을 선택한 경우 부모 폴더 확인
-        if (folder.parent / "song.json").exists():
-            self.song_selected.emit(str(folder.parent))
-            return
-
-        # 3. 유효하지 않은 폴더인 경우 경고
-        from PySide6.QtWidgets import QMessageBox
-
-        QMessageBox.warning(
-            self,
-            "유효하지 않은 폴더",
-            "선택한 폴더 또는 부모 폴더에 'song.json' 파일이 없습니다.\n정확한 곡 폴더를 선택해주세요.",
-        )
+        menu.addAction(remove)
+        menu.exec(list_widget.mapToGlobal(pos))
