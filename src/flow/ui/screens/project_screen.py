@@ -249,6 +249,7 @@ class ProjectScreen(QWidget):
         self._verse_selector.setVisible(not live)
         self._pip.setVisible(live)
         self._pip.set_live(live)
+        self._live_hint_bar.setVisible(live)
         self._canvas_container.setStyleSheet(
             "background: #111; border: 2px solid #ff4444; border-radius: 4px;"
             if live
@@ -412,6 +413,29 @@ class ProjectScreen(QWidget):
         self._v_splitter.setSizes([600, 160])
 
         center_layout.addWidget(self._v_splitter)
+
+        # ── 라이브 단축키 힌트 바
+        self._live_hint_bar = QFrame()
+        self._live_hint_bar.setFixedHeight(30)
+        self._live_hint_bar.setStyleSheet("""
+            QFrame {
+                background: #1a0a0a;
+                border-top: 1px solid #ff4444;
+            }
+        """)
+        hint_layout = QHBoxLayout(self._live_hint_bar)
+        hint_layout.setContentsMargins(16, 0, 16, 0)
+        hint_layout.setSpacing(0)
+        hint_label = QLabel(
+            "Enter / Space : 송출     B : 블랙아웃     1–5 / C : 절 이동     Esc : 편집 모드로"
+        )
+        hint_label.setStyleSheet(
+            "font-size: 11px; color: #cc4444; letter-spacing: 0.5px; background: transparent;"
+        )
+        hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint_layout.addWidget(hint_label)
+        self._live_hint_bar.hide()
+        center_layout.addWidget(self._live_hint_bar)
         self._h_splitter.addWidget(center_widget)
 
         self._pip = LivePIP()
