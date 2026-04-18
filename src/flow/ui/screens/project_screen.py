@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from flow.services.config_service import ConfigService
 from flow.services.slide_manager import SlideManager
+from flow.ui.editor.mapping_panel import MappingPanel
 from flow.ui.editor.score_canvas import ScoreCanvas
 from flow.ui.editor.slide_preview_panel import SlidePreviewPanel
 from flow.ui.editor.song_list_widget import SongListWidget
@@ -225,6 +226,10 @@ class ProjectScreen(QWidget):
         return self._pip
 
     @property
+    def mapping_panel(self) -> MappingPanel:
+        return self._mapping_panel
+
+    @property
     def h_splitter(self) -> QSplitter:
         return self._h_splitter
 
@@ -250,9 +255,13 @@ class ProjectScreen(QWidget):
             else "background: #111;"
         )
         if live:
-            self._h_splitter.setSizes([220, 800, 280])
+            self._mapping_panel.hide()
+            self._h_splitter.setSizes([220, 800, 280, 0])
         else:
-            self._h_splitter.setSizes([220, 800, 0])
+            self._pip.hide()
+            # mapping panel visibility managed by MainWindow
+            cur_map = self._h_splitter.sizes()[3] if len(self._h_splitter.sizes()) > 3 else 0
+            self._h_splitter.setSizes([220, 800, 0, cur_map])
 
     def sync_nav_verse(self, verse_index: int) -> None:
         btn = self._nav_verse_group.button(verse_index)
@@ -409,9 +418,13 @@ class ProjectScreen(QWidget):
         self._pip.hide()
         self._h_splitter.addWidget(self._pip)
 
+        self._mapping_panel = MappingPanel()
+        self._h_splitter.addWidget(self._mapping_panel)
+
         self._h_splitter.setStretchFactor(0, 0)
         self._h_splitter.setStretchFactor(1, 1)
         self._h_splitter.setStretchFactor(2, 0)
-        self._h_splitter.setSizes([220, 800, 0])
+        self._h_splitter.setStretchFactor(3, 0)
+        self._h_splitter.setSizes([220, 800, 0, 0])
 
         main_layout.addWidget(self._h_splitter)

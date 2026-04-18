@@ -199,6 +199,7 @@ class MainWindow(QMainWindow):
         self._canvas = self._project_screen.canvas
         self._verse_selector = self._project_screen.verse_selector
         self._pip = self._project_screen.pip
+        self._mapping_panel = self._project_screen.mapping_panel
         self._h_splitter = self._project_screen.h_splitter
         self._v_splitter = self._project_screen.v_splitter
 
@@ -213,6 +214,10 @@ class MainWindow(QMainWindow):
 
         self._verse_selector.verse_changed.connect(self._on_verse_changed)
         self._project_screen.live_verse_changed.connect(self._on_verse_changed)
+
+        self._mapping_panel.verse_activated.connect(self._on_mapping_panel_verse)
+        self._mapping_panel.unmap_requested.connect(self._on_mapping_panel_unmap)
+        self._mapping_panel.closed.connect(self._on_mapping_panel_closed)
 
     def _apply_global_style(self):
         self.setStyleSheet(GLOBAL_STYLESHEET)
@@ -1025,6 +1030,10 @@ class MainWindow(QMainWindow):
 
         self._update_mapped_slides_ui()
 
+        # 매핑 패널 절 동기화
+        if self._mapping_panel.isVisible():
+            self._mapping_panel.set_active_verse(verse_index)
+
         v_text = "후렴" if verse_index == 5 else f"{verse_index + 1}절"
         self._statusbar.showMessage(f"{v_text}을(를) 선택했습니다.", 1000)
 
@@ -1482,10 +1491,64 @@ class MainWindow(QMainWindow):
         if slide_idx >= 0:
             self._slide_preview.select_slide(slide_idx)
 
+        # 편집 모드에서 매핑 패널 표시
+        if not self._is_live:
+            self._mapping_panel.show_for_hotspot(
+                hotspot,
+                v_idx,
+                self._slide_manager.get_slide_image,
+            )
+            sizes = self._h_splitter.sizes()
+            if len(sizes) > 3 and sizes[3] == 0:
+                self._h_splitter.setSizes([sizes[0], sizes[1], 0, 260])
+
         # [추가] 슬라이드 선택 과정에서 빼앗긴 포커스를 캔버스로 복구 (텍스트 입력 중이 아닐 때만)
         focused = self.focusWidget()
         if not isinstance(focused, (QLineEdit, QTextEdit, QPlainTextEdit)):
             self._canvas.setFocus()
+
+    def _on_mapping_panel_verse(self, verse_index: int) -> None:
+        """매핑 패널에서 절 행 클릭 → 해당 절로 이동"""
+        self._on_verse_changed(verse_index)
+        self._verse_selector.set_current_verse(verse_index)
+        self._mapping_panel.set_active_verse(verse_index)
+
+    def _on_mapping_panel_unmap(self, verse_index: int) -> None:
+        """매핑 패널에서 특정 절 매핑 해제"""
+        if not self._project or self._is_live:
+            return
+        hotspot = self._canvas.get_selected_hotspot()
+        if not hotspot:
+            return
+        from flow.ui.undo_commands import MapSlideCommand
+        old_slide = hotspot.get_slide_index(verse_index)
+        if old_slide < 0:
+            return
+        command = MapSlideCommand(
+            hotspot,
+            verse_index,
+            old_slide,
+            -1,
+            lambda: (
+                self._canvas.update(),
+                self._update_preview(hotspot),
+                self._update_mapped_slides_ui(),
+                self._update_verse_buttons_state(),
+                self._mapping_panel.refresh(
+                    hotspot,
+                    self._project.current_verse_index,
+                    self._slide_manager.get_slide_image,
+                ) if self._mapping_panel.isVisible() else None,
+            ),
+        )
+        self._undo_stack.push(command)
+
+    def _on_mapping_panel_closed(self) -> None:
+        """매핑 패널 X 버튼 → 패널 숨기고 선택 해제"""
+        sizes = self._h_splitter.sizes()
+        if len(sizes) > 3:
+            self._h_splitter.setSizes([sizes[0], sizes[1], 0, 0])
+        self._canvas.select_hotspot(None)
 
     def _on_hotspot_created_request(
         self, x: int, y: int, index: int | None = None
@@ -1783,9 +1846,11 @@ class MainWindow(QMainWindow):
                 self._update_preview(selected_hotspot),
                 self._update_mapped_slides_ui(),
                 self._update_verse_buttons_state(),
-                self._canvas.popover._update_content()
-                if self._canvas.popover.isVisible()
-                else None,
+                self._mapping_panel.refresh(
+                    selected_hotspot,
+                    self._project.current_verse_index,
+                    self._slide_manager.get_slide_image,
+                ) if self._mapping_panel.isVisible() else None,
             ),
         )
         self._undo_stack.push(command)
@@ -1897,6 +1962,9 @@ class MainWindow(QMainWindow):
                 self._update_preview(hotspot),
                 self._update_mapped_slides_ui(),
                 self._update_verse_buttons_state(),
+                self._mapping_panel.refresh(
+                    hotspot, v_idx, self._slide_manager.get_slide_image
+                ) if self._mapping_panel.isVisible() else None,
             ),
         )
         self._undo_stack.push(command)
