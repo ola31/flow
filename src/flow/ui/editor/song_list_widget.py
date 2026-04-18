@@ -28,6 +28,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from flow.ui.styles import (
+    BG_DEEP, BG_SURFACE, BG_ELEVATED, BG_HOVER, BG_INPUT,
+    BORDER, BORDER_FOCUS, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY, TEXT_INVERSE,
+    ACCENT, ACCENT_HOVER, ACCENT_MUTED, ACCENT_SURFACE,
+    GREEN, GREEN_MUTED, AMBER, AMBER_MUTED, RED,
+    RADIUS_SM, RADIUS_MD, RADIUS_LG, FONT_SM, FONT_MD, FONT_LG, FONT_XL,
+    SP_SM, SP_MD, SP_LG,
+)
+
 from flow.domain.project import Project
 from flow.domain.score_sheet import ScoreSheet
 from flow.domain.song import Song
@@ -112,21 +121,21 @@ class _LibrarySongCard(QFrame):
 
     def _setup_ui(self, info: dict) -> None:
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("""
-            QFrame#LibSongCard {
-                background: #222;
-                border: 1px solid #2e2e2e;
-                border-radius: 8px;
-            }
-            QFrame#LibSongCard:hover {
-                background: #282828;
-                border: 1px solid #444;
-            }
+        self.setStyleSheet(f"""
+            QFrame#LibSongCard {{
+                background: {BG_ELEVATED};
+                border: 1px solid {BORDER};
+                border-radius: {RADIUS_LG}px;
+            }}
+            QFrame#LibSongCard:hover {{
+                background: {BG_HOVER};
+                border: 1px solid {BORDER_FOCUS};
+            }}
         """)
 
         root = QHBoxLayout(self)
-        root.setContentsMargins(12, 10, 12, 10)
-        root.setSpacing(12)
+        root.setContentsMargins(SP_MD, SP_SM, SP_MD, SP_SM)
+        root.setSpacing(SP_MD)
 
         # 왼쪽: 이름 + 상태
         left = QVBoxLayout()
@@ -134,9 +143,12 @@ class _LibrarySongCard(QFrame):
 
         name_lbl = QLabel(info["name"])
         name_lbl.setStyleSheet(
-            "font-size: 14px; font-weight: bold; color: #eee; background: transparent;"
+            f"font-size: {FONT_XL}px; font-weight: bold; color: {TEXT_PRIMARY}; background: transparent;"
         )
         left.addWidget(name_lbl)
+
+        _ok = f"font-size: {FONT_SM}px; color: {GREEN}; background: transparent;"
+        _dim = f"font-size: {FONT_SM}px; color: {TEXT_TERTIARY}; background: transparent;"
 
         status_row = QHBoxLayout()
         status_row.setSpacing(10)
@@ -145,27 +157,27 @@ class _LibrarySongCard(QFrame):
         sc = info["sheet_count"]
         if sc > 0:
             s_lbl = QLabel(f"악보 {sc}장")
-            s_lbl.setStyleSheet("font-size: 11px; color: #4caf50; background: transparent;")
+            s_lbl.setStyleSheet(_ok)
         else:
             s_lbl = QLabel("악보 없음")
-            s_lbl.setStyleSheet("font-size: 11px; color: #888; background: transparent;")
+            s_lbl.setStyleSheet(_dim)
         status_row.addWidget(s_lbl)
 
         # PPT
         if info["has_ppt"]:
             p_lbl = QLabel("PPT")
-            p_lbl.setStyleSheet("font-size: 11px; color: #4caf50; background: transparent;")
+            p_lbl.setStyleSheet(_ok)
         else:
             p_lbl = QLabel("PPT 없음")
-            p_lbl.setStyleSheet("font-size: 11px; color: #888; background: transparent;")
+            p_lbl.setStyleSheet(_dim)
         status_row.addWidget(p_lbl)
 
         # 매핑
         total, mapped = info["total_hotspots"], info["mapped_hotspots"]
         if total > 0:
             m_lbl = QLabel(f"{mapped}/{total}")
-            color = "#4caf50" if mapped == total else "#ff9800"
-            m_lbl.setStyleSheet(f"font-size: 11px; color: {color}; background: transparent;")
+            color = GREEN if mapped == total else AMBER
+            m_lbl.setStyleSheet(f"font-size: {FONT_SM}px; color: {color}; background: transparent;")
             status_row.addWidget(m_lbl)
 
         status_row.addStretch()
@@ -178,13 +190,13 @@ class _LibrarySongCard(QFrame):
         btn.setMinimumWidth(56)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        btn.setStyleSheet("""
-            QPushButton {
-                background: #2196f3; color: #fff;
-                border: none; border-radius: 6px;
-                font-size: 12px; font-weight: bold; padding: 0 14px;
-            }
-            QPushButton:hover { background: #1e88e5; }
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {ACCENT}; color: #fff;
+                border: none; border-radius: {RADIUS_MD}px;
+                font-size: {FONT_MD}px; font-weight: bold; padding: 0 14px;
+            }}
+            QPushButton:hover {{ background: {ACCENT_HOVER}; }}
         """)
         btn.clicked.connect(lambda: self.add_clicked.emit(self._name))
         root.addWidget(btn)
@@ -213,39 +225,39 @@ class SongLibraryDialog(QDialog):
         self._scan()
 
     def _setup_ui(self) -> None:
-        self.setStyleSheet("""
-            QDialog {
-                background: #1a1a1a; color: #ddd;
-                border: 1px solid #333;
-            }
+        self.setStyleSheet(f"""
+            QDialog {{
+                background: {BG_SURFACE}; color: {TEXT_PRIMARY};
+                border: 1px solid {BORDER};
+            }}
         """)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
-        root.setSpacing(12)
+        root.setContentsMargins(SP_LG, SP_LG, SP_LG, SP_LG)
+        root.setSpacing(SP_MD)
 
         # 헤더
         header = QLabel("곡 라이브러리")
         header.setStyleSheet(
-            "font-size: 18px; font-weight: 900; color: #2196f3;"
+            f"font-size: 18px; font-weight: 900; color: {ACCENT};"
         )
         root.addWidget(header)
 
         sub = QLabel("셋리스트에 추가할 곡을 선택하세요")
-        sub.setStyleSheet("font-size: 12px; color: #666;")
+        sub.setStyleSheet(f"font-size: {FONT_MD}px; color: {TEXT_TERTIARY};")
         root.addWidget(sub)
 
         # 검색
         self._search = QLineEdit()
-        self._search.setPlaceholderText("🔍  곡 이름 검색...")
+        self._search.setPlaceholderText("곡 이름 검색...")
         self._search.setFixedHeight(34)
-        self._search.setStyleSheet("""
-            QLineEdit {
-                background: #252525; color: #ddd;
-                border: 1px solid #333; border-radius: 6px;
-                padding: 0 10px; font-size: 12px;
-            }
-            QLineEdit:focus { border-color: #2196f3; }
+        self._search.setStyleSheet(f"""
+            QLineEdit {{
+                background: {BG_INPUT}; color: {TEXT_PRIMARY};
+                border: 1px solid {BORDER}; border-radius: {RADIUS_MD}px;
+                padding: 0 10px; font-size: {FONT_MD}px;
+            }}
+            QLineEdit:focus {{ border-color: {ACCENT}; }}
         """)
         self._search.textChanged.connect(self._filter)
         root.addWidget(self._search)
@@ -254,22 +266,22 @@ class SongLibraryDialog(QDialog):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._scroll.setStyleSheet("""
-            QScrollArea { background: transparent; border: none; }
-            QScrollBar:vertical {
+        self._scroll.setStyleSheet(f"""
+            QScrollArea {{ background: transparent; border: none; }}
+            QScrollBar:vertical {{
                 border: none; background: transparent; width: 6px;
-            }
-            QScrollBar::handle:vertical {
-                background: #444; border-radius: 3px; min-height: 20px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+            }}
+            QScrollBar::handle:vertical {{
+                background: {BORDER_FOCUS}; border-radius: 3px; min-height: 20px;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
         """)
 
         self._list_widget = QWidget()
         self._list_widget.setStyleSheet("background: transparent;")
         self._list_layout = QVBoxLayout(self._list_widget)
         self._list_layout.setContentsMargins(0, 0, 0, 0)
-        self._list_layout.setSpacing(6)
+        self._list_layout.setSpacing(SP_SM)
         self._list_layout.addStretch()
 
         self._scroll.setWidget(self._list_widget)
@@ -278,7 +290,7 @@ class SongLibraryDialog(QDialog):
         # 빈 상태 라벨
         self._empty_label = QLabel()
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet("font-size: 12px; color: #555; padding: 20px;")
+        self._empty_label.setStyleSheet(f"font-size: {FONT_MD}px; color: {TEXT_TERTIARY}; padding: 20px;")
         self._empty_label.hide()
         root.addWidget(self._empty_label)
 
@@ -286,13 +298,13 @@ class SongLibraryDialog(QDialog):
         btn_close = QPushButton("닫기")
         btn_close.setFixedHeight(34)
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_close.setStyleSheet("""
-            QPushButton {
-                background: #2a2a2a; color: #aaa;
-                border: 1px solid #333; border-radius: 6px;
-                font-size: 12px; padding: 0 20px;
-            }
-            QPushButton:hover { background: #333; color: #ddd; }
+        btn_close.setStyleSheet(f"""
+            QPushButton {{
+                background: {BG_HOVER}; color: {TEXT_SECONDARY};
+                border: 1px solid {BORDER}; border-radius: {RADIUS_MD}px;
+                font-size: {FONT_MD}px; padding: 0 20px;
+            }}
+            QPushButton:hover {{ background: {BG_ELEVATED}; color: {TEXT_PRIMARY}; }}
         """)
         btn_close.clicked.connect(self.close)
         root.addWidget(btn_close)
@@ -377,21 +389,21 @@ class _SheetTab(QPushButton):
 
     def _refresh_style(self, active: bool) -> None:
         if active:
-            self.setStyleSheet("""
-                QPushButton {
-                    background: #2196f3; color: #fff;
-                    border: none; border-radius: 4px;
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background: {ACCENT}; color: #fff;
+                    border: none; border-radius: {RADIUS_SM}px;
                     font-size: 10px; font-weight: bold; padding: 0 6px;
-                }
+                }}
             """)
         else:
-            self.setStyleSheet("""
-                QPushButton {
-                    background: #2a2a2a; color: #888;
-                    border: 1px solid #333; border-radius: 4px;
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background: {BG_HOVER}; color: {TEXT_TERTIARY};
+                    border: 1px solid {BORDER}; border-radius: {RADIUS_SM}px;
                     font-size: 10px; padding: 0 6px;
-                }
-                QPushButton:hover { background: #333; color: #ccc; }
+                }}
+                QPushButton:hover {{ background: {BG_ELEVATED}; color: {TEXT_SECONDARY}; }}
             """)
 
 
@@ -436,14 +448,14 @@ class _SongCard(QFrame):
         self._badge.setFixedSize(22, 22)
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._badge.setStyleSheet(
-            "background: #333; color: #888; border-radius: 11px; "
-            "font-size: 10px; font-weight: bold;"
+            f"background: {BG_ELEVATED}; color: {TEXT_TERTIARY}; border-radius: 11px; "
+            f"font-size: 10px; font-weight: bold;"
         )
         top_row.addWidget(self._badge)
 
         self._name_label = QLabel(self._song.name)
         self._name_label.setStyleSheet(
-            "font-size: 13px; font-weight: bold; color: #ddd; background: transparent;"
+            f"font-size: {FONT_LG}px; font-weight: bold; color: {TEXT_PRIMARY}; background: transparent;"
         )
         self._name_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
@@ -452,16 +464,16 @@ class _SongCard(QFrame):
 
         # 편집 버튼 (hover 시 표시)
         self._btn_edit = QPushButton("편집")
-        self._btn_edit.setFixedHeight(22)
-        self._btn_edit.setMinimumWidth(46)
+        self._btn_edit.setFixedHeight(24)
+        self._btn_edit.setMinimumWidth(52)
         self._btn_edit.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_edit.setStyleSheet("""
-            QPushButton {
-                background: #2a3a4a; color: #64b5f6; border: 1px solid #2a5a8a;
-                border-radius: 4px; font-size: 10px; font-weight: bold;
-            }
-            QPushButton:hover { background: #1e3a5a; }
+        self._btn_edit.setStyleSheet(f"""
+            QPushButton {{
+                background: {ACCENT_MUTED}; color: {ACCENT}; border: 1px solid {ACCENT_SURFACE};
+                border-radius: {RADIUS_MD}px; font-size: 10px; font-weight: bold; padding: 0 8px;
+            }}
+            QPushButton:hover {{ background: {ACCENT_SURFACE}; }}
         """)
         self._btn_edit.clicked.connect(lambda: self.edit_requested.emit(self._song))
         self._btn_edit.hide()
@@ -471,12 +483,12 @@ class _SongCard(QFrame):
         self._btn_remove.setFixedSize(22, 22)
         self._btn_remove.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_remove.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_remove.setStyleSheet("""
-            QPushButton {
-                background: transparent; color: #555; border: none;
-                font-size: 11px; font-weight: bold;
-            }
-            QPushButton:hover { color: #ff4444; }
+        self._btn_remove.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {TEXT_TERTIARY}; border: none;
+                font-size: {FONT_SM}px; font-weight: bold;
+            }}
+            QPushButton:hover {{ color: {RED}; }}
         """)
         self._btn_remove.clicked.connect(lambda: self.remove_requested.emit(self._song))
         self._btn_remove.hide()
@@ -516,49 +528,53 @@ class _SongCard(QFrame):
     def refresh_status(self) -> None:
         st = _song_status(self._song)
 
+        _ok = f"font-size: 10px; color: {GREEN}; background: transparent;"
+        _warn = f"font-size: 10px; color: {AMBER}; background: transparent;"
+        _dim = f"font-size: 10px; color: {TEXT_TERTIARY}; background: transparent;"
+
         # 악보
         if st["has_sheets"]:
             self._lbl_sheets.setText("악보")
-            self._lbl_sheets.setStyleSheet("font-size: 10px; color: #4caf50; background: transparent;")
+            self._lbl_sheets.setStyleSheet(_ok)
         else:
             self._lbl_sheets.setText("악보 없음")
-            self._lbl_sheets.setStyleSheet("font-size: 10px; color: #ff9800; background: transparent;")
+            self._lbl_sheets.setStyleSheet(_warn)
 
         # PPT
         if st["has_ppt"]:
             self._lbl_ppt.setText("PPT")
-            self._lbl_ppt.setStyleSheet("font-size: 10px; color: #4caf50; background: transparent;")
+            self._lbl_ppt.setStyleSheet(_ok)
         else:
             self._lbl_ppt.setText("PPT 없음")
-            self._lbl_ppt.setStyleSheet("font-size: 10px; color: #ff9800; background: transparent;")
+            self._lbl_ppt.setStyleSheet(_warn)
 
         # 매핑
         total = st["total_hotspots"]
         mapped = st["mapped_hotspots"]
         if total == 0:
             self._lbl_mapping.setText("핫스팟 없음")
-            self._lbl_mapping.setStyleSheet("font-size: 10px; color: #666; background: transparent;")
+            self._lbl_mapping.setStyleSheet(_dim)
         elif mapped == total:
             self._lbl_mapping.setText(f"{total}개 매핑 완료")
-            self._lbl_mapping.setStyleSheet("font-size: 10px; color: #4caf50; background: transparent;")
+            self._lbl_mapping.setStyleSheet(_ok)
         else:
             self._lbl_mapping.setText(f"{mapped}/{total} 매핑")
-            self._lbl_mapping.setStyleSheet("font-size: 10px; color: #ff9800; background: transparent;")
+            self._lbl_mapping.setStyleSheet(_warn)
 
     def set_selected(self, selected: bool, current_sheet_id: str | None = None) -> None:
         self._is_selected = selected
         self._current_sheet_id = current_sheet_id
         self._badge.setStyleSheet(
-            "background: #2196f3; color: #fff; border-radius: 11px; "
+            f"background: {ACCENT}; color: #fff; border-radius: 11px; "
             "font-size: 10px; font-weight: bold;"
             if selected else
-            "background: #333; color: #888; border-radius: 11px; "
+            f"background: {BG_ELEVATED}; color: {TEXT_TERTIARY}; border-radius: 11px; "
             "font-size: 10px; font-weight: bold;"
         )
         self._name_label.setStyleSheet(
-            "font-size: 13px; font-weight: bold; color: #fff; background: transparent;"
+            f"font-size: {FONT_LG}px; font-weight: bold; color: #fff; background: transparent;"
             if selected else
-            "font-size: 13px; font-weight: bold; color: #ddd; background: transparent;"
+            f"font-size: {FONT_LG}px; font-weight: bold; color: {TEXT_PRIMARY}; background: transparent;"
         )
         self._refresh_tabs(current_sheet_id)
         self._tabs_container.setVisible(selected and bool(self._sheet_tabs))
@@ -581,24 +597,24 @@ class _SongCard(QFrame):
 
     def _refresh_frame_style(self) -> None:
         if self._is_selected:
-            self.setStyleSheet("""
-                QFrame#SongCard {
-                    background: #1a2535;
-                    border: 1px solid #2196f3;
-                    border-radius: 8px;
-                }
+            self.setStyleSheet(f"""
+                QFrame#SongCard {{
+                    background: {ACCENT_SURFACE};
+                    border: 1px solid {ACCENT};
+                    border-radius: {RADIUS_LG}px;
+                }}
             """)
         else:
-            self.setStyleSheet("""
-                QFrame#SongCard {
-                    background: #222;
-                    border: 1px solid #2e2e2e;
-                    border-radius: 8px;
-                }
-                QFrame#SongCard:hover {
-                    background: #252525;
-                    border: 1px solid #3a3a3a;
-                }
+            self.setStyleSheet(f"""
+                QFrame#SongCard {{
+                    background: {BG_ELEVATED};
+                    border: 1px solid {BORDER};
+                    border-radius: {RADIUS_LG}px;
+                }}
+                QFrame#SongCard:hover {{
+                    background: {BG_HOVER};
+                    border: 1px solid {BORDER_FOCUS};
+                }}
             """)
 
     # ── 호버 시 액션 버튼 표시 ────────────────────────────────────────────
@@ -623,11 +639,11 @@ class _SongCard(QFrame):
 
     def contextMenuEvent(self, event) -> None:
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu { background: #252525; color: #ccc; border: 1px solid #3a3a3a; }
-            QMenu::item { padding: 6px 18px; font-size: 12px; }
-            QMenu::item:selected { background: #333; color: #fff; }
-            QMenu::separator { height: 1px; background: #3a3a3a; margin: 4px 0; }
+        menu.setStyleSheet(f"""
+            QMenu {{ background: {BG_ELEVATED}; color: {TEXT_PRIMARY}; border: 1px solid {BORDER_FOCUS}; border-radius: {RADIUS_MD}px; }}
+            QMenu::item {{ padding: {SP_SM}px {SP_LG}px; font-size: {FONT_MD}px; }}
+            QMenu::item:selected {{ background: {ACCENT_MUTED}; color: {ACCENT}; }}
+            QMenu::separator {{ height: 1px; background: {BORDER}; margin: 4px 0; }}
         """)
         edit_act = QAction("곡 편집", self)
         edit_act.triggered.connect(lambda: self.edit_requested.emit(self._song))
@@ -669,7 +685,7 @@ class _StandalonePanel(QWidget):
         # 곡 이름 헤더
         self._song_name = QLabel("—")
         self._song_name.setStyleSheet(
-            "font-size: 14px; font-weight: 900; color: #fbc02d;"
+            f"font-size: {FONT_XL}px; font-weight: 900; color: {ACCENT};"
         )
         layout.addWidget(self._song_name)
 
@@ -685,13 +701,13 @@ class _StandalonePanel(QWidget):
         self._btn_ppt.setFixedHeight(34)
         self._btn_ppt.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_ppt.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_ppt.setStyleSheet("""
-            QPushButton {
-                background: #2a2a2a; color: #ccc;
-                border: 1px solid #3a3a3a; border-radius: 6px;
-                font-size: 11px; font-weight: bold;
-            }
-            QPushButton:hover { background: #333; border-color: #fbc02d; color: #fff; }
+        self._btn_ppt.setStyleSheet(f"""
+            QPushButton {{
+                background: {BG_HOVER}; color: {TEXT_SECONDARY};
+                border: 1px solid {BORDER_FOCUS}; border-radius: {RADIUS_MD}px;
+                font-size: {FONT_SM}px; font-weight: bold;
+            }}
+            QPushButton:hover {{ background: {BG_ELEVATED}; border-color: {ACCENT}; color: {TEXT_PRIMARY}; }}
         """)
         self._btn_ppt.clicked.connect(self.import_ppt_requested.emit)
         layout.addWidget(self._btn_ppt)
@@ -701,13 +717,13 @@ class _StandalonePanel(QWidget):
         self._btn_add.setFixedHeight(34)
         self._btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_add.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_add.setStyleSheet("""
-            QPushButton {
-                background: #fbc02d; color: #1a1a1a;
-                border: none; border-radius: 6px;
-                font-size: 11px; font-weight: bold;
-            }
-            QPushButton:hover { background: #f9a825; }
+        self._btn_add.setStyleSheet(f"""
+            QPushButton {{
+                background: {ACCENT}; color: {TEXT_INVERSE};
+                border: none; border-radius: {RADIUS_MD}px;
+                font-size: {FONT_SM}px; font-weight: bold;
+            }}
+            QPushButton:hover {{ background: {ACCENT_HOVER}; }}
         """)
         self._btn_add.clicked.connect(self.add_sheet_requested.emit)
         layout.addWidget(self._btn_add)
@@ -768,27 +784,27 @@ class _PageCard(QFrame):
         badge.setFixedSize(26, 26)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setStyleSheet(
-            "background: #fbc02d; color: #1a1a1a; border-radius: 13px; "
+            f"background: {ACCENT}; color: {TEXT_INVERSE}; border-radius: 13px; "
             "font-size: 10px; font-weight: bold;"
             if active else
-            "background: #333; color: #888; border-radius: 13px; "
+            f"background: {BG_ELEVATED}; color: {TEXT_TERTIARY}; border-radius: 13px; "
             "font-size: 10px; font-weight: bold;"
         )
         layout.addWidget(badge)
 
         name_lbl = QLabel(self._sheet.name)
         name_lbl.setStyleSheet(
-            "font-size: 12px; color: #fff; font-weight: bold;"
+            f"font-size: {FONT_MD}px; color: #fff; font-weight: bold;"
             if active else
-            "font-size: 12px; color: #aaa;"
+            f"font-size: {FONT_MD}px; color: {TEXT_SECONDARY};"
         )
         layout.addWidget(name_lbl, 1)
 
         self.setStyleSheet(
-            "QFrame#PageCard { background: #2a2200; border: 1px solid #fbc02d; border-radius: 6px; }"
+            f"QFrame#PageCard {{ background: {ACCENT_SURFACE}; border: 1px solid {ACCENT}; border-radius: {RADIUS_MD}px; }}"
             if active else
-            "QFrame#PageCard { background: #1e1e1e; border: 1px solid #2e2e2e; border-radius: 6px; }"
-            "QFrame#PageCard:hover { background: #242424; border-color: #444; }"
+            f"QFrame#PageCard {{ background: {BG_INPUT}; border: 1px solid {BORDER}; border-radius: {RADIUS_MD}px; }}"
+            f"QFrame#PageCard:hover {{ background: {BG_HOVER}; border-color: {BORDER_FOCUS}; }}"
         )
 
     def mousePressEvent(self, event) -> None:
@@ -839,7 +855,7 @@ class SongListWidget(QWidget):
         header_frame = QFrame()
         header_frame.setFixedHeight(44)
         header_frame.setStyleSheet(
-            "background: #1e1e1e; border-bottom: 1px solid #2a2a2a;"
+            f"background: {BG_SURFACE}; border-bottom: 1px solid {BORDER};"
         )
         header_layout = QHBoxLayout(header_frame)
         header_layout.setContentsMargins(12, 0, 12, 0)
@@ -847,12 +863,12 @@ class SongListWidget(QWidget):
 
         self._title_label = QLabel("셋리스트")
         self._title_label.setStyleSheet(
-            "font-size: 13px; font-weight: 900; color: #2196f3; letter-spacing: 0.5px;"
+            f"font-size: {FONT_LG}px; font-weight: 900; color: {ACCENT}; letter-spacing: 0.5px;"
         )
         header_layout.addWidget(self._title_label)
 
         self._count_label = QLabel()
-        self._count_label.setStyleSheet("font-size: 11px; color: #555;")
+        self._count_label.setStyleSheet(f"font-size: {FONT_SM}px; color: {TEXT_TERTIARY};")
         header_layout.addWidget(self._count_label)
         header_layout.addStretch()
 
@@ -863,15 +879,15 @@ class SongListWidget(QWidget):
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll.setStyleSheet("""
-            QScrollArea { background: transparent; border: none; }
-            QScrollBar:vertical {
+        self._scroll.setStyleSheet(f"""
+            QScrollArea {{ background: transparent; border: none; }}
+            QScrollBar:vertical {{
                 border: none; background: transparent; width: 4px; margin: 0;
-            }
-            QScrollBar::handle:vertical {
-                background: #333; border-radius: 2px; min-height: 20px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+            }}
+            QScrollBar::handle:vertical {{
+                background: {BORDER_FOCUS}; border-radius: 2px; min-height: 20px;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
         """)
 
         self._cards_widget = QWidget()
@@ -887,7 +903,7 @@ class SongListWidget(QWidget):
         # ── 하단 액션 버튼
         self._footer = QFrame()
         self._footer.setStyleSheet(
-            "background: #1e1e1e; border-top: 1px solid #2a2a2a;"
+            f"background: {BG_SURFACE}; border-top: 1px solid {BORDER};"
         )
         footer_layout = QVBoxLayout(self._footer)
         footer_layout.setContentsMargins(8, 8, 8, 8)
@@ -897,14 +913,14 @@ class SongListWidget(QWidget):
         self._btn_add_lib.setFixedHeight(34)
         self._btn_add_lib.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_add_lib.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_add_lib.setStyleSheet("""
-            QPushButton {
-                background: #2196f3; color: #fff;
-                border: none; border-radius: 6px;
-                font-size: 11px; font-weight: bold;
-            }
-            QPushButton:hover { background: #1e88e5; }
-            QPushButton:disabled { background: #2a2a2a; color: #555; }
+        self._btn_add_lib.setStyleSheet(f"""
+            QPushButton {{
+                background: {ACCENT}; color: #fff;
+                border: none; border-radius: {RADIUS_MD}px;
+                font-size: {FONT_SM}px; font-weight: bold;
+            }}
+            QPushButton:hover {{ background: {ACCENT_HOVER}; }}
+            QPushButton:disabled {{ background: {BG_HOVER}; color: {TEXT_TERTIARY}; }}
         """)
         self._btn_add_lib.clicked.connect(self._on_add_clicked)
         footer_layout.addWidget(self._btn_add_lib)
@@ -913,14 +929,14 @@ class SongListWidget(QWidget):
         self._btn_new_song.setFixedHeight(30)
         self._btn_new_song.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_new_song.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_new_song.setStyleSheet("""
-            QPushButton {
-                background: transparent; color: #666;
-                border: 1px solid #333; border-radius: 6px;
-                font-size: 11px;
-            }
-            QPushButton:hover { background: #252525; color: #aaa; border-color: #444; }
-            QPushButton:disabled { color: #444; border-color: #2a2a2a; }
+        self._btn_new_song.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {TEXT_TERTIARY};
+                border: 1px solid {BORDER}; border-radius: {RADIUS_MD}px;
+                font-size: {FONT_SM}px;
+            }}
+            QPushButton:hover {{ background: {BG_HOVER}; color: {TEXT_SECONDARY}; border-color: {BORDER_FOCUS}; }}
+            QPushButton:disabled {{ color: {TEXT_TERTIARY}; border-color: {BORDER}; }}
         """)
         self._btn_new_song.clicked.connect(self._add_new_song_inline)
         footer_layout.addWidget(self._btn_new_song)
@@ -940,13 +956,13 @@ class SongListWidget(QWidget):
         if standalone:
             self._title_label.setText("곡 편집")
             self._title_label.setStyleSheet(
-                "font-size: 13px; font-weight: 900; color: #fbc02d; letter-spacing: 0.5px;"
+                f"font-size: {FONT_LG}px; font-weight: 900; color: {ACCENT}; letter-spacing: 0.5px;"
             )
             self._footer.setVisible(False)
         else:
             self._title_label.setText("셋리스트")
             self._title_label.setStyleSheet(
-                "font-size: 13px; font-weight: 900; color: #2196f3; letter-spacing: 0.5px;"
+                f"font-size: {FONT_LG}px; font-weight: 900; color: {ACCENT}; letter-spacing: 0.5px;"
             )
             self._footer.setVisible(True)
 
