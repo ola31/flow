@@ -60,9 +60,12 @@ class SlidePreviewPanel(QWidget):
         header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(5, 0, 5, 0)
 
+        from flow.ui.icons import icon_label as _icon_label
+        self._title_icon = _icon_label("slideshow", 14, "#5b8def")
+        header_layout.addWidget(self._title_icon)
+
         self._title = QLabel("PPT 슬라이드 (0)")
         self._title.setStyleSheet("""
-            font-weight: 500;
             font-size: 12px;
             color: #5b8def;
         """)

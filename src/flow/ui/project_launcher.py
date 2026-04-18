@@ -157,10 +157,11 @@ class _RecentCard(QFrame):
 class _Panel(QFrame):
     """홈 화면의 좌/우 패널."""
 
-    def __init__(self, title: str, subtitle: str, parent=None) -> None:
+    def __init__(self, title: str, subtitle: str, icon_name: str = "", parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("HomePanel")
         self._cards: list[_RecentCard] = []
+        self._icon_name = icon_name
 
         self.setStyleSheet(f"""
             QFrame#HomePanel {{
@@ -181,12 +182,21 @@ class _Panel(QFrame):
         root.setContentsMargins(SP_XL, SP_XL, SP_XL, SP_XL)
         root.setSpacing(0)
 
-        # 제목
+        # 제목 행 (아이콘 + 텍스트)
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(SP_SM)
+        if icon_name:
+            from flow.ui.icons import icon_label as _icon_label
+            ic = _icon_label(icon_name, 20, TEXT_PRIMARY)
+            title_row.addWidget(ic)
         lbl_title = QLabel(title)
         lbl_title.setStyleSheet(
             f"font-size: {FONT_2XL}px; font-weight: 600; color: {TEXT_PRIMARY};"
         )
-        root.addWidget(lbl_title)
+        title_row.addWidget(lbl_title)
+        title_row.addStretch()
+        root.addLayout(title_row)
         root.addSpacing(4)
 
         # 부제
@@ -336,6 +346,7 @@ class ProjectLauncher(QWidget):
         self._song_panel = _Panel(
             "곡 라이브러리",
             "악보 · PPT · 핫스팟 매핑의 기본 단위",
+            "library",
         )
         self._btn_new_song = self._song_panel.add_action_btn("새 곡 만들기", primary=True)
         self._btn_open_song = self._song_panel.add_action_btn("폴더에서 열기")
@@ -346,6 +357,7 @@ class ProjectLauncher(QWidget):
         self._proj_panel = _Panel(
             "프로젝트",
             "곡을 조합해 예배 셋리스트로 사용",
+            "queue_music",
         )
         self._btn_new_proj = self._proj_panel.add_action_btn("새 프로젝트", primary=True)
         self._btn_open_proj = self._proj_panel.add_action_btn("폴더에서 열기")

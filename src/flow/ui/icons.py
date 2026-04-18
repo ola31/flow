@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 _FONT_FAMILY: str | None = None
 _FONT_PATH = Path(__file__).parent.parent / "resources" / "MaterialSymbolsRounded-Subset.ttf"
@@ -79,6 +81,32 @@ def icon(name: str) -> str:
     return chr(cp)
 
 
-def icon_text(name: str, text: str, spacing: int = 2) -> str:
-    """아이콘 + 텍스트 조합 문자열 반환 (단일 폰트에서는 사용 불가 — 레이아웃용)."""
-    return f"{icon(name)}{' ' * spacing}{text}"
+def icon_label(name: str, size: int = 16, color: str = "#a0a0a0", parent=None) -> QLabel:
+    """아이콘 QLabel 생성. 아이콘 폰트로 단일 글리프를 표시."""
+    lbl = QLabel(icon(name), parent)
+    lbl.setFont(icon_font(size))
+    lbl.setStyleSheet(f"color: {color}; background: transparent;")
+    lbl.setFixedSize(size + 4, size + 4)
+    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    return lbl
+
+
+def icon_text_label(
+    name: str, text: str, icon_size: int = 14, color: str = "#a0a0a0",
+    font_size: int = 12, parent=None,
+) -> QWidget:
+    """아이콘 + 텍스트를 나란히 배치한 위젯."""
+    w = QWidget(parent)
+    w.setStyleSheet("background: transparent;")
+    lay = QHBoxLayout(w)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(4)
+
+    ic = icon_label(name, icon_size, color, w)
+    lay.addWidget(ic)
+
+    t = QLabel(text, w)
+    t.setStyleSheet(f"font-size: {font_size}px; color: {color}; background: transparent;")
+    lay.addWidget(t)
+
+    return w

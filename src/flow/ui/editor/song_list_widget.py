@@ -496,17 +496,28 @@ class _SongCard(QFrame):
 
         root.addLayout(top_row)
 
-        # ── 상태 행: 악보·PPT·매핑 배지
+        # ── 상태 행: 악보·PPT·매핑 배지 (아이콘 + 텍스트)
+        from flow.ui.icons import icon_label as _icon_label
         self._status_row = QHBoxLayout()
         self._status_row.setContentsMargins(30, 0, 0, 0)
-        self._status_row.setSpacing(6)
+        self._status_row.setSpacing(SP_SM)
+
+        self._ico_sheets = _icon_label("image", 12, TEXT_TERTIARY)
         self._lbl_sheets = QLabel()
+        self._ico_ppt = _icon_label("slideshow", 12, TEXT_TERTIARY)
         self._lbl_ppt = QLabel()
+        self._ico_mapping = _icon_label("circle", 12, TEXT_TERTIARY)
         self._lbl_mapping = QLabel()
         for lbl in (self._lbl_sheets, self._lbl_ppt, self._lbl_mapping):
             lbl.setStyleSheet("font-size: 10px; background: transparent;")
+
+        self._status_row.addWidget(self._ico_sheets)
         self._status_row.addWidget(self._lbl_sheets)
+        self._status_row.addSpacing(SP_SM)
+        self._status_row.addWidget(self._ico_ppt)
         self._status_row.addWidget(self._lbl_ppt)
+        self._status_row.addSpacing(SP_SM)
+        self._status_row.addWidget(self._ico_mapping)
         self._status_row.addWidget(self._lbl_mapping)
         self._status_row.addStretch()
         root.addLayout(self._status_row)
@@ -528,38 +539,32 @@ class _SongCard(QFrame):
     def refresh_status(self) -> None:
         st = _song_status(self._song)
 
-        _ok = f"font-size: 10px; color: {GREEN}; background: transparent;"
-        _warn = f"font-size: 10px; color: {AMBER}; background: transparent;"
-        _dim = f"font-size: 10px; color: {TEXT_TERTIARY}; background: transparent;"
+        def _set_status(ico_lbl, txt_lbl, text, color):
+            txt_lbl.setText(text)
+            txt_lbl.setStyleSheet(f"font-size: 10px; color: {color}; background: transparent;")
+            ico_lbl.setStyleSheet(f"color: {color}; background: transparent;")
 
         # 악보
         if st["has_sheets"]:
-            self._lbl_sheets.setText("악보")
-            self._lbl_sheets.setStyleSheet(_ok)
+            _set_status(self._ico_sheets, self._lbl_sheets, "악보", GREEN)
         else:
-            self._lbl_sheets.setText("악보 없음")
-            self._lbl_sheets.setStyleSheet(_warn)
+            _set_status(self._ico_sheets, self._lbl_sheets, "없음", AMBER)
 
         # PPT
         if st["has_ppt"]:
-            self._lbl_ppt.setText("PPT")
-            self._lbl_ppt.setStyleSheet(_ok)
+            _set_status(self._ico_ppt, self._lbl_ppt, "PPT", GREEN)
         else:
-            self._lbl_ppt.setText("PPT 없음")
-            self._lbl_ppt.setStyleSheet(_warn)
+            _set_status(self._ico_ppt, self._lbl_ppt, "없음", AMBER)
 
         # 매핑
         total = st["total_hotspots"]
         mapped = st["mapped_hotspots"]
         if total == 0:
-            self._lbl_mapping.setText("핫스팟 없음")
-            self._lbl_mapping.setStyleSheet(_dim)
+            _set_status(self._ico_mapping, self._lbl_mapping, "—", TEXT_TERTIARY)
         elif mapped == total:
-            self._lbl_mapping.setText(f"{total}개 매핑 완료")
-            self._lbl_mapping.setStyleSheet(_ok)
+            _set_status(self._ico_mapping, self._lbl_mapping, f"{total}개 완료", GREEN)
         else:
-            self._lbl_mapping.setText(f"{mapped}/{total} 매핑")
-            self._lbl_mapping.setStyleSheet(_warn)
+            _set_status(self._ico_mapping, self._lbl_mapping, f"{mapped}/{total}", AMBER)
 
     def set_selected(self, selected: bool, current_sheet_id: str | None = None) -> None:
         self._is_selected = selected
@@ -861,6 +866,10 @@ class SongListWidget(QWidget):
         header_layout.setContentsMargins(12, 0, 12, 0)
         header_layout.setSpacing(6)
 
+        from flow.ui.icons import icon_label
+        self._title_icon = icon_label("queue_music", 16, ACCENT, header_frame)
+        header_layout.addWidget(self._title_icon)
+
         self._title_label = QLabel("셋리스트")
         self._title_label.setStyleSheet(
             f"font-size: {FONT_LG}px; font-weight: 500; color: {ACCENT};"
@@ -952,15 +961,17 @@ class SongListWidget(QWidget):
         self._scroll.installEventFilter(filter_obj)
 
     def set_standalone(self, standalone: bool) -> None:
+        from flow.ui.icons import icon, icon_font
         self._is_standalone = standalone
         if standalone:
             self._title_label.setText("곡 편집")
-            self._title_label.setStyleSheet(
-                f"font-size: {FONT_LG}px; font-weight: 500; color: {ACCENT};"
-            )
+            self._title_icon.setFont(icon_font(16))
+            self._title_icon.setText(icon("edit"))
             self._footer.setVisible(False)
         else:
             self._title_label.setText("셋리스트")
+            self._title_icon.setFont(icon_font(16))
+            self._title_icon.setText(icon("queue_music"))
             self._title_label.setStyleSheet(
                 f"font-size: {FONT_LG}px; font-weight: 500; color: {ACCENT};"
             )
