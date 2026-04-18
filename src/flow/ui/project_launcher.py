@@ -182,21 +182,19 @@ class _Panel(QFrame):
         root.setContentsMargins(SP_XL, SP_XL, SP_XL, SP_XL)
         root.setSpacing(0)
 
-        # 제목 행 (아이콘 + 텍스트)
-        title_row = QHBoxLayout()
-        title_row.setContentsMargins(0, 0, 0, 0)
-        title_row.setSpacing(SP_SM)
+        # 아이콘 (큰 사이즈)
         if icon_name:
             from flow.ui.icons import icon_label as _icon_label
-            ic = _icon_label(icon_name, 20, TEXT_PRIMARY)
-            title_row.addWidget(ic)
+            ic = _icon_label(icon_name, 36, ACCENT)
+            root.addWidget(ic)
+            root.addSpacing(SP_MD)
+
+        # 제목
         lbl_title = QLabel(title)
         lbl_title.setStyleSheet(
             f"font-size: {FONT_2XL}px; font-weight: 600; color: {TEXT_PRIMARY};"
         )
-        title_row.addWidget(lbl_title)
-        title_row.addStretch()
-        root.addLayout(title_row)
+        root.addWidget(lbl_title)
         root.addSpacing(4)
 
         # 부제

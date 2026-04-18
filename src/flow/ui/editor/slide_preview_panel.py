@@ -71,7 +71,9 @@ class SlidePreviewPanel(QWidget):
         """)
         header_layout.addWidget(self._title, 1)
 
+        from flow.ui.icons import icon_qicon
         self._btn_reload = QPushButton("새로고침")
+        self._btn_reload.setIcon(icon_qicon("refresh", 14, "#ccc"))
         self._btn_reload.setFixedHeight(26)
         self._btn_reload.setMinimumWidth(70)
         self._btn_reload.setCursor(Qt.CursorShape.PointingHandCursor)

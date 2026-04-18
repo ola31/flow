@@ -496,28 +496,17 @@ class _SongCard(QFrame):
 
         root.addLayout(top_row)
 
-        # ── 상태 행: 악보·PPT·매핑 배지 (아이콘 + 텍스트)
-        from flow.ui.icons import icon_label as _icon_label
+        # ── 상태 행: 악보·PPT·매핑 텍스트
         self._status_row = QHBoxLayout()
         self._status_row.setContentsMargins(30, 0, 0, 0)
-        self._status_row.setSpacing(SP_SM)
-
-        self._ico_sheets = _icon_label("image", 12, TEXT_TERTIARY)
+        self._status_row.setSpacing(SP_MD)
         self._lbl_sheets = QLabel()
-        self._ico_ppt = _icon_label("slideshow", 12, TEXT_TERTIARY)
         self._lbl_ppt = QLabel()
-        self._ico_mapping = _icon_label("circle", 12, TEXT_TERTIARY)
         self._lbl_mapping = QLabel()
         for lbl in (self._lbl_sheets, self._lbl_ppt, self._lbl_mapping):
             lbl.setStyleSheet("font-size: 10px; background: transparent;")
-
-        self._status_row.addWidget(self._ico_sheets)
         self._status_row.addWidget(self._lbl_sheets)
-        self._status_row.addSpacing(SP_SM)
-        self._status_row.addWidget(self._ico_ppt)
         self._status_row.addWidget(self._lbl_ppt)
-        self._status_row.addSpacing(SP_SM)
-        self._status_row.addWidget(self._ico_mapping)
         self._status_row.addWidget(self._lbl_mapping)
         self._status_row.addStretch()
         root.addLayout(self._status_row)
@@ -539,32 +528,23 @@ class _SongCard(QFrame):
     def refresh_status(self) -> None:
         st = _song_status(self._song)
 
-        def _set_status(ico_lbl, txt_lbl, text, color):
-            txt_lbl.setText(text)
-            txt_lbl.setStyleSheet(f"font-size: 10px; color: {color}; background: transparent;")
-            ico_lbl.setStyleSheet(f"color: {color}; background: transparent;")
+        def _set(lbl, text, color):
+            lbl.setText(text)
+            lbl.setStyleSheet(f"font-size: 10px; color: {color}; background: transparent;")
 
-        # 악보
-        if st["has_sheets"]:
-            _set_status(self._ico_sheets, self._lbl_sheets, "악보", GREEN)
-        else:
-            _set_status(self._ico_sheets, self._lbl_sheets, "없음", AMBER)
+        _set(self._lbl_sheets, "악보" if st["has_sheets"] else "악보 없음",
+             GREEN if st["has_sheets"] else AMBER)
+        _set(self._lbl_ppt, "PPT" if st["has_ppt"] else "PPT 없음",
+             GREEN if st["has_ppt"] else AMBER)
 
-        # PPT
-        if st["has_ppt"]:
-            _set_status(self._ico_ppt, self._lbl_ppt, "PPT", GREEN)
-        else:
-            _set_status(self._ico_ppt, self._lbl_ppt, "없음", AMBER)
-
-        # 매핑
         total = st["total_hotspots"]
         mapped = st["mapped_hotspots"]
         if total == 0:
-            _set_status(self._ico_mapping, self._lbl_mapping, "—", TEXT_TERTIARY)
+            _set(self._lbl_mapping, "", TEXT_TERTIARY)
         elif mapped == total:
-            _set_status(self._ico_mapping, self._lbl_mapping, f"{total}개 완료", GREEN)
+            _set(self._lbl_mapping, f"매핑 {total}개 완료", GREEN)
         else:
-            _set_status(self._ico_mapping, self._lbl_mapping, f"{mapped}/{total}", AMBER)
+            _set(self._lbl_mapping, f"매핑 {mapped}/{total}", AMBER)
 
     def set_selected(self, selected: bool, current_sheet_id: str | None = None) -> None:
         self._is_selected = selected

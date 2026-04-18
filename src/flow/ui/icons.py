@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QFontDatabase
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
+from PySide6.QtCore import Qt, QRect
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QImage, QPainter, QPixmap
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 _FONT_FAMILY: str | None = None
 _FONT_PATH = Path(__file__).parent.parent / "resources" / "MaterialSymbolsRounded-Subset.ttf"
@@ -79,6 +79,25 @@ def icon(name: str) -> str:
     if cp is None:
         return "?"
     return chr(cp)
+
+
+def icon_pixmap(name: str, size: int = 18, color: str = "#a0a0a0") -> QPixmap:
+    """아이콘을 QPixmap으로 렌더링."""
+    _ensure_loaded()
+    px = QPixmap(size, size)
+    px.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(px)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setFont(icon_font(size))
+    painter.setPen(QColor(color))
+    painter.drawText(QRect(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, icon(name))
+    painter.end()
+    return px
+
+
+def icon_qicon(name: str, size: int = 18, color: str = "#a0a0a0") -> QIcon:
+    """아이콘을 QIcon으로 반환 (QAction/QToolButton용)."""
+    return QIcon(icon_pixmap(name, size, color))
 
 
 def icon_label(name: str, size: int = 16, color: str = "#a0a0a0", parent=None) -> QLabel:

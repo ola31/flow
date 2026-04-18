@@ -250,7 +250,8 @@ class MainWindow(QMainWindow):
             return sep
 
         # === 모든 액션 생성 (단축키 유지를 위해) ===
-        # 파일 액션들 (런처에서만 사용, 툴�에서는 제외)
+        from flow.ui.icons import icon_qicon
+
         self._new_song_action = QAction("새 곡", self)
         self._new_song_action.triggered.connect(self._new_song)
 
@@ -258,55 +259,51 @@ class MainWindow(QMainWindow):
         self._open_action.setShortcut(QKeySequence.StandardKey.Open)
         self._open_action.triggered.connect(self._open_project)
 
-        self._save_action = QAction("저장", self)
+        self._save_action = QAction(icon_qicon("save", 18, "#a0a0a0"), "저장", self)
         self._save_action.setShortcut(QKeySequence.StandardKey.Save)
         self._save_action.triggered.connect(self._save_project)
 
         self._save_as_action = QAction("다른 이름 저장", self)
         self._save_as_action.triggered.connect(self._save_project_as)
 
-        self._close_project_action = QAction("홈", self)
+        self._close_project_action = QAction(icon_qicon("home", 18, "#a0a0a0"), "홈", self)
         self._close_project_action.triggered.connect(self._close_current_project)
 
-        self._back_to_project_action = QAction("프로젝트로 돌아가기", self)
+        self._back_to_project_action = QAction(icon_qicon("arrow_back", 18, "#a0a0a0"), "프로젝트로 돌아가기", self)
         self._back_to_project_action.triggered.connect(self._exit_song_edit_mode)
 
-        # 설정
-        self._settings_action = QAction("설정", self)
+        self._settings_action = QAction(icon_qicon("settings", 18, "#a0a0a0"), "설정", self)
         self._settings_action.setToolTip("환경설정")
         self._settings_action.triggered.connect(self._show_settings)
 
-        # 슬라이드 목록 토글 (단축키만 유지, 툴�에서는 제외)
         self._toggle_slide_action = QAction("슬라이드 목록", self)
         self._toggle_slide_action.setCheckable(True)
         self._toggle_slide_action.setChecked(True)
         self._toggle_slide_action.setShortcut("Ctrl+H")
         self._toggle_slide_action.triggered.connect(self._toggle_slide_preview)
-        self.addAction(self._toggle_slide_action)  # 단축키 유지
+        self.addAction(self._toggle_slide_action)
 
-        # 라이브 모드 (F5 진입, Esc 퇴장)
-        self._live_mode_action = QAction("라이브 F5", self)
+        self._live_mode_action = QAction(icon_qicon("play", 18, "#a0a0a0"), "라이브 F5", self)
         self._live_mode_action.setCheckable(True)
         self._live_mode_action.triggered.connect(self._toggle_live_mode)
         self._is_live = False
 
-        # 라이브 종료
         self._exit_live_action = QAction("라이브 종료", self)
         self._exit_live_action.triggered.connect(self._toggle_live_mode)
 
-        # 송출
-        self._display_action = QAction("송출 시작", self)
+        self._display_action = QAction(icon_qicon("tv", 18, "#a0a0a0"), "송출 시작", self)
         self._display_action.setShortcut("F11")
         self._display_action.setEnabled(False)
         self._display_action.triggered.connect(self._toggle_display)
 
-        # 실행 취소/다시 실행
         undo_action = self._undo_stack.createUndoAction(self, "실행 취소")
+        undo_action.setIcon(icon_qicon("undo", 18, "#a0a0a0"))
         undo_action.setShortcut(QKeySequence.Undo)
         self._undo_action = undo_action
         self.addAction(undo_action)
 
         redo_action = self._undo_stack.createRedoAction(self, "다시 실행")
+        redo_action.setIcon(icon_qicon("redo", 18, "#a0a0a0"))
         redo_action.setShortcuts([QKeySequence.Redo, QtGui.QKeySequence("Ctrl+Y")])
         self._redo_action = redo_action
         self.addAction(redo_action)
