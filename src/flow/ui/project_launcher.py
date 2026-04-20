@@ -299,16 +299,49 @@ class ProjectLauncher(QWidget):
     new_song_requested = Signal()
     open_project_requested = Signal()
     remove_recent_requested = Signal(str, str)
+    switch_workspace_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet(f"background: {BG_DEEP};")
+        self._workspace = None
         self._setup_ui()
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(60, 48, 60, 32)
+        root.setContentsMargins(60, 24, 60, 32)
         root.setSpacing(0)
+
+        # ── 워크스페이스 헤더 바
+        ws_bar = QHBoxLayout()
+        ws_bar.setSpacing(SP_SM)
+
+        self._ws_label = QLabel("워크스페이스 없음")
+        self._ws_label.setStyleSheet(
+            f"font-size: {FONT_SM}px; color: {TEXT_TERTIARY}; "
+            "letter-spacing: 1px;"
+        )
+        ws_bar.addWidget(self._ws_label)
+        ws_bar.addStretch()
+
+        self._btn_switch_ws = QPushButton("워크스페이스 변경")
+        self._btn_switch_ws.setFixedHeight(28)
+        self._btn_switch_ws.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_switch_ws.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_switch_ws.setStyleSheet(
+            f"""
+            QPushButton {{
+                background: transparent; color: {TEXT_TERTIARY};
+                border: 1px solid {BORDER}; border-radius: {RADIUS_MD}px;
+                font-size: {FONT_SM}px; padding: 0 {SP_MD}px;
+            }}
+            QPushButton:hover {{ color: {TEXT_PRIMARY}; border-color: {BORDER_FOCUS}; }}
+            """
+        )
+        self._btn_switch_ws.clicked.connect(self.switch_workspace_requested.emit)
+        ws_bar.addWidget(self._btn_switch_ws)
+        root.addLayout(ws_bar)
+        root.addSpacing(SP_XL)
 
         # ── 헤더
         hdr = QVBoxLayout()
@@ -366,6 +399,59 @@ class ProjectLauncher(QWidget):
         root.addWidget(footer)
 
     # ── 데이터 설정 ─────────────────────────────────────────────
+
+    def set_workspace(self, workspace) -> None:
+        """워크스페이스를 설정하고 프로젝트/라이브러리 목록을 자동 갱신."""
+        self._workspace = workspace
+        if workspace is None:
+            self._ws_label.setText("워크스페이스 없음")
+            self._song_panel.set_cards([])
+            self._proj_panel.set_cards([])
+            return
+
+        self._ws_label.setText(f"워크스페이스: {workspace.name}")
+        self._ws_label.setToolTip(str(workspace.root))
+        self.refresh_workspace_items()
+
+    def refresh_workspace_items(self) -> None:
+        """워크스페이스의 projects/ 및 library/ 내용을 읽어 카드 갱신."""
+        if self._workspace is None:
+            return
+
+        # 프로젝트 카드 (projects/ 하위)
+        proj_cards = []
+        for proj_dir in self._workspace.list_projects():
+            pj_path = proj_dir / "project.json"
+            count_txt = _project_song_count(str(pj_path))
+            card = _RecentCard(
+                str(pj_path),
+                "project",
+                proj_dir.name,
+                str(proj_dir),
+                count_txt,
+                ACCENT,
+            )
+            card.clicked.connect(self._on_card_clicked)
+            card.remove_requested.connect(self.remove_recent_requested.emit)
+            proj_cards.append(card)
+        self._proj_panel.set_cards(proj_cards)
+
+        # 라이브러리 곡 카드 (library/ 하위)
+        song_cards = []
+        for song_dir in self._workspace.list_library_songs():
+            status, tip, color = _song_status(str(song_dir))
+            card = _RecentCard(
+                str(song_dir),
+                "song",
+                song_dir.name,
+                str(song_dir),
+                status,
+                color,
+            )
+            card.clicked.connect(self._on_card_clicked)
+            card.remove_requested.connect(self.remove_recent_requested.emit)
+            song_cards.append(card)
+        self._song_panel.set_cards(song_cards)
 
     def set_recent_items(self, projects: list[str], songs: list[str]) -> None:
         # 곡 카드

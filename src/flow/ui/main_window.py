@@ -136,6 +136,27 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _switch_workspace(self) -> None:
+        """워크스페이스 변경 다이얼로그 열기"""
+        from flow.ui.workspace_dialog import WorkspaceDialog
+        from flow.domain.workspace import Workspace
+        from flow.repository.project_repository import ProjectRepository
+
+        recent = self._config_service.get_recent_workspaces()
+        dlg = WorkspaceDialog(recent_paths=recent, parent=self)
+        if dlg.exec() != dlg.DialogCode.Accepted or dlg.selected_workspace is None:
+            return
+
+        ws: Workspace = dlg.selected_workspace
+        self._workspace = ws
+        self._repo = ProjectRepository(ws.projects_dir)
+        self._config_service.add_recent_workspace(str(ws.root))
+
+        # 현재 프로젝트가 있으면 닫고 홈으로
+        self._project = None
+        self._project_path = None
+        self.show_home()
+
     def _remove_recent_item(self, path: str, item_type: str):
         """런처 최근 목록에서 항목 제거"""
         if item_type == "project":
@@ -151,10 +172,13 @@ class MainWindow(QMainWindow):
 
     def show_home(self) -> None:
         self._stack.setCurrentIndex(0)
-        self._home_screen.set_recent_items(
-            self._config_service.get_recent_projects(),
-            self._config_service.get_recent_songs(),
-        )
+        if self._workspace is not None:
+            self._launcher.set_workspace(self._workspace)
+        else:
+            self._home_screen.set_recent_items(
+                self._config_service.get_recent_projects(),
+                self._config_service.get_recent_songs(),
+            )
         self._toolbar.hide()
         self._statusbar.hide()
         self.setWindowTitle("Flow - 시작하기")
@@ -449,6 +473,7 @@ class MainWindow(QMainWindow):
         self._launcher.new_song_requested.connect(self._new_song)
         self._launcher.open_project_requested.connect(self._open_project)
         self._launcher.remove_recent_requested.connect(self._remove_recent_item)
+        self._launcher.switch_workspace_requested.connect(self._switch_workspace)
 
         # 곡 목록 시그널
         self._song_list.song_selected.connect(self._on_song_selected)
