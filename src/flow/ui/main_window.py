@@ -136,6 +136,57 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _clone_project(self, source_path: str) -> None:
+        """워크스페이스 프로젝트를 복제해 새 프로젝트 생성.
+
+        library 곡은 참조 그대로 유지, 로컬 오버라이드만 복사됨.
+        """
+        if self._workspace is None:
+            QMessageBox.warning(
+                self,
+                "워크스페이스 필요",
+                "복제는 워크스페이스 모드에서만 사용할 수 있습니다.",
+            )
+            return
+
+        src_name = self._detect_workspace_project(Path(source_path))
+        if src_name is None:
+            QMessageBox.warning(
+                self,
+                "복제 불가",
+                "이 프로젝트는 현재 워크스페이스에 속하지 않아 복제할 수 없습니다.",
+            )
+            return
+
+        from PySide6.QtWidgets import QInputDialog
+
+        new_name, ok = QInputDialog.getText(
+            self,
+            "프로젝트 복제",
+            f"'{src_name}'의 복사본 이름:",
+            text=f"{src_name} 복사본",
+        )
+        if not ok or not new_name.strip():
+            return
+        new_name = new_name.strip()
+
+        try:
+            self._repo.clone_workspace_project(self._workspace, src_name, new_name)
+            self._launcher.refresh_workspace_items()
+            self._statusbar.showMessage(
+                f"프로젝트 '{src_name}'을(를) '{new_name}'(으)로 복제했습니다."
+            )
+        except FileExistsError:
+            QMessageBox.warning(
+                self,
+                "이미 존재합니다",
+                f"같은 이름의 프로젝트가 이미 있습니다: {new_name}",
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self, "복제 실패", f"프로젝트를 복제할 수 없습니다:\n{e}"
+            )
+
     def _detect_workspace_project(self, path: Path) -> str | None:
         """path가 현재 워크스페이스 내의 프로젝트면 프로젝트 이름 반환.
 
@@ -176,13 +227,41 @@ class MainWindow(QMainWindow):
         self.show_home()
 
     def _remove_recent_item(self, path: str, item_type: str):
-        """런처 최근 목록에서 항목 제거"""
+        """카드에서 '목록에서 제거' 선택 시 호출.
+
+        - 레거시 모드: config의 최근 목록에서 제거 (파일은 보존)
+        - 워크스페이스 모드 + 프로젝트: 확인 후 projects/{name}/ 폴더 삭제
+        """
+        # 워크스페이스 프로젝트는 파일시스템에서도 제거
+        if item_type == "project" and self._workspace is not None:
+            ws_name = self._detect_workspace_project(Path(path))
+            if ws_name is not None:
+                reply = QMessageBox.question(
+                    self,
+                    "프로젝트 삭제",
+                    f"'{ws_name}' 프로젝트를 워크스페이스에서 완전히 삭제할까요?\n"
+                    "로컬 곡(songs/)도 함께 삭제됩니다.\n"
+                    "library/ 의 공용 곡은 영향받지 않습니다.",
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+                try:
+                    self._repo.delete_workspace_project(self._workspace, ws_name)
+                except Exception as e:
+                    QMessageBox.critical(
+                        self, "삭제 실패", f"프로젝트를 삭제할 수 없습니다:\n{e}"
+                    )
+                    return
+                self._launcher.refresh_workspace_items()
+                self._statusbar.showMessage(f"'{ws_name}' 프로젝트를 삭제했습니다.")
+                return
+
+        # 레거시 모드: config에서만 제거
         if item_type == "project":
             self._config_service.remove_recent_project(path)
         else:
             self._config_service.remove_recent_song(path)
 
-        # 목록 즉시 갱신
         self._launcher.set_recent_items(
             self._config_service.get_recent_projects(),
             self._config_service.get_recent_songs(),
@@ -492,6 +571,7 @@ class MainWindow(QMainWindow):
         self._launcher.open_project_requested.connect(self._open_project)
         self._launcher.remove_recent_requested.connect(self._remove_recent_item)
         self._launcher.switch_workspace_requested.connect(self._switch_workspace)
+        self._launcher.clone_project_requested.connect(self._clone_project)
 
         # 곡 목록 시그널
         self._song_list.song_selected.connect(self._on_song_selected)

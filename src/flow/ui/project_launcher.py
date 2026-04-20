@@ -78,6 +78,7 @@ class _RecentCard(QFrame):
 
     clicked = Signal(str, str)       # (path, kind)
     remove_requested = Signal(str, str)
+    clone_requested = Signal(str)    # (project path) — kind="project"에서만 발생
 
     def __init__(self, path: str, kind: str, title: str, detail: str,
                  badge: str = "", badge_color: str = "", parent=None) -> None:
@@ -145,6 +146,13 @@ class _RecentCard(QFrame):
             QMenu::item {{ padding: {SP_SM}px {SP_LG}px; font-size: {FONT_MD}px; }}
             QMenu::item:selected {{ background: {ACCENT_MUTED}; color: {ACCENT}; }}
         """)
+
+        if self._kind == "project":
+            clone_act = QAction("복제해서 새로 만들기", self)
+            clone_act.triggered.connect(lambda: self.clone_requested.emit(self._path))
+            menu.addAction(clone_act)
+            menu.addSeparator()
+
         act = QAction("목록에서 제거", self)
         act.triggered.connect(lambda: self.remove_requested.emit(self._path, self._kind))
         menu.addAction(act)
@@ -300,6 +308,7 @@ class ProjectLauncher(QWidget):
     open_project_requested = Signal()
     remove_recent_requested = Signal(str, str)
     switch_workspace_requested = Signal()
+    clone_project_requested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -433,6 +442,7 @@ class ProjectLauncher(QWidget):
             )
             card.clicked.connect(self._on_card_clicked)
             card.remove_requested.connect(self.remove_recent_requested.emit)
+            card.clone_requested.connect(self.clone_project_requested.emit)
             proj_cards.append(card)
         self._proj_panel.set_cards(proj_cards)
 
@@ -475,6 +485,7 @@ class ProjectLauncher(QWidget):
             card = _RecentCard(p_path, "project", name, str(p_path), badge, ACCENT)
             card.clicked.connect(self._on_card_clicked)
             card.remove_requested.connect(self.remove_recent_requested.emit)
+            card.clone_requested.connect(self.clone_project_requested.emit)
             proj_cards.append(card)
         self._proj_panel.set_cards(proj_cards)
 
