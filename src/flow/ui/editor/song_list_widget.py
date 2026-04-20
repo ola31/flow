@@ -1361,7 +1361,14 @@ class SongListWidget(QWidget):
             self._import_song_ppt(self._project.selected_songs[0])
 
     def _on_open_ppt_clicked(self) -> None:
-        """단독 곡 편집 모드: 이 곡의 slides.pptx를 OS 기본 프로그램으로 열기."""
+        """단독 곡 편집 모드: 이 곡의 slides.pptx를 OS 기본 프로그램으로 열기.
+
+        Windows에서 Flow는 백그라운드 PowerPoint COM으로 슬라이드를 변환하는데,
+        사용자가 같은 PPT를 PowerPoint에서 직접 열면 파일 점유/COM 경합으로
+        파워포인트가 튕기거나 저장에 실패할 수 있음. 대응:
+          1) 진행 중인 슬라이드 변환 작업 중단 (stop_workers)
+          2) 편집 워크플로우 안내 다이얼로그 (Cancel 가능)
+        """
         if not self._project or not self._project.selected_songs:
             return
         song = self._project.selected_songs[0]
@@ -1373,6 +1380,30 @@ class SongListWidget(QWidget):
                 f"이 곡에 연결된 PPT 파일이 없습니다.\n먼저 'PPT 가져오기'로 추가하세요.\n\n{pptx_path}",
             )
             return
+
+        reply = QMessageBox.information(
+            self,
+            "PPT 편집 열기",
+            "이 곡의 PPT를 기본 프로그램(PowerPoint 등)으로 엽니다.\n\n"
+            "권장 작업 순서:\n"
+            "  1. PowerPoint에서 편집 후 저장\n"
+            "  2. PowerPoint를 완전히 닫기\n"
+            "  3. Flow로 돌아와서 슬라이드 패널의 '새로고침'을 클릭\n\n"
+            "주의: Flow와 PowerPoint가 같은 파일을 동시에 점유하면 "
+            "파워포인트가 저장 오류를 내거나 튕길 수 있습니다.",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Ok:
+            return
+
+        # 진행 중이거나 대기 중인 슬라이드 변환 작업 중단 — 파일 락 경합 최소화
+        if self._main_window is not None:
+            slide_manager = getattr(self._main_window, "_slide_manager", None)
+            if slide_manager is not None:
+                try:
+                    slide_manager.stop_workers()
+                except Exception:
+                    pass
 
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
