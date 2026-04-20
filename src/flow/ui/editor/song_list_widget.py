@@ -1014,6 +1014,14 @@ class SongListWidget(QWidget):
         self._editable = editable
         self._btn_add_lib.setEnabled(editable)
         self._btn_new_song.setEnabled(editable)
+        # 카드별 편집 버튼도 상태 반영 (라이브 중 편집 진입 차단)
+        for card in self._cards:
+            btn_edit = getattr(card, "_btn_edit", None)
+            if btn_edit is not None:
+                btn_edit.setEnabled(editable)
+                btn_edit.setToolTip(
+                    "" if editable else "라이브 모드 중에는 편집할 수 없습니다"
+                )
 
     def refresh_list(self) -> None:
         """카드 목록 전체 갱신."""

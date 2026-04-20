@@ -811,6 +811,14 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "오류", f"곡을 생성할 수 없습니다:\n{e}")
 
     def _enter_song_edit_mode(self, song) -> None:
+        if self._is_live:
+            QMessageBox.warning(
+                self,
+                "라이브 모드",
+                "라이브 송출 중에는 곡 편집 모드로 전환할 수 없습니다.\n"
+                "먼저 라이브 모드를 종료해 주세요(Esc).",
+            )
+            return
         if not self._project or self._is_standalone:
             return
 
