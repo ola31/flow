@@ -136,6 +136,24 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _detect_workspace_project(self, path: Path) -> str | None:
+        """path가 현재 워크스페이스 내의 프로젝트면 프로젝트 이름 반환.
+
+        path가 workspace/projects/{name}/project.json 형태이고
+        self._workspace가 설정되어 있으면 {name}을 반환, 아니면 None.
+        """
+        if self._workspace is None:
+            return None
+        try:
+            rel = Path(path).resolve().relative_to(self._workspace.projects_dir)
+        except ValueError:
+            return None
+        # projects/{name}/project.json 형태여야 함
+        parts = rel.parts
+        if len(parts) == 2 and parts[1] == "project.json":
+            return parts[0]
+        return None
+
     def _switch_workspace(self) -> None:
         """워크스페이스 변경 다이얼로그 열기"""
         from flow.ui.workspace_dialog import WorkspaceDialog
@@ -543,8 +561,52 @@ class MainWindow(QMainWindow):
         if not self._check_unsaved_changes():
             return
 
-        # 1. 프로젝트 이름/위치 선택
-        # [수정] 폴더 안으로 들어가는 것을 방지하기 위해 .json 확장자를 붙여서 제안
+        # 워크스페이스 모드: 이름만 묻고 workspace/projects/ 하위에 생성
+        if self._workspace is not None:
+            from PySide6.QtWidgets import QInputDialog
+
+            name, ok = QInputDialog.getText(
+                self, "새 프로젝트", "프로젝트 이름:"
+            )
+            if not ok or not name.strip():
+                return
+            name = name.strip()
+
+            project_dir = self._workspace.project_dir(name)
+            if project_dir.exists():
+                QMessageBox.warning(
+                    self,
+                    "이미 존재합니다",
+                    f"같은 이름의 프로젝트가 이미 있습니다:\n{project_dir}",
+                )
+                return
+
+            try:
+                self._is_standalone = False
+                self._project = Project(name=name)
+                self._live_controller.set_project(self._project)
+                self._project_path = self._repo.save_to_workspace(
+                    self._project, self._workspace
+                )
+
+                self._song_list.set_standalone(False)
+                self._canvas.set_hotspot_editable(False)
+                self._song_list.set_project(self._project)
+                self._canvas.set_score_sheet(None)
+                self._slide_manager.load_pptx("")
+                self._slide_preview.refresh_slides()
+
+                self.setWindowTitle(f"Flow - {name}")
+                self._clear_dirty()
+                self._show_editor()
+                self._statusbar.showMessage(f"새 프로젝트가 생성되었습니다: {name}")
+            except Exception as e:
+                QMessageBox.critical(
+                    self, "오류", f"프로젝트를 생성할 수 없습니다:\n{e}"
+                )
+            return
+
+        # 레거시 모드: 파일 다이얼로그로 위치 선택
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "새 프로젝트 생성 (폴더명 입력)",
@@ -555,9 +617,7 @@ class MainWindow(QMainWindow):
         if not file_path:
             return
 
-        # [핵심] 사용자가 입력한 경로(파일명)를 이름으로 하는 '폴더'를 생성
         p_base = Path(file_path).resolve()
-        # 확장자가 붙어있다면 제거 (폴더명으로 쓰기 위함)
         if p_base.suffix.lower() == ".json":
             p_base = p_base.with_suffix("")
 
@@ -568,11 +628,9 @@ class MainWindow(QMainWindow):
         self._live_controller.set_project(self._project)
 
         try:
-            # 폴더 생성 및 저장
             project_dir.mkdir(parents=True, exist_ok=True)
             self._repo.save(self._project, self._project_path)
 
-            # UI 초기화
             self._song_list.set_standalone(False)
             self._canvas.set_hotspot_editable(False)
             self._song_list.set_project(self._project)
@@ -886,7 +944,15 @@ class MainWindow(QMainWindow):
 
         try:
             self._is_standalone = False
-            self._project = self._repo.load(path)
+
+            # 워크스페이스 프로젝트인지 감지 (projects/{name}/project.json 형태)
+            workspace_project_name = self._detect_workspace_project(path)
+            if workspace_project_name is not None:
+                self._project = self._repo.load_from_workspace(
+                    self._workspace, workspace_project_name
+                )
+            else:
+                self._project = self._repo.load(path)
             self._project_path = path
 
             # [추가] 로드 즉시 ID 충돌 체크 및 자동 복구 (마크 더티)
@@ -1006,7 +1072,18 @@ class MainWindow(QMainWindow):
             # 저장 전 로컬 인덱스로 변환
             self._localize_project_indices()
 
-            self._project_path = self._repo.save(self._project, self._project_path)
+            # 워크스페이스 프로젝트면 save_to_workspace 사용
+            ws_name = self._detect_workspace_project(self._project_path)
+            if ws_name is not None:
+                # 현재 프로젝트 이름이 바뀌었다면 이름도 반영
+                self._project.name = ws_name
+                self._project_path = self._repo.save_to_workspace(
+                    self._project, self._workspace
+                )
+            else:
+                self._project_path = self._repo.save(
+                    self._project, self._project_path
+                )
 
             # 다시 전역 인덱스로 원복
             self._globalize_project_indices()
