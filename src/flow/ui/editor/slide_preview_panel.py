@@ -341,7 +341,7 @@ class SlidePreviewPanel(QWidget):
         self.update_mapping_indicators()
 
     def update_mapping_indicators(self) -> None:
-        """리스트 전체를 지우지 않고 매핑 인디케이터(🔗)만 업데이트 (성능 최적화)"""
+        """리스트 전체를 지우지 않고 매핑 인디케이터만 업데이트 (성능 최적화)"""
         mapped_indices = getattr(self, "_mapped_indices", set())
 
         for i in range(self._list.count()):

@@ -37,7 +37,6 @@ _CODEPOINTS: dict[str, int] = {
     "music":        0xe3a1,
     "queue_music":  0xe2c4,
     "folder_open":  0xe8d4,
-    "drag":         0xe5f9,
     "more_vert":    0xe5d5,
     "library":      0xe028,
     "refresh":      0xe627,

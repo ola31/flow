@@ -151,14 +151,14 @@ class SongManagerDialog(QDialog):
         self.btn_add_new.setEnabled(not self.is_standalone)
         btn_row1.addWidget(self.btn_add_new)
 
-        self.btn_import = create_btn("📂 가져오기")
+        self.btn_import = create_btn("가져오기")
         self.btn_import.clicked.connect(self._on_import_song)
         self.btn_import.setEnabled(not self.is_standalone)
         btn_row1.addWidget(self.btn_import)
 
         btn_row1.addStretch()
 
-        self.btn_refresh = create_btn("🔄 새로고침")
+        self.btn_refresh = create_btn("새로고침")
         self.btn_refresh.setFixedWidth(80)
         self.btn_refresh.clicked.connect(self._scan_and_load)
         self.btn_refresh.setEnabled(not self.is_standalone)
@@ -270,7 +270,7 @@ class SongManagerDialog(QDialog):
         )
 
         # 1번 열에 곡 이름과 버튼 배치
-        song_text = f"📂  {song.name}"
+        song_text = song.name
         self.song_tree.addTopLevelItem(song_item)
         self._create_inline_buttons(song_item, song_text, is_bold=True)
 
@@ -614,7 +614,7 @@ class SongManagerDialog(QDialog):
                 continue
 
             # 1. 곡 제목 버튼 재부착
-            song_text = f"📂  {song_data.name}"
+            song_text = song_data.name
             self._create_inline_buttons(song_item, song_text, is_bold=True)
 
             # 2. 자식 시트들 버튼 재부착 및 P번호 갱신
