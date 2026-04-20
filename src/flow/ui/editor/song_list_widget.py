@@ -708,6 +708,7 @@ class _StandalonePanel(QWidget):
     sheet_selected = Signal(object)     # ScoreSheet
     add_sheet_requested = Signal()
     import_ppt_requested = Signal()
+    open_ppt_requested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -733,6 +734,26 @@ class _StandalonePanel(QWidget):
         layout.addLayout(self._pages_layout)
 
         layout.addStretch()
+
+        # PPT 편집 열기 (기본 프로그램으로 slides.pptx 열기)
+        self._btn_open_ppt = QPushButton("PPT 편집 열기")
+        self._btn_open_ppt.setFixedHeight(34)
+        self._btn_open_ppt.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_open_ppt.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_open_ppt.setToolTip(
+            "이 곡의 slides.pptx를 기본 프로그램(PowerPoint 등)으로 엽니다"
+        )
+        self._btn_open_ppt.setStyleSheet(f"""
+            QPushButton {{
+                background: {BG_HOVER}; color: {TEXT_SECONDARY};
+                border: 1px solid {BORDER_FOCUS}; border-radius: {RADIUS_MD}px;
+                font-size: {FONT_SM}px;
+            }}
+            QPushButton:hover {{ background: {BG_ELEVATED}; border-color: {ACCENT}; color: {TEXT_PRIMARY}; }}
+            QPushButton:disabled {{ color: {TEXT_TERTIARY}; border-color: {BORDER}; }}
+        """)
+        self._btn_open_ppt.clicked.connect(self.open_ppt_requested.emit)
+        layout.addWidget(self._btn_open_ppt)
 
         # PPT 가져오기 버튼
         self._btn_ppt = QPushButton("PPT 가져오기")
@@ -1064,6 +1085,14 @@ class SongListWidget(QWidget):
         panel.sheet_selected.connect(self._on_sheet_selected_direct)
         panel.add_sheet_requested.connect(self._on_add_sheet_clicked)
         panel.import_ppt_requested.connect(self._on_import_ppt_clicked)
+        panel.open_ppt_requested.connect(self._on_open_ppt_clicked)
+
+        # PPT 파일이 존재하는 경우에만 "PPT 편집 열기" 버튼 활성화
+        panel._btn_open_ppt.setEnabled(
+            bool(song and song.has_slides)
+        )
+        if song and not song.has_slides:
+            panel._btn_open_ppt.setToolTip("PPT 파일이 없습니다. 먼저 PPT 가져오기로 추가하세요.")
 
         self._standalone_panel = panel
         self._cards_layout.insertWidget(self._cards_layout.count() - 1, panel)
@@ -1330,6 +1359,31 @@ class SongListWidget(QWidget):
     def _on_import_ppt_clicked(self) -> None:
         if self._project and self._project.selected_songs:
             self._import_song_ppt(self._project.selected_songs[0])
+
+    def _on_open_ppt_clicked(self) -> None:
+        """단독 곡 편집 모드: 이 곡의 slides.pptx를 OS 기본 프로그램으로 열기."""
+        if not self._project or not self._project.selected_songs:
+            return
+        song = self._project.selected_songs[0]
+        pptx_path = song.abs_slides_path
+        if not pptx_path.exists():
+            QMessageBox.warning(
+                self,
+                "PPT 없음",
+                f"이 곡에 연결된 PPT 파일이 없습니다.\n먼저 'PPT 가져오기'로 추가하세요.\n\n{pptx_path}",
+            )
+            return
+
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        url = QUrl.fromLocalFile(str(pptx_path))
+        if not QDesktopServices.openUrl(url):
+            QMessageBox.warning(
+                self,
+                "열기 실패",
+                f"PPT 파일을 여는 데 실패했습니다:\n{pptx_path}",
+            )
 
     def _set_song_image(self, song: Song) -> None:
         import shutil
