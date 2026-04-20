@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal, QPoint, QRect
+from PySide6.QtCore import Qt, Signal, QPoint, QRect, QEvent, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtGui import QPixmap, QColor
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -133,6 +134,46 @@ class HotspotPopover(QFrame):
         self.show()
         self.raise_()
 
+        # 팝오버 외부 클릭 시 자동 닫기 — 앱 전역 이벤트 필터 설치
+        # (중복 설치 방지를 위해 먼저 제거)
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
+            app.installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        """팝오버 외부 클릭 자동 닫기.
+
+        팝오버 자신이나 캔버스(부모) 안의 클릭은 통과시켜서 기존 핸들러가
+        처리하도록 하고, 그 외 영역(슬라이드 패널, 툴바 등) 클릭은 즉시 닫는다.
+        이벤트 자체는 소비하지 않아서 원본 위젯도 그대로 클릭을 받는다.
+
+        dismiss는 QTimer로 지연시켜 이벤트 필터 내 재진입(hide 중 paint/focus 등)
+        에 의한 crash를 피한다.
+        """
+        if event.type() == QEvent.Type.MouseButtonPress and self.isVisible():
+            try:
+                global_pos = event.globalPosition().toPoint()
+            except AttributeError:
+                global_pos = event.globalPos()
+
+            # 1) 팝오버 자신 영역 안: 통과
+            popover_rect = QRect(self.mapToGlobal(QPoint(0, 0)), self.size())
+            if popover_rect.contains(global_pos):
+                return False
+
+            # 2) 부모(캔버스) 영역 안: 캔버스의 mousePressEvent가 기존 로직으로
+            #    (같은 핫스팟 재클릭 토글, 빈 영역 dismiss 등) 처리하도록 통과
+            parent = self.parentWidget()
+            if parent is not None:
+                parent_rect = QRect(parent.mapToGlobal(QPoint(0, 0)), parent.size())
+                if parent_rect.contains(global_pos):
+                    return False
+
+            # 3) 그 외 모든 영역: 다음 이벤트 루프에서 안전하게 닫기
+            QTimer.singleShot(0, self.dismiss)
+        return False
+
     def _update_content(self) -> None:
         if not self._hotspot:
             return
@@ -215,5 +256,21 @@ class HotspotPopover(QFrame):
         self.dismiss()
 
     def dismiss(self) -> None:
+        self._remove_global_filter()
         self.hide()
         self.closed.emit()
+
+    def _remove_global_filter(self) -> None:
+        """전역 이벤트 필터 해제. 중복 호출 안전."""
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
+
+    def hideEvent(self, event) -> None:
+        # 팝오버가 어떤 이유로든 숨겨지면 필터도 함께 해제해 dangling 방지
+        self._remove_global_filter()
+        super().hideEvent(event)
+
+    def closeEvent(self, event) -> None:
+        self._remove_global_filter()
+        super().closeEvent(event)

@@ -523,6 +523,10 @@ class _SongCard(QFrame):
                 border-radius: {RADIUS_MD}px; font-size: 10px; padding: 0 8px;
             }}
             QPushButton:hover {{ background: {ACCENT_SURFACE}; }}
+            QPushButton:disabled {{
+                background: {BG_ELEVATED}; color: {TEXT_TERTIARY};
+                border: 1px solid {BORDER};
+            }}
         """)
         self._btn_edit.clicked.connect(lambda: self.edit_requested.emit(self._song))
         self._btn_edit.hide()
