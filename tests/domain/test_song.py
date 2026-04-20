@@ -3,11 +3,13 @@
 곡 기반 구조의 핵심 도메인 모델 테스트
 """
 
+import json
 import pytest
 from pathlib import Path
 from flow.domain.song import Song
 from flow.domain.score_sheet import ScoreSheet
 from flow.domain.hotspot import Hotspot
+from flow.domain.workspace import Workspace
 
 
 class TestSongCreation:
@@ -176,6 +178,11 @@ class TestSongEdgeCases:
         assert song.score_sheet is None
         assert song.get_slide_count() == 0
 
+    def test_song_default_source_is_local(self):
+        """Song 기본 source는 local (워크스페이스 구조 기본값)"""
+        song = Song(name="Test", folder=Path("songs/test"))
+        assert song.source == "local"
+
     def test_song_with_custom_slides_path(self):
         """커스텀 slides_path 설정"""
         song = Song(
@@ -185,3 +192,60 @@ class TestSongEdgeCases:
         )
 
         assert song.slides_path == Path("custom/presentation.pptx")
+
+
+class TestSongWorkspaceLoading:
+    """워크스페이스 기반 곡 로딩 테스트 (local → library 우선순위)"""
+
+    def _write_song_json(self, folder: Path, name: str) -> None:
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "song.json").write_text(
+            json.dumps({"name": name, "sheets": []}), encoding="utf-8"
+        )
+
+    def test_load_from_library_when_only_library_exists(self, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        self._write_song_json(ws.library_song_dir("은혜"), "은혜")
+
+        song = Song.load_from_workspace(ws, "성탄절", "은혜")
+        assert song is not None
+        assert song.name == "은혜"
+        assert song.source == "library"
+        assert song.folder == ws.library_song_dir("은혜").resolve()
+
+    def test_load_from_local_when_both_exist(self, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        self._write_song_json(ws.library_song_dir("은혜"), "은혜(lib)")
+
+        local_path = ws.project_dir("성탄절") / "songs" / "은혜"
+        self._write_song_json(local_path, "은혜(local)")
+
+        song = Song.load_from_workspace(ws, "성탄절", "은혜")
+        assert song is not None
+        assert song.name == "은혜(local)"  # 로컬 우선
+        assert song.source == "local"
+        assert song.folder == local_path.resolve()
+
+    def test_returns_none_when_song_missing(self, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        assert Song.load_from_workspace(ws, "성탄절", "없는곡") is None
+
+    def test_order_is_preserved(self, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        self._write_song_json(ws.library_song_dir("곡"), "곡")
+
+        song = Song.load_from_workspace(ws, "project", "곡", order=3)
+        assert song is not None
+        assert song.order == 3
+
+    def test_absolute_paths_work_without_project_dir(self, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        self._write_song_json(ws.library_song_dir("곡"), "곡")
+
+        song = Song.load_from_workspace(ws, "project", "곡")
+        assert song is not None
+        # project_dir 없이도 abs_slides_path가 작동
+        assert song.abs_slides_path.is_absolute()
+        assert song.abs_slides_path == (
+            ws.library_song_dir("곡") / "slides.pptx"
+        ).resolve()

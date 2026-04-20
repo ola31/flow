@@ -1,25 +1,31 @@
 """곡(Song) 도메인 모델"""
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from .score_sheet import ScoreSheet
+
+if TYPE_CHECKING:
+    from .workspace import Workspace
 
 
 @dataclass
 class Song:
     """
     곡 정보를 담는 도메인 모델
-    
+
     각 곡은 독립적인 폴더를 가지며, 슬라이드(PPT)와 악보(Sheet)를 포함합니다.
     """
     name: str  # 곡 이름 (예: "주님의_기쁨")
-    folder: Path  # 곡 폴더 경로 (예: songs/주님의_기쁨)
+    folder: Path  # 곡 폴더 경로 (상대 또는 절대)
     score_sheets: list[ScoreSheet] = field(default_factory=list)  # 악보 목록 (다중 페이지 지원)
     slides_path: Optional[Path] = None  # slides.pptx 경로
     sheets_dir: Optional[Path] = None  # sheets/ 폴더 경로
     order: int = 0  # 예배 순서
-    project_dir: Optional[Path] = None # 프로젝트 베이스 경로 (절대 경로 해결용)
+    project_dir: Optional[Path] = None  # 프로젝트 베이스 경로 (절대 경로 해결용)
+    source: str = "local"  # "library" | "local" — 워크스페이스 구조에서 곡 출처
     
     @property
     def score_sheet(self) -> ScoreSheet | None:
@@ -83,3 +89,56 @@ class Song:
         for sheet in self.score_sheets:
             for h in sheet.hotspots:
                 h.shift_indices(offset)
+
+    @classmethod
+    def load_from_workspace(
+        cls,
+        workspace: "Workspace",
+        project_name: str,
+        song_name: str,
+        order: int = 0,
+    ) -> Optional["Song"]:
+        """워크스페이스에서 곡을 해석해 로드 (local → library 우선순위)
+
+        Args:
+            workspace: 워크스페이스 인스턴스
+            project_name: 프로젝트 이름 (로컬 오버라이드 탐색용)
+            song_name: 곡 이름
+            order: 프로젝트 내 순서
+
+        Returns:
+            로드된 Song 또는 None (어디에도 없으면)
+        """
+        import json
+
+        folder = workspace.resolve_song_folder(project_name, song_name)
+        if folder is None:
+            return None
+
+        # source 판별: local 경로인지 library 경로인지
+        local_path = workspace.project_dir(project_name) / "songs" / song_name
+        source = "local" if folder == local_path else "library"
+
+        # song.json 로드
+        song_json = folder / "song.json"
+        if not song_json.exists():
+            return None
+
+        with open(song_json, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+
+        # ScoreSheet 목록 복원 (다중/단일 시트 호환)
+        score_sheets: list[ScoreSheet] = []
+        if "sheets" in data:
+            score_sheets = [ScoreSheet.from_dict(s) for s in data["sheets"]]
+        elif data.get("sheet"):
+            score_sheets = [ScoreSheet.from_dict(data["sheet"])]
+
+        # 절대 경로로 생성 (project_dir 불필요)
+        return cls(
+            name=data.get("name", song_name),
+            folder=folder.resolve(),
+            score_sheets=score_sheets,
+            order=order,
+            source=source,
+        )
