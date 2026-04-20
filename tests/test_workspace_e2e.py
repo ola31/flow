@@ -278,7 +278,82 @@ class TestProjectDeletion:
 
 
 # =============================================================================
-# 6. 의심 구역: MainWindow가 workspace=None으로 생성 가능한지
+# 6. 곡 편집 모드 — 워크스페이스 절대경로 핸들링
+# =============================================================================
+
+
+class TestEnterSongEditMode:
+    """_enter_song_edit_mode가 workspace에서 로드된 곡(절대경로 folder)에
+    대해 'NoneType .parent' 에러 없이 진입해야 함."""
+
+    def _seed_library_song_with_pptx(self, workspace: Workspace, name: str) -> Path:
+        song_dir = workspace.library_song_dir(name)
+        song_dir.mkdir(parents=True, exist_ok=True)
+        sheet = ScoreSheet(name=f"{name}_sheet")
+        (song_dir / "song.json").write_text(
+            json.dumps(
+                {"name": name, "sheets": [sheet.to_dict()]},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (song_dir / "slides.pptx").write_bytes(b"fake")
+        (song_dir / "sheets").mkdir(exist_ok=True)
+        return song_dir
+
+    def test_enter_song_edit_with_library_song(self, qapp, tmp_path: Path):
+        from flow.ui.main_window import MainWindow
+
+        ws = Workspace.create(tmp_path / "ws")
+        self._seed_library_song_with_pptx(ws, "은혜")
+
+        mw = MainWindow(workspace=ws)
+        try:
+            mw._project = Project(name="예배")
+            repo = ProjectRepository(ws.projects_dir)
+            mw._project_path = repo.save_to_workspace(mw._project, ws)
+
+            song = Song.load_from_workspace(ws, "예배", "은혜", order=0)
+            assert song is not None
+            assert song.folder.is_absolute()  # workspace songs have absolute folder
+            mw._project.selected_songs.append(song)
+
+            mw._enter_song_edit_mode(song)
+            assert mw._is_standalone is True
+            assert mw._project.name == "[곡 편집] 은혜"
+        finally:
+            mw.close()
+
+    def test_enter_song_edit_with_local_override_song(self, qapp, tmp_path: Path):
+        """로컬로 복사된 곡도 절대경로지만 projects/ 하위 경로여야 함."""
+        import shutil
+
+        from flow.ui.main_window import MainWindow
+
+        ws = Workspace.create(tmp_path / "ws")
+        src = self._seed_library_song_with_pptx(ws, "곡A")
+
+        mw = MainWindow(workspace=ws)
+        try:
+            mw._project = Project(name="Proj")
+            repo = ProjectRepository(ws.projects_dir)
+            mw._project_path = repo.save_to_workspace(mw._project, ws)
+
+            local = ws.project_dir("Proj") / "songs" / "곡A"
+            shutil.copytree(src, local)
+
+            song = Song.load_from_workspace(ws, "Proj", "곡A", order=0)
+            assert song.source == "local"
+            mw._project.selected_songs.append(song)
+
+            mw._enter_song_edit_mode(song)
+            assert mw._is_standalone is True
+        finally:
+            mw.close()
+
+
+# =============================================================================
+# 7. 의심 구역: MainWindow가 workspace=None으로 생성 가능한지
 # =============================================================================
 
 

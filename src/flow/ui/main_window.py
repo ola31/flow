@@ -830,7 +830,26 @@ class MainWindow(QMainWindow):
             self._parent_project = self._project
             self._parent_project_path = self._project_path
 
-            song_abs_dir = self._project_path.parent / song.folder
+            # 곡 폴더 해석:
+            #  1) Song.folder가 절대 경로(워크스페이스 library/local 모두 해당)
+            #     이면 그대로 사용
+            #  2) 상대 경로면 project_path.parent 기준으로 결합 (레거시)
+            #  3) project_path가 없는 워크스페이스 모드라면 workspace에서 유추
+            if song.folder is None:
+                raise ValueError("곡에 폴더 경로가 지정되어 있지 않습니다.")
+            if Path(song.folder).is_absolute():
+                song_abs_dir = Path(song.folder)
+            elif self._project_path is not None:
+                song_abs_dir = self._project_path.parent / song.folder
+            elif self._workspace is not None and self._project is not None:
+                # 워크스페이스 모드에서 path가 아직 없지만 project 이름으로 추론
+                song_abs_dir = (
+                    self._workspace.project_dir(self._project.name) / song.folder
+                )
+            else:
+                raise ValueError(
+                    "프로젝트가 아직 저장되지 않아 곡 편집을 시작할 수 없습니다."
+                )
 
             self._is_standalone = True
             self._project = self._repo.load_standalone_song(song_abs_dir)
@@ -867,8 +886,15 @@ class MainWindow(QMainWindow):
             self._parent_project = None
             self._is_standalone = False
             self._globalize_project_indices()
-            QMessageBox.critical(
-                self, "오류", f"곡 편집 모드로 전환할 수 없습니다:\n{e}"
+            # 비모달 상태바 알림 — 테스트 중 반복 발생해도 진행 차단 안 함
+            # (자세한 원인은 로그로 확인)
+            import traceback
+            print(
+                f"[_enter_song_edit_mode] FAILED: {e}\n{traceback.format_exc()}",
+                flush=True,
+            )
+            self._statusbar.showMessage(
+                f"곡 편집 모드로 전환 실패: {e}", 6000
             )
 
     def _reload_song_from_disk(self, song_name: str, song_dir: Path) -> None:
