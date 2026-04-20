@@ -479,6 +479,158 @@ class TestProjectRepositoryWorkspace:
         assert repo.delete_workspace_project(ws, "지울거")
         assert not ws.project_dir("지울거").exists()
 
+    # ==== Phase 5: Migration ====
+
+    def _create_legacy_project(self, dir_path: Path, name: str, song_names: list[str]) -> Path:
+        """레거시 project_dir/songs/ 구조를 수동으로 생성하고 project.json 경로 반환."""
+        import uuid as _uuid
+        dir_path.mkdir(parents=True, exist_ok=True)
+
+        selected_songs = []
+        for i, song_name in enumerate(song_names):
+            song_dir = dir_path / "songs" / song_name
+            song_dir.mkdir(parents=True, exist_ok=True)
+            sheet_dict = ScoreSheet(name=f"{song_name}_sheet").to_dict()
+            (song_dir / "song.json").write_text(
+                json.dumps(
+                    {"name": song_name, "sheets": [sheet_dict]},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            # 가짜 슬라이드 파일
+            (song_dir / "slides.pptx").write_bytes(b"fake pptx")
+            selected_songs.append(
+                {"name": song_name, "order": i, "folder": f"songs/{song_name}"}
+            )
+
+        project_json = dir_path / "project.json"
+        project_json.write_text(
+            json.dumps(
+                {
+                    "id": "legacy-id",
+                    "name": name,
+                    "selected_songs": selected_songs,
+                    "song_order": song_names,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return project_json
+
+    def test_migrate_legacy_prefers_library_by_default(self, tmp_path: Path):
+        from flow.domain.workspace import Workspace
+
+        legacy_dir = tmp_path / "legacy_2024"
+        legacy_json = self._create_legacy_project(
+            legacy_dir, "2024성탄절", ["주님의기쁨", "은혜"]
+        )
+
+        ws = Workspace.create(tmp_path / "ws")
+        repo = ProjectRepository(ws.root)
+
+        new_json = repo.migrate_legacy_project(legacy_json, ws)
+
+        # 프로젝트 폴더 + project.json 생성
+        assert new_json == ws.project_dir("2024성탄절") / "project.json"
+        assert new_json.exists()
+
+        # 곡들이 library로 이동
+        assert (ws.library_song_dir("주님의기쁨") / "song.json").exists()
+        assert (ws.library_song_dir("은혜") / "song.json").exists()
+
+        # 프로젝트 로컬 songs/에는 곡 없음 (전부 참조)
+        assert not (ws.project_dir("2024성탄절") / "songs").exists()
+
+        # project.json에 source=library로 기록
+        with open(new_json, encoding="utf-8-sig") as f:
+            data = json.load(f)
+        sources = {s["name"]: s["source"] for s in data["selected_songs"]}
+        assert sources == {"주님의기쁨": "library", "은혜": "library"}
+
+    def test_migrate_legacy_local_mode(self, tmp_path: Path):
+        """prefer_library=False면 모든 곡이 로컬 복사본으로 이동"""
+        from flow.domain.workspace import Workspace
+
+        legacy_dir = tmp_path / "legacy"
+        legacy_json = self._create_legacy_project(legacy_dir, "예배", ["곡1"])
+
+        ws = Workspace.create(tmp_path / "ws")
+        repo = ProjectRepository(ws.root)
+
+        repo.migrate_legacy_project(legacy_json, ws, prefer_library=False)
+
+        # library에는 없고 projects/*/songs/ 에 있음
+        assert not (ws.library_song_dir("곡1") / "song.json").exists()
+        assert (ws.project_dir("예배") / "songs" / "곡1" / "song.json").exists()
+
+    def test_migrate_preserves_existing_library_song(self, tmp_path: Path):
+        """library에 같은 이름 곡이 있으면 덮어쓰지 않고 참조만"""
+        from flow.domain.workspace import Workspace
+
+        ws = Workspace.create(tmp_path / "ws")
+        # 라이브러리에 기존 "곡A" 먼저 설정 (특별 마커로 식별)
+        existing = ws.library_song_dir("곡A")
+        existing.mkdir(parents=True)
+        (existing / "song.json").write_text(
+            json.dumps({"name": "곡A", "marker": "EXISTING"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        # 레거시 프로젝트에도 "곡A"가 있지만 다른 내용
+        legacy_dir = tmp_path / "legacy"
+        self._create_legacy_project(legacy_dir, "예배", ["곡A"])
+
+        repo = ProjectRepository(ws.root)
+        repo.migrate_legacy_project(legacy_dir / "project.json", ws)
+
+        # 기존 라이브러리 곡은 덮어써지지 않음
+        with open(ws.library_song_dir("곡A") / "song.json", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        assert data.get("marker") == "EXISTING"
+
+    def test_migrate_raises_if_target_exists(self, tmp_path: Path):
+        from flow.domain.workspace import Workspace
+
+        ws = Workspace.create(tmp_path / "ws")
+        # 대상 이름으로 이미 워크스페이스에 프로젝트 존재
+        (ws.project_dir("겹침")).mkdir(parents=True)
+
+        legacy_json = self._create_legacy_project(
+            tmp_path / "legacy", "겹침", ["곡"]
+        )
+        repo = ProjectRepository(ws.root)
+
+        with pytest.raises(FileExistsError):
+            repo.migrate_legacy_project(legacy_json, ws)
+
+    def test_migrate_raises_if_source_missing(self, tmp_path: Path):
+        from flow.domain.workspace import Workspace
+
+        ws = Workspace.create(tmp_path / "ws")
+        repo = ProjectRepository(ws.root)
+
+        with pytest.raises(FileNotFoundError):
+            repo.migrate_legacy_project(tmp_path / "없음" / "project.json", ws)
+
+    def test_migrated_project_loadable_via_workspace(self, tmp_path: Path):
+        """마이그레이션된 프로젝트를 load_from_workspace로 로드 가능"""
+        from flow.domain.workspace import Workspace
+
+        legacy_json = self._create_legacy_project(
+            tmp_path / "legacy", "main", ["song1", "song2"]
+        )
+        ws = Workspace.create(tmp_path / "ws")
+        repo = ProjectRepository(ws.root)
+
+        repo.migrate_legacy_project(legacy_json, ws)
+
+        loaded = repo.load_from_workspace(ws, "main")
+        assert loaded.name == "main"
+        assert len(loaded.selected_songs) == 2
+        assert all(s.source == "library" for s in loaded.selected_songs)
+
     def test_list_workspace_projects(self, tmp_path: Path):
         from flow.domain.workspace import Workspace
 

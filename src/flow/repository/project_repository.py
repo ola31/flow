@@ -302,6 +302,122 @@ class ProjectRepository:
 
         return dst_file
 
+    # ==== Migration ====
+
+    def migrate_legacy_project(
+        self,
+        legacy_project_json: Path,
+        workspace: "Workspace",
+        *,
+        prefer_library: bool = True,
+    ) -> Path:
+        """레거시 프로젝트(project_dir/songs/ 구조)를 워크스페이스로 이전.
+
+        레거시 구조:
+            legacy/
+            ├── project.json
+            └── songs/
+                ├── 곡A/
+                └── 곡B/
+
+        새 구조:
+            workspace/
+            ├── library/            # prefer_library=True면 여기로 이동
+            │   ├── 곡A/
+            │   └── 곡B/
+            └── projects/
+                └── {legacy_name}/
+                    └── project.json  # source="library" 참조만
+
+            prefer_library=False면 모든 곡이 projects/{name}/songs/로 복사됨.
+
+        라이브러리에 동일 이름의 곡이 이미 있으면 해당 곡은 건너뛰고 참조만.
+        (덮어쓰지 않음 — 의도치 않은 데이터 손실 방지.)
+
+        Args:
+            legacy_project_json: 원본 project.json 경로
+            workspace: 대상 워크스페이스
+            prefer_library: True면 곡들을 library/로 이동 + 참조,
+                            False면 projects/{name}/songs/로 복사 (로컬)
+
+        Returns:
+            새로 생성된 project.json 경로
+        """
+        legacy_project_json = Path(legacy_project_json).resolve()
+        if not legacy_project_json.exists():
+            raise FileNotFoundError(
+                f"레거시 프로젝트 파일이 없습니다: {legacy_project_json}"
+            )
+
+        legacy_dir = legacy_project_json.parent
+        legacy_songs_dir = legacy_dir / "songs"
+
+        # 레거시 프로젝트 로드
+        with open(legacy_project_json, "r", encoding="utf-8-sig") as f:
+            legacy_data = json.load(f)
+
+        project_name = legacy_data.get("name", legacy_dir.name)
+        target_dir = workspace.project_dir(project_name)
+        if target_dir.exists():
+            raise FileExistsError(
+                f"대상 워크스페이스에 같은 이름의 프로젝트가 이미 있습니다: {target_dir}"
+            )
+
+        new_selected: list[dict[str, Any]] = []
+
+        for song_info in legacy_data.get("selected_songs", []):
+            song_name = song_info.get("name")
+            if not song_name:
+                continue
+
+            legacy_song_dir = legacy_songs_dir / song_name
+            if not (legacy_song_dir / "song.json").exists():
+                # 원본에 없으면 건너뜀 (경고는 caller가 처리)
+                continue
+
+            if prefer_library:
+                lib_dir = workspace.library_song_dir(song_name)
+                if not (lib_dir / "song.json").exists():
+                    # 라이브러리에 없으면 복사
+                    shutil.copytree(legacy_song_dir, lib_dir)
+                # 이미 있으면 건드리지 않고 참조만
+                new_selected.append(
+                    {
+                        "name": song_name,
+                        "order": song_info.get("order", 0),
+                        "source": "library",
+                    }
+                )
+            else:
+                local_dir = target_dir / "songs" / song_name
+                local_dir.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(legacy_song_dir, local_dir)
+                new_selected.append(
+                    {
+                        "name": song_name,
+                        "order": song_info.get("order", 0),
+                        "source": "local",
+                    }
+                )
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        import uuid
+        new_project_data = {
+            "id": str(uuid.uuid4()),
+            "name": project_name,
+            "selected_songs": new_selected,
+            "song_order": legacy_data.get("song_order", []),
+            "current_sheet_index": legacy_data.get("current_sheet_index", 0),
+            "current_verse_index": legacy_data.get("current_verse_index", 0),
+            "workspace_version": 1,
+        }
+
+        new_project_json = target_dir / "project.json"
+        with open(new_project_json, "w", encoding="utf-8-sig") as f:
+            json.dump(new_project_data, f, ensure_ascii=False, indent=2)
+
+        return new_project_json
+
     # ==== Legacy methods ====
 
     def load_standalone_song(self, song_dir: Path | str) -> Project:

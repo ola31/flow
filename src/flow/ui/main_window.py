@@ -136,6 +136,58 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _import_legacy_project(self) -> None:
+        """레거시 project.json을 현재 워크스페이스로 가져오기.
+
+        사용자가 project.json 파일을 선택하면 라이브러리로 이동할지
+        로컬 곡으로 복사할지 선택 가능.
+        """
+        if self._workspace is None:
+            QMessageBox.warning(
+                self,
+                "워크스페이스 필요",
+                "가져오기는 워크스페이스 모드에서만 사용할 수 있습니다.",
+            )
+            return
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "가져올 project.json 선택",
+            "",
+            "Flow 프로젝트 (project.json)",
+        )
+        if not file_path:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "가져오기 방식",
+            "곡들을 어떻게 가져올까요?\n\n"
+            "• [Yes] 라이브러리로 이동 — 다른 프로젝트와 곡을 공유할 수 있음 (권장)\n"
+            "• [No] 로컬 복사 — 이 프로젝트에서만 사용 (커스터마이즈 가능)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            | QMessageBox.StandardButton.Cancel,
+        )
+        if reply == QMessageBox.StandardButton.Cancel:
+            return
+        prefer_library = reply == QMessageBox.StandardButton.Yes
+
+        try:
+            new_path = self._repo.migrate_legacy_project(
+                Path(file_path), self._workspace, prefer_library=prefer_library
+            )
+        except FileExistsError as e:
+            QMessageBox.warning(self, "이미 존재합니다", str(e))
+            return
+        except Exception as e:
+            QMessageBox.critical(self, "가져오기 실패", f"{e}")
+            return
+
+        self._launcher.refresh_workspace_items()
+        self._statusbar.showMessage(
+            f"프로젝트를 가져왔습니다: {new_path.parent.name}"
+        )
+
     def _clone_project(self, source_path: str) -> None:
         """워크스페이스 프로젝트를 복제해 새 프로젝트 생성.
 
@@ -572,6 +624,9 @@ class MainWindow(QMainWindow):
         self._launcher.remove_recent_requested.connect(self._remove_recent_item)
         self._launcher.switch_workspace_requested.connect(self._switch_workspace)
         self._launcher.clone_project_requested.connect(self._clone_project)
+        self._launcher.import_legacy_project_requested.connect(
+            self._import_legacy_project
+        )
 
         # 곡 목록 시그널
         self._song_list.song_selected.connect(self._on_song_selected)
