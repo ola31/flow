@@ -197,37 +197,62 @@ class WorkspaceDialog(QDialog):
     # === actions ===
 
     def _on_new(self) -> None:
+        """워크스페이스로 사용할 폴더 1회 선택.
+
+        파일 다이얼로그에서 기존 폴더를 선택하거나 '새 폴더 만들기'로 빈
+        폴더를 만들어 선택. 그 폴더 자체가 워크스페이스가 됨.
+        """
         folder = QFileDialog.getExistingDirectory(
             self,
-            "새 워크스페이스를 만들 상위 폴더를 선택하세요",
-            "",
+            "워크스페이스로 사용할 빈 폴더를 선택하세요 (새 폴더 만들기 가능)",
+            str(Path.home()),
             QFileDialog.Option.ShowDirsOnly,
         )
         if not folder:
             return
 
-        # 폴더 안에 새 워크스페이스 이름 입력
-        from PySide6.QtWidgets import QInputDialog
+        root = Path(folder).resolve()
 
-        name, ok = QInputDialog.getText(
-            self, "워크스페이스 이름", "워크스페이스 이름:", text="MyFlow"
-        )
-        if not ok or not name.strip():
+        # 이미 워크스페이스면 그대로 사용 (실수 방지)
+        maybe = Workspace(root=root)
+        if maybe.is_valid():
+            reply = QMessageBox.question(
+                self,
+                "기존 워크스페이스",
+                f"이미 워크스페이스로 초기화된 폴더입니다:\n{root}\n\n열까요?",
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            self.selected_workspace = maybe
+            self.accept()
             return
 
-        root = Path(folder) / name.strip()
+        # 비어있지 않은 임의의 폴더는 거부 (의도치 않은 초기화 방지)
         if root.exists() and any(root.iterdir()):
             QMessageBox.warning(
                 self,
-                "이미 존재함",
-                f"해당 폴더가 이미 존재합니다:\n{root}",
+                "빈 폴더가 아닙니다",
+                f"선택한 폴더에 이미 다른 파일이 있습니다:\n{root}\n\n"
+                "빈 폴더를 만들어 선택하거나, 다른 위치를 사용해 주세요.\n"
+                "(파일 다이얼로그 안에서 새 폴더를 만들 수 있습니다)",
             )
             return
 
+        # 빈 폴더 → 워크스페이스로 초기화
         try:
             ws = Workspace.create(root)
         except Exception as e:
             QMessageBox.critical(self, "생성 실패", str(e))
+            return
+
+        if not (ws.library_dir.exists() and ws.projects_dir.exists()):
+            QMessageBox.critical(
+                self,
+                "초기화 실패",
+                f"워크스페이스 하위 폴더 생성에 실패했습니다:\n{root}\n"
+                f"library/: {ws.library_dir.exists()}, "
+                f"projects/: {ws.projects_dir.exists()}",
+            )
             return
 
         self.selected_workspace = ws
