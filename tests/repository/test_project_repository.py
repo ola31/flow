@@ -282,3 +282,211 @@ class TestProjectRepositoryNewStructure:
         assert loaded.selected_songs[1].name == "곡2"
         assert loaded.all_score_sheets[0].name == "시트1"
         assert loaded.all_score_sheets[1].name == "시트2"
+
+
+class TestProjectRepositoryWorkspace:
+    """워크스페이스 기반 저장/로드 테스트"""
+
+    def _make_project(self, name: str = "성탄절") -> Project:
+        project = Project(name=name)
+        return project
+
+    def _make_song(self, name: str, source: str = "local") -> Song:
+        song = Song(name=name, folder=Path(f"songs/{name}"))
+        song.source = source
+        sheet = ScoreSheet(name=f"{name}_sheet")
+        sheet.add_hotspot(Hotspot(x=10, y=20, lyric="가사"))
+        song.score_sheets.append(sheet)
+        return song
+
+    def test_save_library_song_writes_to_library_dir(self, tmp_path: Path):
+        from flow.domain.workspace import Workspace
+
+        ws = Workspace.create(tmp_path / "ws")
+        repo = ProjectRepository(ws.root)
+
+        project = self._make_project("성탄절")
+        project.selected_songs.append(self._make_song("은혜", source="library"))
+
+        file_path = repo.save_to_workspace(project, ws)
+
+        # project.json은 projects/ 아래
+        assert file_path == ws.project_dir("성탄절") / "project.json"
+        # library 곡은 library/ 아래 저장
+        assert (ws.library_song_dir("은혜") / "song.json").exists()
+        # 프로젝트 로컬 폴더에는 곡 파일 없어야 함
+        assert not (ws.project_dir("성탄절") / "songs" / "은혜" / "song.json").exists()
+
+    def test_save_local_song_writes_to_project_dir(self, tmp_path: Path):
+        from flow.domain.workspace import Workspace
+
+        ws = Workspace.create(tmp_path / "ws")
+        repo = ProjectRepository(ws.root)
+
+        project = self._make_project("성탄절")
+        project.selected_songs.append(self._make_song("커스텀", source="local"))
+
+        repo.save_to_workspace(project, ws)
+
+        # local 곡은 projects/{name}/songs/ 아래 저장
+        assert (
+            ws.project_dir("성탄절") / "songs" / "커스텀" / "song.json"
+        ).exists()
+        # library에는 없음
+        assert not (ws.library_song_dir("커스텀") / "song.json").exists()
+
+    def test_save_persists_source_in_project_json(self, tmp_path: Path):
+        from flow.domain.workspace import Workspace
+
+        ws = Workspace.create(tmp_path / "ws")
+        repo = ProjectRepository(ws.root)
+
+        project = self._make_project("성탄절")
+        project.selected_songs.append(self._make_song("은혜", source="library"))
+        project.selected_songs.append(self._make_song("커스텀", source="local"))
+
+        file_path = repo.save_to_workspace(project, ws)
+
+        with open(file_path, encoding="utf-8-sig") as f:
+            data = json.load(f)
+
+        sources = {s["name"]: s["source"] for s in data["selected_songs"]}
+        assert sources == {"은혜": "library", "커스텀": "local"}
+
+    def test_roundtrip_mixed_library_and_local(self, tmp_path: Path):
+        from flow.domain.workspace import Workspace
+
+        ws = Workspace.create(tmp_path / "ws")
+        repo = ProjectRepository(ws.root)
+
+        project = self._make_project("성탄절")
+        project.selected_songs.append(self._make_song("은혜", source="library"))
+        project.selected_songs.append(self._make_song("커스텀", source="local"))
+
+        repo.save_to_workspace(project, ws)
+        loaded = repo.load_from_workspace(ws, "성탄절")
+
+        assert loaded.name == "성탄절"
+        assert len(loaded.selected_songs) == 2
+        sources = {s.name: s.source for s in loaded.selected_songs}
+        assert sources == {"은혜": "library", "커스텀": "local"}
+
+    def test_local_override_wins_over_library(self, tmp_path: Path):
+        """같은 이름의 곡이 local과 library에 모두 있으면 local 로드"""
+        from flow.domain.workspace import Workspace
+
+        ws = Workspace.create(tmp_path / "ws")
+        repo = ProjectRepository(ws.root)
+
+        # library에 "은혜" 저장
+        lib_project = self._make_project("other")
+        lib_project.selected_songs.append(
+            self._make_song("은혜", source="library")
+        )
+        repo.save_to_workspace(lib_project, ws)
+
+        # 새 프로젝트에서는 로컬 오버라이드
+        proj = self._make_project("성탄절")
+        local_song = self._make_song("은혜", source="local")
+        local_song.score_sheets[0].name = "LOCAL_VERSION"
+        proj.selected_songs.append(local_song)
+        repo.save_to_workspace(proj, ws)
+
+        loaded = repo.load_from_workspace(ws, "성탄절")
+        assert loaded.selected_songs[0].source == "local"
+        assert loaded.selected_songs[0].score_sheets[0].name == "LOCAL_VERSION"
+
+    def test_load_skips_missing_song(self, tmp_path: Path):
+        from flow.domain.workspace import Workspace
+
+        ws = Workspace.create(tmp_path / "ws")
+        repo = ProjectRepository(ws.root)
+
+        # project.json만 수동으로 작성 (곡 파일 없음)
+        project_dir = ws.project_dir("성탄절")
+        project_dir.mkdir(parents=True)
+        (project_dir / "project.json").write_text(
+            json.dumps(
+                {
+                    "id": "test-id",
+                    "name": "성탄절",
+                    "selected_songs": [
+                        {"name": "없는곡", "order": 0, "source": "library"}
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        loaded = repo.load_from_workspace(ws, "성탄절")
+        assert len(loaded.selected_songs) == 0
+
+    def test_clone_project_copies_local_songs(self, tmp_path: Path):
+        from flow.domain.workspace import Workspace
+
+        ws = Workspace.create(tmp_path / "ws")
+        repo = ProjectRepository(ws.root)
+
+        project = self._make_project("원본")
+        project.selected_songs.append(self._make_song("은혜", source="library"))
+        project.selected_songs.append(self._make_song("커스텀", source="local"))
+        repo.save_to_workspace(project, ws)
+
+        new_path = repo.clone_workspace_project(ws, "원본", "복제본")
+
+        # 복제본 project.json 존재
+        assert new_path.exists()
+        assert new_path == ws.project_dir("복제본") / "project.json"
+
+        # 로컬 곡은 복제됨
+        assert (
+            ws.project_dir("복제본") / "songs" / "커스텀" / "song.json"
+        ).exists()
+
+        # library 곡은 그대로 (복제본이 그대로 참조)
+        loaded = repo.load_from_workspace(ws, "복제본")
+        assert loaded.name == "복제본"
+        # 원본과 다른 id 가져야 함
+        original = repo.load_from_workspace(ws, "원본")
+        assert loaded.id != original.id
+
+    def test_clone_fails_if_target_exists(self, tmp_path: Path):
+        from flow.domain.workspace import Workspace
+
+        ws = Workspace.create(tmp_path / "ws")
+        repo = ProjectRepository(ws.root)
+
+        p1 = self._make_project("A")
+        p2 = self._make_project("B")
+        repo.save_to_workspace(p1, ws)
+        repo.save_to_workspace(p2, ws)
+
+        with pytest.raises(FileExistsError):
+            repo.clone_workspace_project(ws, "A", "B")
+
+    def test_delete_project_removes_folder(self, tmp_path: Path):
+        from flow.domain.workspace import Workspace
+
+        ws = Workspace.create(tmp_path / "ws")
+        repo = ProjectRepository(ws.root)
+
+        project = self._make_project("지울거")
+        project.selected_songs.append(self._make_song("곡", source="local"))
+        repo.save_to_workspace(project, ws)
+
+        assert ws.project_dir("지울거").exists()
+        assert repo.delete_workspace_project(ws, "지울거")
+        assert not ws.project_dir("지울거").exists()
+
+    def test_list_workspace_projects(self, tmp_path: Path):
+        from flow.domain.workspace import Workspace
+
+        ws = Workspace.create(tmp_path / "ws")
+        repo = ProjectRepository(ws.root)
+
+        repo.save_to_workspace(self._make_project("A"), ws)
+        repo.save_to_workspace(self._make_project("B"), ws)
+
+        names = repo.list_workspace_projects(ws)
+        assert set(names) == {"A", "B"}

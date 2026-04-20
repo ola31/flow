@@ -8,9 +8,12 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from flow.domain.project import Project
+
+if TYPE_CHECKING:
+    from flow.domain.workspace import Workspace
 
 
 class ProjectRepository:
@@ -142,6 +145,164 @@ class ProjectRepository:
         )
 
         return project
+
+    # ==== Workspace-aware methods ====
+
+    def save_to_workspace(
+        self,
+        project: Project,
+        workspace: "Workspace",
+    ) -> Path:
+        """워크스페이스 구조로 프로젝트 저장
+
+        - project.json: workspace/projects/{name}/project.json
+        - library 곡: library/{name}/song.json에 저장 (참조만)
+        - local 곡: projects/{name}/songs/{song}/song.json에 저장
+
+        Returns:
+            저장된 project.json 경로
+        """
+        project_dir = workspace.project_dir(project.name)
+        project_dir.mkdir(parents=True, exist_ok=True)
+        file_path = project_dir / "project.json"
+
+        selected_songs_data: list[dict[str, Any]] = []
+        for song in project.selected_songs:
+            source = getattr(song, "source", "local")
+
+            if source == "library":
+                # 라이브러리에 저장 (공용)
+                target_dir = workspace.library_song_dir(song.name)
+            else:
+                # 로컬 오버라이드 (이 프로젝트 전용)
+                target_dir = project_dir / "songs" / song.name
+
+            target_dir.mkdir(parents=True, exist_ok=True)
+            song_json = target_dir / "song.json"
+            song_data = {
+                "name": song.name,
+                "sheets": [s.to_dict() for s in song.score_sheets],
+            }
+            with open(song_json, "w", encoding="utf-8-sig") as f:
+                json.dump(song_data, f, ensure_ascii=False, indent=2)
+
+            selected_songs_data.append(
+                {
+                    "name": song.name,
+                    "order": song.order,
+                    "source": source,
+                }
+            )
+
+        project_data = {
+            "id": project.id,
+            "name": project.name,
+            "selected_songs": selected_songs_data,
+            "song_order": project.song_order,
+            "current_sheet_index": project.current_sheet_index,
+            "current_verse_index": project.current_verse_index,
+            "workspace_version": 1,
+        }
+
+        with open(file_path, "w", encoding="utf-8-sig") as f:
+            json.dump(project_data, f, ensure_ascii=False, indent=2)
+
+        return file_path
+
+    def load_from_workspace(
+        self,
+        workspace: "Workspace",
+        project_name: str,
+    ) -> Project:
+        """워크스페이스에서 프로젝트 로드 (local → library 우선순위)"""
+        from flow.domain.song import Song
+
+        file_path = workspace.project_dir(project_name) / "project.json"
+        if not file_path.exists():
+            raise FileNotFoundError(
+                f"프로젝트 파일이 없습니다: {file_path}"
+            )
+
+        with open(file_path, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+
+        if "selected_songs" not in data:
+            raise ValueError(
+                f"지원하지 않는 프로젝트 형식입니다: {file_path}"
+            )
+
+        selected_songs = []
+        for song_info in data.get("selected_songs", []):
+            song_name = song_info["name"]
+            order = song_info.get("order", 0)
+
+            song = Song.load_from_workspace(
+                workspace, project_name, song_name, order=order
+            )
+            if song is None:
+                print(f"⚠️  곡을 찾을 수 없음: {song_name}")
+                continue
+            selected_songs.append(song)
+
+        return Project(
+            id=data["id"],
+            name=data["name"],
+            selected_songs=selected_songs,
+            song_order=data.get("song_order", []),
+            current_sheet_index=data.get("current_sheet_index", 0),
+            current_verse_index=data.get("current_verse_index", 0),
+        )
+
+    def list_workspace_projects(self, workspace: "Workspace") -> list[str]:
+        """워크스페이스의 프로젝트 이름 목록"""
+        return [p.name for p in workspace.list_projects()]
+
+    def delete_workspace_project(
+        self, workspace: "Workspace", project_name: str
+    ) -> bool:
+        """워크스페이스에서 프로젝트 삭제 (폴더 전체 제거)"""
+        project_dir = workspace.project_dir(project_name)
+        if not project_dir.exists():
+            return False
+        shutil.rmtree(project_dir)
+        return True
+
+    def clone_workspace_project(
+        self,
+        workspace: "Workspace",
+        source_name: str,
+        new_name: str,
+    ) -> Path:
+        """워크스페이스 내 프로젝트 복제
+
+        project.json과 로컬 songs/만 복사 (library 참조는 그대로 유지).
+
+        Returns:
+            복제된 project.json 경로
+        """
+        src_dir = workspace.project_dir(source_name)
+        dst_dir = workspace.project_dir(new_name)
+
+        if not src_dir.exists():
+            raise FileNotFoundError(f"원본 프로젝트가 없습니다: {src_dir}")
+        if dst_dir.exists():
+            raise FileExistsError(f"이미 존재하는 이름입니다: {dst_dir}")
+
+        shutil.copytree(src_dir, dst_dir)
+
+        # project.json의 이름과 id 업데이트
+        import uuid
+        dst_file = dst_dir / "project.json"
+        with open(dst_file, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        data["id"] = str(uuid.uuid4())
+        data["name"] = new_name
+        with open(dst_file, "w", encoding="utf-8-sig") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+        return dst_file
+
+    # ==== Legacy methods ====
 
     def load_standalone_song(self, song_dir: Path | str) -> Project:
         """단일 곡 폴더를 가상 프로젝트로 로드"""
