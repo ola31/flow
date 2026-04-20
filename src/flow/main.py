@@ -72,8 +72,36 @@ def main() -> int:
     timer.start(500)
     timer.timeout.connect(lambda: None)
 
+    # 워크스페이스 확인/선택
+    from flow.services.config_service import ConfigService
+    from flow.domain.workspace import Workspace
+
+    config = ConfigService()
+    workspace: Workspace | None = None
+
+    current = config.get_current_workspace()
+    if current:
+        try:
+            workspace = Workspace.open(current)
+        except Exception:
+            workspace = None
+
+    if workspace is None:
+        # 스플래시를 잠시 숨기고 다이얼로그 표시
+        if splash:
+            splash.hide()
+
+        from flow.ui.workspace_dialog import WorkspaceDialog
+
+        recent = config.get_recent_workspaces()
+        dlg = WorkspaceDialog(recent_paths=recent)
+        if dlg.exec() != dlg.DialogCode.Accepted or dlg.selected_workspace is None:
+            return 0
+        workspace = dlg.selected_workspace
+        config.add_recent_workspace(str(workspace.root))
+
     # [수정] 무거운 창 생성을 먼저 수행 (로고가 뜬 상태에서)
-    window = MainWindow()
+    window = MainWindow(workspace=workspace)
 
     # [수정] 최소 1.5초 대기를 sleep 대신 이벤트 루프를 돌리며 수행 (화면 프리징 방지)
     while time.time() - start_time < 1.5:

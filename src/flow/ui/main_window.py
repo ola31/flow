@@ -69,7 +69,7 @@ from flow.ui.styles import (
 class MainWindow(QMainWindow):
     """Flow 메인 윈도우"""
 
-    def __init__(self) -> None:
+    def __init__(self, workspace=None) -> None:
         super().__init__()
 
         self._project: Project | None = None
@@ -77,7 +77,9 @@ class MainWindow(QMainWindow):
         self._is_standalone: bool = False
         self._parent_project: Project | None = None
         self._parent_project_path: Path | None = None
-        self._repo = ProjectRepository(Path.home() / "flow_projects")
+        self._workspace = workspace  # Workspace | None — 워크스페이스 모드 활성화 시 설정
+        repo_base = workspace.projects_dir if workspace else (Path.home() / "flow_projects")
+        self._repo = ProjectRepository(repo_base)
         self._config_service = ConfigService()
 
         # 송출 관련
