@@ -2116,6 +2116,15 @@ class MainWindow(QMainWindow):
                 self._update_mapped_slides_ui(),
                 self._update_preview(self._canvas.get_selected_hotspot()),
                 self._update_verse_buttons_state(),
+                # 우측 매핑 패널도 동기화 (선택된 핫스팟이 있고 패널이 열려있으면)
+                self._mapping_panel.refresh(
+                    self._canvas.get_selected_hotspot(),
+                    self._project.current_verse_index,
+                    self._slide_manager.get_slide_image,
+                ) if (
+                    self._mapping_panel.isVisible()
+                    and self._canvas.get_selected_hotspot() is not None
+                ) else None,
             ),
         )
         self._undo_stack.push(command)
@@ -2167,6 +2176,8 @@ class MainWindow(QMainWindow):
                 self._mapping_panel.refresh(
                     hotspot, v_idx, self._slide_manager.get_slide_image
                 ) if self._mapping_panel.isVisible() else None,
+                # 매핑 완료 후 팝오버 자동 닫기 (시트 가림 방지)
+                self._canvas.popover.dismiss(),
             ),
         )
         self._undo_stack.push(command)
