@@ -1483,7 +1483,11 @@ class MainWindow(QMainWindow):
         self._open_action.setEnabled(True)
         self._save_action.setEnabled(True)
         self._save_as_action.setEnabled(True)
-        self._close_project_action.setEnabled(True)
+        # 홈 버튼은 라이브 모드(editable=False)에서 비활성 → 라이브 종료 후 이동
+        self._close_project_action.setEnabled(editable)
+        self._close_project_action.setToolTip(
+            "" if editable else "라이브 모드 중에는 홈으로 이동할 수 없습니다 (Esc로 먼저 라이브 종료)"
+        )
 
         # 편집 관련 액션만 제어
         self._undo_action.setEnabled(editable)
@@ -1526,6 +1530,12 @@ class MainWindow(QMainWindow):
         event.accept()
 
     def _close_current_project(self) -> None:
+        if self._is_live:
+            self._statusbar.showMessage(
+                "라이브 모드 중에는 홈으로 이동할 수 없습니다. Esc로 먼저 라이브를 종료하세요.",
+                4000,
+            )
+            return
         if not self._check_unsaved_changes():
             return
 

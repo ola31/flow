@@ -102,6 +102,39 @@ class TestEnterSongEditModeBlocksLive:
         finally:
             mw.close()
 
+    def test_live_mode_disables_home_button(self, qapp):
+        """라이브 모드에서는 툴바 홈 버튼이 비활성화되어야 함."""
+        from flow.ui.main_window import MainWindow
+
+        mw = MainWindow()
+        try:
+            mw._set_project_editable(True)
+            assert mw._close_project_action.isEnabled()
+
+            mw._set_project_editable(False)  # 라이브 진입 시 호출되는 것과 동일
+            assert not mw._close_project_action.isEnabled()
+            assert "라이브" in mw._close_project_action.toolTip()
+        finally:
+            mw.close()
+
+    def test_close_current_project_blocked_in_live(self, qapp):
+        """키보드/API로 _close_current_project가 호출되어도 라이브면 차단."""
+        from flow.ui.main_window import MainWindow
+        from flow.domain.project import Project
+
+        mw = MainWindow()
+        try:
+            mw._project = Project(name="test")
+            mw._is_live = True
+
+            before_project = mw._project
+            mw._close_current_project()
+
+            # 라이브 중이므로 프로젝트는 그대로여야 함
+            assert mw._project is before_project
+        finally:
+            mw.close()
+
     def test_non_live_mode_allows_entry_attempt(self, qapp, monkeypatch):
         """라이브 모드가 아닐 때는 가드가 트리거되지 않음 (경고 메시지 미표시)."""
         from flow.ui.main_window import MainWindow
