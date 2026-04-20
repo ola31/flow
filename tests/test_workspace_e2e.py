@@ -278,66 +278,7 @@ class TestProjectDeletion:
 
 
 # =============================================================================
-# 6. 레거시 마이그레이션
-# =============================================================================
-
-
-class TestLegacyMigration:
-    def _create_legacy(self, dir_path: Path, name: str, song_names: list[str]) -> Path:
-        dir_path.mkdir(parents=True, exist_ok=True)
-        selected = []
-        for i, n in enumerate(song_names):
-            song_dir = dir_path / "songs" / n
-            song_dir.mkdir(parents=True, exist_ok=True)
-            sheet = ScoreSheet(name=f"{n}_sheet")
-            (song_dir / "song.json").write_text(
-                json.dumps(
-                    {"name": n, "sheets": [sheet.to_dict()]},
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
-            )
-            (song_dir / "slides.pptx").write_bytes(b"fake")
-            selected.append({"name": n, "order": i, "folder": f"songs/{n}"})
-        (dir_path / "project.json").write_text(
-            json.dumps(
-                {
-                    "id": "legacy-id",
-                    "name": name,
-                    "selected_songs": selected,
-                    "song_order": song_names,
-                },
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
-        )
-        return dir_path / "project.json"
-
-    def test_migrate_then_load_roundtrip(self, tmp_path: Path):
-        legacy = self._create_legacy(
-            tmp_path / "old_project", "과거예배", ["옛날곡1", "옛날곡2"]
-        )
-        ws = Workspace.create(tmp_path / "ws")
-        repo = ProjectRepository(ws.root)
-
-        repo.migrate_legacy_project(legacy, ws, prefer_library=True)
-
-        # 새 구조 검증
-        assert (ws.library_song_dir("옛날곡1") / "song.json").exists()
-        assert (ws.library_song_dir("옛날곡2") / "song.json").exists()
-        assert (ws.project_dir("과거예배") / "project.json").exists()
-        assert not (ws.project_dir("과거예배") / "songs").exists()
-
-        # 로드
-        loaded = repo.load_from_workspace(ws, "과거예배")
-        assert loaded.name == "과거예배"
-        assert [s.name for s in loaded.selected_songs] == ["옛날곡1", "옛날곡2"]
-        assert all(s.source == "library" for s in loaded.selected_songs)
-        assert all(s.abs_slides_path.exists() for s in loaded.selected_songs)
-
-
-# =============================================================================
-# 7. 의심 구역: MainWindow가 workspace=None으로 생성 가능한지
+# 6. 의심 구역: MainWindow가 workspace=None으로 생성 가능한지
 # =============================================================================
 
 

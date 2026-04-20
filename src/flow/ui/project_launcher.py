@@ -309,7 +309,6 @@ class ProjectLauncher(QWidget):
     remove_recent_requested = Signal(str, str)
     switch_workspace_requested = Signal()
     clone_project_requested = Signal(str)
-    import_legacy_project_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -334,7 +333,11 @@ class ProjectLauncher(QWidget):
         ws_bar.addWidget(self._ws_label)
         ws_bar.addStretch()
 
-        _ghost_btn_css = (
+        self._btn_switch_ws = QPushButton("워크스페이스 변경")
+        self._btn_switch_ws.setFixedHeight(28)
+        self._btn_switch_ws.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_switch_ws.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_switch_ws.setStyleSheet(
             f"""
             QPushButton {{
                 background: transparent; color: {TEXT_TERTIARY};
@@ -344,25 +347,6 @@ class ProjectLauncher(QWidget):
             QPushButton:hover {{ color: {TEXT_PRIMARY}; border-color: {BORDER_FOCUS}; }}
             """
         )
-
-        self._btn_import_legacy = QPushButton("기존 프로젝트 가져오기")
-        self._btn_import_legacy.setFixedHeight(28)
-        self._btn_import_legacy.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_import_legacy.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_import_legacy.setToolTip(
-            "기존 project.json(곡이 프로젝트 안에 포함된 구조)을 이 워크스페이스로 가져옵니다"
-        )
-        self._btn_import_legacy.setStyleSheet(_ghost_btn_css)
-        self._btn_import_legacy.clicked.connect(
-            self.import_legacy_project_requested.emit
-        )
-        ws_bar.addWidget(self._btn_import_legacy)
-
-        self._btn_switch_ws = QPushButton("워크스페이스 변경")
-        self._btn_switch_ws.setFixedHeight(28)
-        self._btn_switch_ws.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_switch_ws.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_switch_ws.setStyleSheet(_ghost_btn_css)
         self._btn_switch_ws.clicked.connect(self.switch_workspace_requested.emit)
         ws_bar.addWidget(self._btn_switch_ws)
         root.addLayout(ws_bar)
