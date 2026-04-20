@@ -111,12 +111,13 @@ def _scan_library_song(song_dir: Path) -> dict:
 class _LibrarySongCard(QFrame):
     """라이브러리 다이얼로그 안의 곡 카드."""
 
-    add_clicked = Signal(str)  # song name
+    add_clicked = Signal(str, str)  # (song name, source: "library" | "local")
 
-    def __init__(self, info: dict, parent=None) -> None:
+    def __init__(self, info: dict, workspace_mode: bool = False, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("LibSongCard")
         self._name = info["name"]
+        self._workspace_mode = workspace_mode
         self._setup_ui(info)
 
     def _setup_ui(self, info: dict) -> None:
@@ -184,41 +185,81 @@ class _LibrarySongCard(QFrame):
         left.addLayout(status_row)
         root.addLayout(left, 1)
 
-        # 오른쪽: 추가 버튼
-        btn = QPushButton("추가")
-        btn.setFixedHeight(30)
-        btn.setMinimumWidth(56)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        btn.setStyleSheet(f"""
+        # 오른쪽: 추가 버튼(들)
+        primary_css = f"""
             QPushButton {{
                 background: {ACCENT}; color: #fff;
                 border: none; border-radius: {RADIUS_MD}px;
                 font-size: {FONT_MD}px; font-weight: 500; padding: 0 14px;
             }}
             QPushButton:hover {{ background: {ACCENT_HOVER}; }}
-        """)
-        btn.clicked.connect(lambda: self.add_clicked.emit(self._name))
-        root.addWidget(btn)
+        """
+        secondary_css = f"""
+            QPushButton {{
+                background: transparent; color: {TEXT_SECONDARY};
+                border: 1px solid {BORDER}; border-radius: {RADIUS_MD}px;
+                font-size: {FONT_MD}px; padding: 0 12px;
+            }}
+            QPushButton:hover {{ background: {BG_HOVER}; color: {TEXT_PRIMARY}; border-color: {BORDER_FOCUS}; }}
+        """
 
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.add_clicked.emit(self._name)
-        super().mousePressEvent(event)
+        if self._workspace_mode:
+            # 워크스페이스 모드: "참조" + "복사" 두 버튼
+            btn_ref = QPushButton("참조")
+            btn_ref.setFixedHeight(30)
+            btn_ref.setMinimumWidth(56)
+            btn_ref.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_ref.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn_ref.setToolTip("라이브러리 곡을 이 프로젝트에 참조로 추가 (공용)")
+            btn_ref.setStyleSheet(primary_css)
+            btn_ref.clicked.connect(lambda: self.add_clicked.emit(self._name, "library"))
+            root.addWidget(btn_ref)
+
+            btn_copy = QPushButton("복사")
+            btn_copy.setFixedHeight(30)
+            btn_copy.setMinimumWidth(56)
+            btn_copy.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_copy.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn_copy.setToolTip("이 프로젝트만의 로컬 복사본으로 추가 (커스터마이즈용)")
+            btn_copy.setStyleSheet(secondary_css)
+            btn_copy.clicked.connect(lambda: self.add_clicked.emit(self._name, "local"))
+            root.addWidget(btn_copy)
+        else:
+            # 레거시 모드: 단일 "추가" 버튼
+            btn = QPushButton("추가")
+            btn.setFixedHeight(30)
+            btn.setMinimumWidth(56)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn.setStyleSheet(primary_css)
+            btn.clicked.connect(lambda: self.add_clicked.emit(self._name, "local"))
+            root.addWidget(btn)
 
 
 class SongLibraryDialog(QDialog):
-    """곡 라이브러리 브라우저 다이얼로그."""
+    """곡 라이브러리 브라우저 다이얼로그.
 
-    song_chosen = Signal(str)  # 선택된 곡 이름
+    두 가지 모드:
+      - 레거시: songs_dir 경로를 직접 스캔 (workspace=None)
+      - 워크스페이스: workspace.library_dir를 스캔, 카드에 "참조"/"복사" 버튼 표시
+    """
 
-    def __init__(self, songs_dir: Path, included_names: set[str], parent=None) -> None:
+    song_chosen = Signal(str, str)  # (이름, source: "library" | "local")
+
+    def __init__(
+        self,
+        songs_dir: Path,
+        included_names: set[str],
+        parent=None,
+        workspace=None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("곡 라이브러리")
         self.setMinimumSize(480, 400)
         self.resize(520, 500)
         self._songs_dir = songs_dir
         self._included = included_names
+        self._workspace = workspace
         self._all_infos: list[dict] = []
         self._cards: list[_LibrarySongCard] = []
         self._setup_ui()
@@ -310,13 +351,20 @@ class SongLibraryDialog(QDialog):
         root.addWidget(btn_close)
 
     def _scan(self) -> None:
-        """songs 폴더를 스캔해 사용 가능한 곡 정보 로드."""
+        """곡 폴더를 스캔해 사용 가능한 곡 정보 로드.
+
+        워크스페이스 모드면 workspace.library_dir를, 아니면 songs_dir를 스캔.
+        """
         self._all_infos.clear()
-        if not self._songs_dir.exists():
-            self._show_empty("곡 폴더가 아직 없습니다")
+        scan_dir = (
+            self._workspace.library_dir if self._workspace is not None
+            else self._songs_dir
+        )
+        if not scan_dir.exists():
+            self._show_empty("곡 라이브러리가 비어있습니다")
             return
 
-        for folder in sorted(self._songs_dir.iterdir()):
+        for folder in sorted(scan_dir.iterdir()):
             if folder.is_dir() and (folder / "song.json").exists():
                 if folder.name not in self._included:
                     self._all_infos.append(_scan_library_song(folder))
@@ -347,8 +395,9 @@ class SongLibraryDialog(QDialog):
         self._empty_label.hide()
         self._scroll.show()
 
+        workspace_mode = self._workspace is not None
         for info in infos:
-            card = _LibrarySongCard(info)
+            card = _LibrarySongCard(info, workspace_mode=workspace_mode)
             card.add_clicked.connect(self._on_song_added)
             self._cards.append(card)
             self._list_layout.insertWidget(self._list_layout.count() - 1, card)
@@ -357,8 +406,8 @@ class SongLibraryDialog(QDialog):
         self._empty_label.setText(text)
         self._empty_label.show()
 
-    def _on_song_added(self, name: str) -> None:
-        self.song_chosen.emit(name)
+    def _on_song_added(self, name: str, source: str) -> None:
+        self.song_chosen.emit(name, source)
         # 추가된 곡의 카드를 즉시 제거 (이미 셋리스트에 들어감)
         self._included.add(name)
         self._all_infos = [i for i in self._all_infos if i["name"] != name]
@@ -1139,19 +1188,45 @@ class SongListWidget(QWidget):
             songs_dir.mkdir(parents=True, exist_ok=True)
 
         included = {s.name for s in self._project.selected_songs}
+        workspace = getattr(self._main_window, "_workspace", None)
 
-        dlg = SongLibraryDialog(songs_dir, included, self)
+        dlg = SongLibraryDialog(songs_dir, included, self, workspace=workspace)
         dlg.song_chosen.connect(self._add_existing_song)
         dlg.exec()
 
-    def _add_existing_song(self, name: str) -> None:
+    def _add_existing_song(self, name: str, source: str = "local") -> None:
+        """라이브러리 다이얼로그에서 선택한 곡을 프로젝트에 추가.
+
+        source = "library": workspace/library/{name}에서 참조로 로드
+        source = "local": 필요하면 workspace/library → project/songs 복사 후 로드
+        """
         if not self._project or not self._main_window:
             return
+
         project_dir = self._main_window._project_path.parent
-        song = self._load_song_from_folder(name, project_dir)
+        workspace = getattr(self._main_window, "_workspace", None)
+
+        song = None
+        if workspace is not None:
+            if source == "local":
+                # library/{name}이 있으면 project/songs/{name}으로 복사
+                lib_src = workspace.library_song_dir(name)
+                local_dst = project_dir / "songs" / name
+                if lib_src.exists() and not local_dst.exists():
+                    import shutil
+                    shutil.copytree(lib_src, local_dst)
+
+            # Song.load_from_workspace가 우선순위(local→library) 적용
+            song = Song.load_from_workspace(workspace, project_dir.name, name)
+
+        if song is None:
+            # 폴백: 레거시 방식 (project/songs에서 직접 로드)
+            song = self._load_song_from_folder(name, project_dir)
+
         if not song:
             QMessageBox.warning(self, "오류", f"'{name}' 곡을 불러올 수 없습니다.")
             return
+
         self._project.selected_songs.append(song)
         if name not in self._project.song_order:
             self._project.song_order.append(name)

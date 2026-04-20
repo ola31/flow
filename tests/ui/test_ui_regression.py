@@ -74,14 +74,20 @@ class TestIconRegression:
         """library/queue_music 코드포인트는 이 폰트에서 잘못된 글리프로 렌더됨.
 
         회귀 방지: 어떤 UI 파일도 icon("library") / icon_label("library") /
-        icon_qicon("library") 등으로 이 이름들을 다시 사용하지 않도록 한다.
+        icon_qicon("library") / icon_pixmap("library") / icon_text_label 등의
+        아이콘 조회 함수에 이 이름을 넘기지 않도록 한다.
+
+        검사 범위는 "icon 관련 호출의 첫 인자 위치에 banned_name이 쓰였는지"로
+        제한 — 'library'가 단순 문자열 상수(예: source 식별자)로 쓰이는 건 허용.
         (codepoint map에서는 여전히 보존해도 됨 — 사용처만 금지.)
         """
-        pattern = re.compile(rf"""["']{banned_name}["']""")
+        # icon_xxx(..., "library" ... ) 또는 icon(..., 'library' ...) 형태를 검출
+        pattern = re.compile(
+            rf"""\bicon(?:_\w+)?\s*\(\s*["']{banned_name}["']"""
+        )
         offenders: list[str] = []
         for py_file in SRC_UI.rglob("*.py"):
             text = py_file.read_text(encoding="utf-8")
-            # icons.py 자체의 _CODEPOINTS 정의는 허용
             if py_file.name == "icons.py":
                 continue
             if pattern.search(text):

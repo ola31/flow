@@ -124,6 +124,79 @@ class TestWorkspaceProjectLauncher:
         assert len(launcher._song_panel._cards) == 0
         assert len(launcher._proj_panel._cards) == 0
 
+    def test_song_library_dialog_workspace_mode_two_buttons(
+        self, qapp, workspace: Workspace, tmp_path: Path
+    ):
+        """워크스페이스 모드에서 각 카드에 '참조'/'복사' 두 버튼이 있어야 함."""
+        from flow.ui.editor.song_list_widget import (
+            SongLibraryDialog,
+            _LibrarySongCard,
+        )
+
+        (workspace.library_song_dir("은혜")).mkdir(parents=True)
+        (workspace.library_song_dir("은혜") / "song.json").write_text(
+            '{"name":"은혜","sheets":[]}'
+        )
+
+        dlg = SongLibraryDialog(
+            songs_dir=tmp_path / "dummy",
+            included_names=set(),
+            workspace=workspace,
+        )
+        assert len(dlg._cards) == 1
+        card = dlg._cards[0]
+        assert card._workspace_mode is True
+        # 두 버튼이 생성되었는지 (참조 + 복사)
+        buttons = card.findChildren(type(card.findChild(object, "")))
+        # 간단 검증: 카드 안에 QPushButton이 2개 있어야 함
+        from PySide6.QtWidgets import QPushButton
+        btns = card.findChildren(QPushButton)
+        assert len(btns) == 2, f"워크스페이스 모드엔 2개 버튼 필요, got {len(btns)}"
+
+    def test_song_library_dialog_legacy_mode_single_button(
+        self, qapp, tmp_path: Path
+    ):
+        """레거시 모드에서는 단일 '추가' 버튼만 있어야 함."""
+        from flow.ui.editor.song_list_widget import SongLibraryDialog
+        from PySide6.QtWidgets import QPushButton
+
+        songs_dir = tmp_path / "songs"
+        songs_dir.mkdir()
+        (songs_dir / "곡").mkdir()
+        (songs_dir / "곡" / "song.json").write_text('{"name":"곡","sheets":[]}')
+
+        dlg = SongLibraryDialog(
+            songs_dir=songs_dir,
+            included_names=set(),
+        )
+        assert len(dlg._cards) == 1
+        card = dlg._cards[0]
+        assert card._workspace_mode is False
+        btns = card.findChildren(QPushButton)
+        assert len(btns) == 1
+
+    def test_library_scan_from_workspace(self, qapp, workspace: Workspace):
+        """워크스페이스 모드면 dialog는 workspace.library_dir를 스캔."""
+        from flow.ui.editor.song_list_widget import SongLibraryDialog
+
+        (workspace.library_song_dir("공용A")).mkdir(parents=True)
+        (workspace.library_song_dir("공용A") / "song.json").write_text(
+            '{"name":"공용A","sheets":[]}'
+        )
+        (workspace.library_song_dir("공용B")).mkdir(parents=True)
+        (workspace.library_song_dir("공용B") / "song.json").write_text(
+            '{"name":"공용B","sheets":[]}'
+        )
+
+        # songs_dir는 프로젝트 내부라 비어있지만 workspace 인자 때문에 library가 스캔돼야
+        dlg = SongLibraryDialog(
+            songs_dir=workspace.projects_dir / "non_existent",
+            included_names=set(),
+            workspace=workspace,
+        )
+        names = {info["name"] for info in dlg._all_infos}
+        assert names == {"공용A", "공용B"}
+
     def test_refresh_picks_up_new_project(self, qapp, workspace: Workspace):
         """파일시스템에 프로젝트 추가 후 refresh_workspace_items 호출 시 반영."""
         from flow.ui.project_launcher import ProjectLauncher
