@@ -12,6 +12,8 @@ class ConfigService:
         self._config = {
             "recent_projects": [],
             "recent_songs": [],
+            "recent_workspaces": [],
+            "current_workspace": "",
             "max_verses": 5,
             "window_geometry": "",
             "window_state": "",
@@ -126,6 +128,66 @@ class ConfigService:
         if len(new_recent) != len(recent):
             self._config["recent_songs"] = new_recent
             self.save()
+
+    # ==== Workspace management ====
+
+    def get_recent_workspaces(self) -> list[str]:
+        """최근 워크스페이스 경로 목록 (존재하는 것만)"""
+        self.load()
+        recent = self._config.get("recent_workspaces", [])
+        return [p for p in recent if Path(p).exists()]
+
+    def add_recent_workspace(self, path: str) -> None:
+        """최근 워크스페이스 목록에 추가"""
+        if not path:
+            return
+
+        clean_path = str(path).replace("\\", "/")
+        try:
+            path_obj = Path(clean_path).resolve()
+            path_str = path_obj.as_posix()
+        except Exception:
+            path_str = clean_path
+            path_obj = Path(path_str)
+
+        if not path_obj.exists():
+            return
+
+        self.load()
+        recent = self._config.get("recent_workspaces", [])
+        cleaned = [p for p in recent if p.lower() != path_str.lower()]
+        cleaned.insert(0, path_str)
+
+        self._config["recent_workspaces"] = cleaned[:10]
+        self._config["current_workspace"] = path_str
+        self.save()
+
+    def remove_recent_workspace(self, path: str) -> None:
+        """최근 워크스페이스 목록에서 제거"""
+        self.load()
+        recent = self._config.get("recent_workspaces", [])
+        new_recent = [p for p in recent if p.lower() != path.lower()]
+        if len(new_recent) != len(recent):
+            self._config["recent_workspaces"] = new_recent
+            self.save()
+
+    def get_current_workspace(self) -> str:
+        """마지막으로 사용한 워크스페이스 경로 (빈 문자열이면 없음)"""
+        self.load()
+        current = self._config.get("current_workspace", "")
+        if current and Path(current).exists():
+            return current
+        return ""
+
+    def set_current_workspace(self, path: str) -> None:
+        """현재 사용 중인 워크스페이스 경로 설정"""
+        self.load()
+        clean = str(path).replace("\\", "/")
+        try:
+            self._config["current_workspace"] = Path(clean).resolve().as_posix()
+        except Exception:
+            self._config["current_workspace"] = clean
+        self.save()
 
     def get_max_verses(self) -> int:
         """최대 절 수 반환"""
