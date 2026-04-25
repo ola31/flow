@@ -28,7 +28,7 @@ from flow.ui.styles import (
     ACCENT, ACCENT_HOVER, ACCENT_MUTED, ACCENT_SURFACE,
     GREEN, GREEN_MUTED, AMBER, RED,
     RADIUS_SM, RADIUS_MD, RADIUS_LG, RADIUS_XL,
-    FONT_XS, FONT_SM, FONT_MD, FONT_LG, FONT_XL, FONT_2XL, FONT_TITLE,
+    FONT_XS, FONT_SM, FONT_MD, FONT_LG, FONT_TITLE, FONT_HEAD, FONT_DISPLAY,
     FW_REGULAR, FW_MEDIUM, FW_SEMI,
     SP_XS, SP_SM, SP_MD, SP_LG, SP_XL, SP_2XL,
 )
@@ -206,7 +206,7 @@ class _Panel(QFrame):
         # 제목
         lbl_title = QLabel(title)
         lbl_title.setStyleSheet(
-            f"font-size: {FONT_2XL}px; font-weight: {FW_SEMI}; color: {TEXT_PRIMARY};"
+            f"font-size: {FONT_HEAD}px; font-weight: {FW_SEMI}; color: {TEXT_PRIMARY};"
         )
         root.addWidget(lbl_title)
         root.addSpacing(SP_XS)
