@@ -17,12 +17,14 @@ from flow.ui.styles import (
     BG_DEEP,
     BG_SURFACE,
     BORDER,
+    BORDER_SUBTLE_RGBA,
     RED,
     RED_MUTED,
     TEXT_SECONDARY,
     ACCENT,
     ACCENT_MUTED,
     FONT_SM,
+    SP_XS, SP_SM, SP_MD,
 )
 from flow.services.slide_manager import SlideManager
 from flow.ui.editor.mapping_panel import MappingPanel
@@ -106,20 +108,25 @@ class LivePIP(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("LivePIP")
-        self.setFixedWidth(280)
+        self.setFixedWidth(260)
 
-        self.setStyleSheet("""
-            QFrame#LivePIP {
-                background: #1a1a1a;
-                border-left: 1px solid #333;
-            }
-        """)
+        from flow.ui.styles import (
+            BG_SURFACE, BORDER_SUBTLE_RGBA, ACCENT_INTER, RED
+        )
+        self._idle_style = (
+            f"QFrame#LivePIP {{ background: {BG_SURFACE}; "
+            f"border-left: 1px solid {BORDER_SUBTLE_RGBA}; }}"
+        )
+        self._live_style = (
+            f"QFrame#LivePIP {{ background: {BG_SURFACE}; "
+            f"border-left: 2px solid {RED}; }}"
+        )
+        self.setStyleSheet(self._idle_style)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(6, 6, 6, 6)
-        root.setSpacing(6)
+        root.setContentsMargins(SP_SM, SP_SM, SP_SM, SP_SM)
+        root.setSpacing(SP_SM)
 
-        from flow.ui.styles import ACCENT_INTER, RED
         self._preview_pane = _PIPPane("PREVIEW", ACCENT_INTER)
         self._live_pane = _PIPPane("LIVE", RED)
 
@@ -127,27 +134,16 @@ class LivePIP(QFrame):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background: #333; max-height: 1px;")
+        sep.setStyleSheet(
+            f"background: {BORDER_SUBTLE_RGBA}; max-height: 1px;"
+        )
         root.addWidget(sep)
 
         root.addWidget(self._live_pane, 1)
         self.hide()
 
     def set_live(self, live: bool) -> None:
-        if live:
-            self.setStyleSheet("""
-                QFrame#LivePIP {
-                    background: #1a1a1a;
-                    border-left: 2px solid #ff4444;
-                }
-            """)
-        else:
-            self.setStyleSheet("""
-                QFrame#LivePIP {
-                    background: #1a1a1a;
-                    border-left: 1px solid #333;
-                }
-            """)
+        self.setStyleSheet(self._live_style if live else self._idle_style)
 
     def set_preview_image(self, pixmap: QPixmap | None) -> None:
         self._preview_pane.set_image(pixmap)
@@ -273,12 +269,12 @@ class ProjectScreen(QWidget):
         )
         if live:
             self._mapping_panel.hide()
-            self._h_splitter.setSizes([220, 800, 280, 0])
+            self._h_splitter.setSizes([200, 800, 280, 0])
         else:
             self._pip.hide()
             # mapping panel visibility managed by MainWindow
             cur_map = self._h_splitter.sizes()[3] if len(self._h_splitter.sizes()) > 3 else 0
-            self._h_splitter.setSizes([220, 800, 0, cur_map])
+            self._h_splitter.setSizes([200, 800, 0, cur_map])
 
     def sync_nav_verse(self, verse_index: int) -> None:
         btn = self._nav_verse_group.button(verse_index)
@@ -391,12 +387,14 @@ class ProjectScreen(QWidget):
         main_layout.addWidget(self._song_nav_bar)
 
         self._h_splitter = QSplitter(Qt.Orientation.Horizontal)
+        from flow.ui.styles import BORDER_SUBTLE_RGBA
         self._h_splitter.setStyleSheet(
-            "QSplitter::handle { background-color: #333; width: 1px; }"
+            f"QSplitter::handle {{ background-color: {BORDER_SUBTLE_RGBA}; width: 1px; }}"
         )
+        self._h_splitter.setHandleWidth(1)
 
         self._song_list = SongListWidget()
-        self._song_list.setMaximumWidth(280)
+        self._song_list.setMaximumWidth(260)
         self._song_list.setMinimumWidth(180)
         self._h_splitter.addWidget(self._song_list)
 
@@ -417,6 +415,10 @@ class ProjectScreen(QWidget):
         canvas_container_layout.addWidget(self._canvas)
 
         self._v_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._v_splitter.setStyleSheet(
+            f"QSplitter::handle {{ background-color: {BORDER_SUBTLE_RGBA}; height: 1px; }}"
+        )
+        self._v_splitter.setHandleWidth(1)
         self._v_splitter.addWidget(self._canvas_container)
 
         self._slide_preview = SlidePreviewPanel()
@@ -425,7 +427,6 @@ class ProjectScreen(QWidget):
 
         self._v_splitter.setStretchFactor(0, 1)
         self._v_splitter.setStretchFactor(1, 0)
-        self._v_splitter.setHandleWidth(4)
         self._v_splitter.setSizes([600, 160])
 
         center_layout.addWidget(self._v_splitter)
@@ -469,6 +470,6 @@ class ProjectScreen(QWidget):
         self._h_splitter.setStretchFactor(1, 1)
         self._h_splitter.setStretchFactor(2, 0)
         self._h_splitter.setStretchFactor(3, 0)
-        self._h_splitter.setSizes([220, 800, 0, 0])
+        self._h_splitter.setSizes([200, 800, 0, 0])
 
         main_layout.addWidget(self._h_splitter)

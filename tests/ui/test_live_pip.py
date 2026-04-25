@@ -37,7 +37,7 @@ class TestLivePIPInitial:
         assert "LIVE" in pip._live_pane._badge.text()
 
     def test_fixed_width(self, pip):
-        assert pip.width() == 280
+        assert pip.width() == 260
 
 
 class TestLivePIPDualContent:
