@@ -40,7 +40,7 @@ class ActivityBar(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("ActivityBar")
-        self.setFixedWidth(40)
+        self.setFixedWidth(52)
         self.setStyleSheet(f"""
             QFrame#ActivityBar {{
                 background-color: {BG_SURFACE};
@@ -49,8 +49,8 @@ class ActivityBar(QFrame):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(SP_XS, SP_SM, SP_XS, SP_SM)
-        layout.setSpacing(SP_XS)
+        layout.setContentsMargins(SP_XS + 2, SP_SM + 2, SP_XS + 2, SP_SM + 2)
+        layout.setSpacing(SP_XS + 2)
 
         # 상단 액션
         self._btn_home = self._make_button("home", "홈으로 이동")
@@ -66,8 +66,10 @@ class ActivityBar(QFrame):
 
     def _make_button(self, icon_name: str, tooltip: str) -> QToolButton:
         btn = QToolButton()
-        btn.setIcon(icon_qicon(icon_name, 18, TEXT_TERTIARY))
-        btn.setFixedSize(32, 32)
+        btn.setIcon(icon_qicon(icon_name, 26, TEXT_TERTIARY))
+        from PySide6.QtCore import QSize
+        btn.setIconSize(QSize(26, 26))
+        btn.setFixedSize(40, 40)
         btn.setToolTip(tooltip)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
