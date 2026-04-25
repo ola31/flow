@@ -14,9 +14,9 @@ class TestProjectCreation:
 
     def test_create_project_with_name(self):
         """이름으로 프로젝트 생성"""
-        project = Project(name="2026-01-12 주일예배")
+        project = Project(name="2026-01-12 공연1")
 
-        assert project.name == "2026-01-12 주일예배"
+        assert project.name == "2026-01-12 공연1"
 
     def test_project_has_unique_id(self):
         """프로젝트는 고유 ID를 가짐"""

@@ -669,7 +669,7 @@ class MainWindow(QMainWindow):
 
             name, ok = flow_input_text(
                 self, "새 프로젝트", "프로젝트 이름:",
-                placeholder="예: 2024-12-25 성탄절",
+                placeholder="예: 2024-12-25 공연",
             )
             if not ok or not name:
                 return

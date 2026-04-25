@@ -20,26 +20,26 @@ class TestWorkspaceProjectRoundtrip:
 
     def test_save_creates_correct_path(self, workspace: Workspace):
         repo = ProjectRepository(workspace.projects_dir)
-        p = Project(name="주일예배")
+        p = Project(name="공연1")
         saved = repo.save_to_workspace(p, workspace)
 
-        assert saved == workspace.project_dir("주일예배") / "project.json"
+        assert saved == workspace.project_dir("공연1") / "project.json"
         assert saved.exists()
 
     def test_workspace_project_listed_after_save(self, workspace: Workspace):
         repo = ProjectRepository(workspace.projects_dir)
-        repo.save_to_workspace(Project(name="주일예배"), workspace)
-        repo.save_to_workspace(Project(name="성탄절"), workspace)
+        repo.save_to_workspace(Project(name="공연1"), workspace)
+        repo.save_to_workspace(Project(name="공연A"), workspace)
 
         names = {p.name for p in workspace.list_projects()}
-        assert names == {"주일예배", "성탄절"}
+        assert names == {"공연1", "공연A"}
 
     def test_load_by_name_after_save(self, workspace: Workspace):
         repo = ProjectRepository(workspace.projects_dir)
-        repo.save_to_workspace(Project(name="주일예배"), workspace)
+        repo.save_to_workspace(Project(name="공연1"), workspace)
 
-        loaded = repo.load_from_workspace(workspace, "주일예배")
-        assert loaded.name == "주일예배"
+        loaded = repo.load_from_workspace(workspace, "공연1")
+        assert loaded.name == "공연1"
 
 
 class TestWorkspaceProjectDetection:
@@ -62,12 +62,12 @@ class TestWorkspaceProjectDetection:
         return None
 
     def test_detect_workspace_project_path(self, workspace: Workspace):
-        path = workspace.project_dir("주일예배") / "project.json"
+        path = workspace.project_dir("공연1") / "project.json"
         path.parent.mkdir(parents=True)
         path.touch()
 
         name = self._detect(workspace, path)
-        assert name == "주일예배"
+        assert name == "공연1"
 
     def test_detect_returns_none_for_non_workspace_path(
         self, workspace: Workspace, tmp_path: Path
@@ -80,7 +80,7 @@ class TestWorkspaceProjectDetection:
         assert name is None
 
     def test_detect_returns_none_for_wrong_filename(self, workspace: Workspace):
-        path = workspace.project_dir("주일예배") / "other.json"
+        path = workspace.project_dir("공연1") / "other.json"
         path.parent.mkdir(parents=True)
         path.touch()
 
@@ -98,10 +98,10 @@ class TestWorkspaceProjectLauncher:
         from flow.ui.project_launcher import ProjectLauncher
 
         # 테스트 데이터
-        (workspace.library_song_dir("은혜")).mkdir(parents=True)
-        (workspace.library_song_dir("은혜") / "song.json").write_text('{"name":"은혜"}')
-        (workspace.project_dir("예배")).mkdir(parents=True)
-        (workspace.project_dir("예배") / "project.json").write_text('{"name":"예배"}')
+        (workspace.library_song_dir("곡B")).mkdir(parents=True)
+        (workspace.library_song_dir("곡B") / "song.json").write_text('{"name":"곡B"}')
+        (workspace.project_dir("셋")).mkdir(parents=True)
+        (workspace.project_dir("셋") / "project.json").write_text('{"name":"셋"}')
 
         launcher = ProjectLauncher()
         launcher.set_workspace(workspace)
@@ -134,9 +134,9 @@ class TestWorkspaceProjectLauncher:
             _LibrarySongCard,
         )
 
-        (workspace.library_song_dir("은혜")).mkdir(parents=True)
-        (workspace.library_song_dir("은혜") / "song.json").write_text(
-            '{"name":"은혜","sheets":[]}'
+        (workspace.library_song_dir("곡B")).mkdir(parents=True)
+        (workspace.library_song_dir("곡B") / "song.json").write_text(
+            '{"name":"곡B","sheets":[]}'
         )
 
         dlg = SongLibraryDialog(

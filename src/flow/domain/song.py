@@ -23,7 +23,7 @@ class Song:
     score_sheets: list[ScoreSheet] = field(default_factory=list)  # 악보 목록 (다중 페이지 지원)
     slides_path: Optional[Path] = None  # slides.pptx 경로
     sheets_dir: Optional[Path] = None  # sheets/ 폴더 경로
-    order: int = 0  # 예배 순서
+    order: int = 0  # 셋리스트 순서
     project_dir: Optional[Path] = None  # 프로젝트 베이스 경로 (절대 경로 해결용)
     source: str = "local"  # "library" | "local" — 워크스페이스 구조에서 곡 출처
     

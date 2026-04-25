@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class Project:
-    """프로젝트 (예배 세션)
+    """프로젝트 (셋리스트 세션)
 
     Attributes:
         name: 프로젝트 이름

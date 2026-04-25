@@ -391,7 +391,7 @@ class ProjectLauncher(QWidget):
         title.setFont(_t_font)
         hdr.addWidget(title)
 
-        sub = QLabel("예배 슬라이드 송출 시스템")
+        sub = QLabel("악보 기반 슬라이드 송출 시스템")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(
             f"font-size: {FONT_MD}px; color: {TEXT_TERTIARY}; font-weight: {FW_REGULAR};"
@@ -421,7 +421,7 @@ class ProjectLauncher(QWidget):
 
         self._proj_panel = _Panel(
             "프로젝트",
-            "곡을 조합해 예배 셋리스트로 사용",
+            "곡을 조합해 셋리스트로 사용",
             icon_name="view_list",
             empty_icon="view_list",
             empty_title="프로젝트가 없습니다",

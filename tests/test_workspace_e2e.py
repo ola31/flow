@@ -69,23 +69,23 @@ class TestWorkspaceLifecycle:
 class TestLibraryBrowsing:
     def test_library_songs_visible_after_seeding(self, tmp_path: Path):
         ws = Workspace.create(tmp_path / "ws")
-        _seed_library_song(ws, "주님의기쁨")
-        _seed_library_song(ws, "은혜")
+        _seed_library_song(ws, "곡A")
+        _seed_library_song(ws, "곡B")
 
         names = {s.name for s in ws.list_library_songs()}
-        assert names == {"주님의기쁨", "은혜"}
+        assert names == {"곡A", "곡B"}
 
     def test_library_song_loads_with_absolute_path(self, tmp_path: Path):
         """Song.load_from_workspace로 로드한 곡은 abs_slides_path가
         project_dir 없이도 올바른 절대 경로를 반환해야 함."""
         ws = Workspace.create(tmp_path / "ws")
-        _seed_library_song(ws, "은혜")
+        _seed_library_song(ws, "곡B")
 
-        song = Song.load_from_workspace(ws, "예배", "은혜")
+        song = Song.load_from_workspace(ws, "셋", "곡B")
         assert song is not None
         assert song.source == "library"
         assert song.abs_slides_path.is_absolute()
-        assert song.abs_slides_path == ws.library_song_dir("은혜") / "slides.pptx"
+        assert song.abs_slides_path == ws.library_song_dir("곡B") / "slides.pptx"
         assert song.has_slides  # 가짜라도 파일 존재
         assert song.has_sheets
 
@@ -100,15 +100,15 @@ class TestProjectLifecycle:
         """워크스페이스 + 라이브러리 곡 2개 → 새 프로젝트 생성 →
         둘 다 참조로 추가 → 저장 → 로드 → 정체성 유지."""
         ws = Workspace.create(tmp_path / "ws")
-        _seed_library_song(ws, "주님의기쁨")
-        _seed_library_song(ws, "은혜")
+        _seed_library_song(ws, "곡A")
+        _seed_library_song(ws, "곡B")
         repo = ProjectRepository(ws.root)
 
         # 1) 프로젝트 생성
-        project = Project(name="2024성탄절")
+        project = Project(name="2024-12 공연")
 
         # 2) 라이브러리에서 두 곡 참조 추가 (UI의 "참조" 버튼 클릭에 해당)
-        for i, name in enumerate(["주님의기쁨", "은혜"]):
+        for i, name in enumerate(["곡A", "곡B"]):
             song = Song.load_from_workspace(ws, project.name, name, order=i)
             assert song is not None
             assert song.source == "library"
@@ -117,25 +117,25 @@ class TestProjectLifecycle:
 
         # 3) 저장
         saved_path = repo.save_to_workspace(project, ws)
-        assert saved_path == ws.project_dir("2024성탄절") / "project.json"
+        assert saved_path == ws.project_dir("2024-12 공연") / "project.json"
 
         # 4) 파일시스템 구조 검증
         # project.json만 있고, project/songs/는 생성되지 않아야 함 (참조니까)
-        project_dir = ws.project_dir("2024성탄절")
+        project_dir = ws.project_dir("2024-12 공연")
         assert (project_dir / "project.json").exists()
-        assert not (project_dir / "songs" / "주님의기쁨").exists()
-        assert not (project_dir / "songs" / "은혜").exists()
+        assert not (project_dir / "songs" / "곡A").exists()
+        assert not (project_dir / "songs" / "곡B").exists()
 
         # 라이브러리에는 원본 그대로 존재
-        assert (ws.library_song_dir("주님의기쁨") / "song.json").exists()
-        assert (ws.library_song_dir("은혜") / "song.json").exists()
+        assert (ws.library_song_dir("곡A") / "song.json").exists()
+        assert (ws.library_song_dir("곡B") / "song.json").exists()
 
         # 5) 재로드 (앱 재시작 시뮬레이션)
-        reloaded = repo.load_from_workspace(ws, "2024성탄절")
-        assert reloaded.name == "2024성탄절"
+        reloaded = repo.load_from_workspace(ws, "2024-12 공연")
+        assert reloaded.name == "2024-12 공연"
         assert len(reloaded.selected_songs) == 2
         assert all(s.source == "library" for s in reloaded.selected_songs)
-        assert [s.name for s in reloaded.selected_songs] == ["주님의기쁨", "은혜"]
+        assert [s.name for s in reloaded.selected_songs] == ["곡A", "곡B"]
 
     def test_mixed_library_and_local_songs(self, tmp_path: Path):
         """library 1곡 참조 + library 1곡 로컬 복사 조합"""
@@ -144,7 +144,7 @@ class TestProjectLifecycle:
         _seed_library_song(ws, "커스터마이즈")
         repo = ProjectRepository(ws.root)
 
-        project = Project(name="2024성탄절")
+        project = Project(name="2024-12 공연")
 
         # 곡1: 참조
         ref_song = Song.load_from_workspace(ws, project.name, "공용곡", order=0)
@@ -152,10 +152,10 @@ class TestProjectLifecycle:
         project.selected_songs.append(ref_song)
 
         # 곡2: 로컬 복사 (UI의 "복사" 버튼 클릭에 해당)
-        # → library/커스터마이즈/ 를 projects/성탄절/songs/커스터마이즈/로 복사
+        # → library/커스터마이즈/ 를 projects/공연A/songs/커스터마이즈/로 복사
         import shutil
         src = ws.library_song_dir("커스터마이즈")
-        dst = ws.project_dir("2024성탄절") / "songs" / "커스터마이즈"
+        dst = ws.project_dir("2024-12 공연") / "songs" / "커스터마이즈"
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(src, dst)
 
@@ -168,7 +168,7 @@ class TestProjectLifecycle:
         repo.save_to_workspace(project, ws)
 
         # 재로드 후 source가 올바르게 유지되는지
-        reloaded = repo.load_from_workspace(ws, "2024성탄절")
+        reloaded = repo.load_from_workspace(ws, "2024-12 공연")
         sources = {s.name: s.source for s in reloaded.selected_songs}
         assert sources == {"공용곡": "library", "커스터마이즈": "local"}
 
@@ -305,22 +305,22 @@ class TestEnterSongEditMode:
         from flow.ui.main_window import MainWindow
 
         ws = Workspace.create(tmp_path / "ws")
-        self._seed_library_song_with_pptx(ws, "은혜")
+        self._seed_library_song_with_pptx(ws, "곡B")
 
         mw = MainWindow(workspace=ws)
         try:
-            mw._project = Project(name="예배")
+            mw._project = Project(name="셋")
             repo = ProjectRepository(ws.projects_dir)
             mw._project_path = repo.save_to_workspace(mw._project, ws)
 
-            song = Song.load_from_workspace(ws, "예배", "은혜", order=0)
+            song = Song.load_from_workspace(ws, "셋", "곡B", order=0)
             assert song is not None
             assert song.folder.is_absolute()  # workspace songs have absolute folder
             mw._project.selected_songs.append(song)
 
             mw._enter_song_edit_mode(song)
             assert mw._is_standalone is True
-            assert mw._project.name == "[곡 편집] 은혜"
+            assert mw._project.name == "[곡 편집] 곡B"
         finally:
             mw.close()
 
@@ -387,21 +387,21 @@ class TestMainWindowConstruction:
 class TestLocalOverride:
     def test_local_wins_when_both_exist(self, tmp_path: Path):
         ws = Workspace.create(tmp_path / "ws")
-        _seed_library_song(ws, "은혜")
+        _seed_library_song(ws, "곡B")
 
-        # 프로젝트에 로컬 "은혜"를 수동 생성 (라이브러리와 다른 내용)
-        local_dir = ws.project_dir("예배") / "songs" / "은혜"
+        # 프로젝트에 로컬 "곡B"를 수동 생성 (라이브러리와 다른 내용)
+        local_dir = ws.project_dir("셋") / "songs" / "곡B"
         local_dir.mkdir(parents=True)
         sheet = ScoreSheet(name="local_version")
         (local_dir / "song.json").write_text(
             json.dumps(
-                {"name": "은혜", "sheets": [sheet.to_dict()], "marker": "LOCAL"},
+                {"name": "곡B", "sheets": [sheet.to_dict()], "marker": "LOCAL"},
                 ensure_ascii=False,
             ),
             encoding="utf-8",
         )
 
-        song = Song.load_from_workspace(ws, "예배", "은혜")
+        song = Song.load_from_workspace(ws, "셋", "곡B")
         assert song is not None
         assert song.source == "local"
         assert song.score_sheets[0].name == "local_version"
