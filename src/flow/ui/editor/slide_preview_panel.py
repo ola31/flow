@@ -55,7 +55,7 @@ class SlidePreviewPanel(QWidget):
             TEXT_TERTIARY, ACCENT, ACCENT_INTER, ACCENT_HOVER,
             BORDER_SUBTLE_RGBA, BORDER_STANDARD_RGBA,
             SURFACE_GHOST, SURFACE_SUBTLE, SURFACE_RAISED,
-            FONT_XS, FONT_SM, FONT_MD, FONT_LG, FW_MEDIUM, FW_SEMI,
+            FONT_XS, FONT_SM, FONT_MD, FONT_LG, FONT_TITLE, FW_MEDIUM, FW_SEMI,
             RADIUS_SM, RADIUS_MD, RADIUS_LG, SP_XS, SP_SM,
         )
 
@@ -75,7 +75,7 @@ class SlidePreviewPanel(QWidget):
 
         self._title = QLabel("PPT 슬라이드 (0)")
         self._title.setStyleSheet(
-            f"font-size: {FONT_MD}px; color: {TEXT_PRIMARY}; font-weight: {FW_SEMI};"
+            f"font-size: {FONT_TITLE}px; color: {TEXT_PRIMARY}; font-weight: {FW_SEMI};"
         )
         header_layout.addWidget(self._title, 1)
 
