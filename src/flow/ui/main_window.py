@@ -1476,23 +1476,67 @@ class MainWindow(QMainWindow):
     def _toggle_display(self) -> None:
         """송출 시작/중지 토글"""
         if self._display_window and self._display_window.isVisible():
-            # 중지 로직
             self._display_window.close()
-            # closeEvent에서 _on_display_closed가 호출되어 UI가 갱신됨
+            return
+
+        # 송출 시작
+        if self._display_window is None:
+            self._display_window = DisplayWindow()
+            self._display_window.closed.connect(self._on_display_closed)
+
+        screen = self._pick_display_screen()
+        self._display_window.show_on_screen(screen)
+
+        # [중요] 송출창이 열린 후 현재 라이브 상태를 즉시 동기화
+        self._live_controller.sync_live()
+
+        self._display_action.setText("송출 중지")
+        if screen is not None:
+            self._statusbar.showMessage(
+                f"송출이 시작되었습니다: {screen.name() or '모니터'} (F11로 중지)"
+            )
         else:
-            # 시작 로직
-            if self._display_window is None:
-                self._display_window = DisplayWindow()
-                self._display_window.closed.connect(self._on_display_closed)
-                # 시그널 연결 (MainWindow의 핸들러를 통해 전달됨)
-
-            self._display_window.show_fullscreen_on_secondary()
-
-            # [중요] 송출창이 열린 후 현재 라이브 상태를 즉시 동기화
-            self._live_controller.sync_live()
-
-            self._display_action.setText("송출 중지")
             self._statusbar.showMessage("송출이 시작되었습니다 (F11로 중지)")
+
+    def _pick_display_screen(self):
+        """송출에 사용할 QScreen을 결정 (저장된 선택 우선, 없으면 다이얼로그)."""
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtGui import QGuiApplication
+
+        screens = QApplication.screens()
+        if not screens:
+            return None
+        if len(screens) == 1:
+            # 싱글 모니터: 윈도우 모드 (None 반환)
+            return None
+
+        saved_name = self._config_service.get_display_screen_name()
+
+        # 저장된 모니터가 여전히 연결되어 있으면 그대로 사용
+        if saved_name:
+            for s in screens:
+                if s.name() == saved_name:
+                    return s
+            # 저장된 모니터가 사라짐 → 사용자에게 다시 선택 요청
+            self._statusbar.showMessage(
+                f"이전 송출 모니터('{saved_name}')를 찾을 수 없습니다. 다시 선택해 주세요.",
+                4000,
+            )
+
+        # 다이얼로그로 선택
+        from flow.ui.dialogs import flow_select_screen
+        chosen = flow_select_screen(self, screens, current_name=saved_name)
+        if chosen is None:
+            # 사용자가 취소 → 주 모니터가 아닌 첫 번째로 폴백
+            primary = QGuiApplication.primaryScreen()
+            for s in screens:
+                if s != primary:
+                    return s
+            return screens[0]
+
+        # 선택 저장
+        self._config_service.set_display_screen_name(chosen.name())
+        return chosen
 
     def _on_display_closed(self) -> None:
         """송출창이 닫혔을 때 (ESC로 닫거나 버튼으로 닫혔을 때 공통)"""

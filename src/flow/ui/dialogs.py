@@ -374,6 +374,94 @@ def flow_save_changes(
     return result["value"]
 
 
+# ─── 모니터 선택 다이얼로그 ────────────────────────────────────────────────
+
+
+def flow_select_screen(
+    parent,
+    screens: list,
+    *,
+    current_name: str = "",
+    title: str = "송출 모니터 선택",
+) -> object | None:
+    """송출에 사용할 QScreen 선택. 선택된 QScreen 또는 None(취소) 반환.
+
+    Args:
+        screens: QApplication.screens() 결과 리스트
+        current_name: 현재 저장된 화면 이름 (강조 표시용)
+    """
+    from PySide6.QtWidgets import QButtonGroup, QRadioButton
+
+    dlg = _FlowDialog(parent, title=title)
+    dlg.setMinimumWidth(480)
+    body = dlg.body_layout()
+
+    intro = QLabel(
+        f"{len(screens)}개의 모니터가 감지되었습니다. 송출할 모니터를 선택하세요."
+    )
+    intro.setWordWrap(True)
+    intro.setStyleSheet(
+        f"color: {TEXT_SECONDARY}; font-size: {FONT_MD}px; "
+        "background: transparent; border: none;"
+    )
+    body.addWidget(intro)
+
+    group = QButtonGroup(dlg)
+    radios: list[tuple[QRadioButton, object]] = []
+    for i, screen in enumerate(screens):
+        geo = screen.geometry()
+        is_primary = screen == screens[0]  # heuristic — primary often first
+        try:
+            from PySide6.QtGui import QGuiApplication
+            is_primary = screen == QGuiApplication.primaryScreen()
+        except Exception:
+            pass
+
+        label_text = (
+            f"모니터 {i + 1}  ·  {geo.width()} × {geo.height()}"
+            f"  ·  {screen.name() or '(이름 없음)'}"
+        )
+        if is_primary:
+            label_text += "   [주 모니터]"
+
+        radio = QRadioButton(label_text)
+        radio.setStyleSheet(
+            f"color: {TEXT_PRIMARY}; font-size: {FONT_MD}px; "
+            f"background: transparent; padding: {SP_SM}px 0; "
+            f"font-weight: {FW_MEDIUM};"
+        )
+        if current_name and screen.name() == current_name:
+            radio.setChecked(True)
+        elif not current_name and not is_primary and i > 0:
+            # 디폴트: 주 모니터가 아닌 첫 번째
+            radio.setChecked(True)
+        group.addButton(radio, i)
+        radios.append((radio, screen))
+        body.addWidget(radio)
+
+    # 어느 것도 체크되어 있지 않으면 첫 번째 자동 선택
+    if not any(r.isChecked() for r, _ in radios):
+        radios[0][0].setChecked(True)
+
+    btn_cancel = _make_button("취소")
+    btn_cancel.clicked.connect(dlg.reject)
+
+    btn_ok = _make_button("선택", primary=True)
+    btn_ok.clicked.connect(dlg.accept)
+    btn_ok.setDefault(True)
+    btn_ok.setAutoDefault(True)
+
+    dlg.add_button_row([btn_cancel, btn_ok])
+
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return None
+
+    for radio, screen in radios:
+        if radio.isChecked():
+            return screen
+    return None
+
+
 # ─── 텍스트 입력 다이얼로그 (QInputDialog.getText 대체) ────────────────────
 
 

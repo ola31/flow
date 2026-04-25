@@ -152,26 +152,39 @@ class DisplayWindow(QWidget):
         self._lyric_label.clear()
         self._lyric_label.setPixmap(QPixmap())
     
-    def show_fullscreen_on_secondary(self) -> None:
-        """두 번째 모니터에 전체화면으로 표시"""
-        screens = QApplication.screens()
-        
-        if len(screens) > 1:
-            # 두 번째 모니터에 전체화면
-            secondary_screen = screens[1]
-            geometry = secondary_screen.geometry()
+    def show_on_screen(self, screen) -> None:
+        """지정한 QScreen에 전체화면 표시.
+
+        screen이 None이면 윈도우 모드로 표시 (싱글 모니터 폴백).
+        """
+        if screen is not None:
+            geometry = screen.geometry()
             self.setGeometry(geometry)
+            # Qt6에서는 화면 이동 후 윈도우 핸들에도 명시적으로 스크린 지정
+            handle = self.windowHandle()
+            if handle is not None:
+                handle.setScreen(screen)
             self.showFullScreen()
         else:
-            # 싱글 모니터: 윈도우 모드로 열기 (일반 윈도우처럼 관리 가능하도록)
+            # 싱글 모니터 또는 자동 윈도우 모드
             self.setWindowFlags(Qt.WindowType.Window)
-            self.resize(960, 540)  # 16:9 비율
+            self.resize(960, 540)
             self.show()
-            # 화면 오른쪽 하단에 배치
-            screen = screens[0]
-            geo = screen.availableGeometry()
-            self.move(geo.width() - self.width() - 20, 
-                     geo.height() - self.height() - 20)
+            screens = QApplication.screens()
+            if screens:
+                geo = screens[0].availableGeometry()
+                self.move(
+                    geo.x() + geo.width() - self.width() - 20,
+                    geo.y() + geo.height() - self.height() - 20,
+                )
+
+    def show_fullscreen_on_secondary(self) -> None:
+        """레거시 호환 — 두 번째 모니터(없으면 윈도우)에 표시."""
+        screens = QApplication.screens()
+        if len(screens) > 1:
+            self.show_on_screen(screens[1])
+        else:
+            self.show_on_screen(None)
     
     def keyPressEvent(self, event) -> None:
         """키보드 이벤트 - ESC로 종료"""

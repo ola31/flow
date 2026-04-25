@@ -17,6 +17,7 @@ class ConfigService:
             "max_verses": 5,
             "window_geometry": "",
             "window_state": "",
+            "display_screen_name": "",  # 송출 모니터 식별 (QScreen.name)
         }
         self.load()
 
@@ -187,6 +188,19 @@ class ConfigService:
             self._config["current_workspace"] = Path(clean).resolve().as_posix()
         except Exception:
             self._config["current_workspace"] = clean
+        self.save()
+
+    # ==== Display 모니터 선택 ====
+
+    def get_display_screen_name(self) -> str:
+        """송출 모니터로 사용할 QScreen 이름 (없으면 빈 문자열)."""
+        self.load()
+        return self._config.get("display_screen_name", "")
+
+    def set_display_screen_name(self, name: str) -> None:
+        """송출 모니터 이름 저장 (QScreen.name() 값)."""
+        self.load()
+        self._config["display_screen_name"] = name or ""
         self.save()
 
     def get_max_verses(self) -> int:
