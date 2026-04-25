@@ -120,14 +120,19 @@ FONT_FAMILY = (
     "'Segoe UI', 'Inter', sans-serif"
 )
 
-# 사이즈 — Linear는 밀도 우선
-FONT_XS    = 10
-FONT_SM    = 11
-FONT_MD    = 12
-FONT_LG    = 13
-FONT_XL    = 14
-FONT_2XL   = 16
-FONT_TITLE = 22
+# 사이즈 — 8단계 hierarchy (2XS → DISPLAY)
+FONT_2XS     = 10   # 메타·타임스탬프
+FONT_XS      = 11   # 라벨·캡션
+FONT_SM      = 12   # 본문 기본
+FONT_MD      = 13   # 강조 본문·리스트 제목
+FONT_LG      = 15   # 카드 헤더·다이얼로그 본문 강조
+FONT_TITLE   = 18   # 패널 섹션 헤더
+FONT_HEAD    = 20   # 다이얼로그·EmptyState 제목
+FONT_DISPLAY = 24   # 페이지 최상위 헤드라인
+
+# 호환 alias (Phase E에서 제거 예정 — 신규 토큰으로 교체 후)
+FONT_XL  = FONT_LG    # 14 → 15 (한 단계 위)
+FONT_2XL = FONT_HEAD  # 16 → 20 (HEAD로 승격)
 
 # 가중치 — Linear의 시그니처는 510 (regular와 medium 사이)
 # Pretendard Variable은 모든 weight 지원
