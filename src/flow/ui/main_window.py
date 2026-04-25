@@ -63,6 +63,7 @@ from flow.ui.styles import (
     RED_HOVER,
     RADIUS_MD,
     FONT_MD,
+    SP_XS, SP_SM,
 )
 
 
@@ -350,15 +351,23 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(GLOBAL_STYLESHEET)
 
     def _setup_toolbar(self) -> None:
-        """커스텀 1단 툴� 설정 (모드별 자동 전환)"""
+        """커스텀 1단 툴바 설정 (모드별 자동 전환).
+
+        Linear-style: 슬림 헤더 (40px 정도), 헤어라인 separator,
+        패딩 최소화로 콘텐츠 영역 최대화.
+        """
+        from flow.ui.styles import BORDER_SUBTLE_RGBA
+
+        self._toolbar.setFixedHeight(44)
         layout = QHBoxLayout(self._toolbar)
-        layout.setContentsMargins(10, 5, 10, 5)
-        layout.setSpacing(4)
+        layout.setContentsMargins(SP_SM, SP_XS, SP_SM, SP_XS)
+        layout.setSpacing(2)
 
         # 공통 버튼 생성 헬퍼
         def create_tool_btn(action, icon_only=False):
             btn = QToolButton()
             btn.setDefaultAction(action)
+            btn.setMinimumHeight(32)
             if icon_only:
                 btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
             else:
@@ -368,8 +377,11 @@ class MainWindow(QMainWindow):
         def create_sep():
             sep = QFrame()
             sep.setFrameShape(QFrame.Shape.VLine)
-            sep.setFrameShadow(QFrame.Shadow.Sunken)
-            sep.setStyleSheet("background-color: #444; width: 1px; margin: 4px 2px;")
+            sep.setFrameShadow(QFrame.Shadow.Plain)
+            sep.setStyleSheet(
+                f"background-color: {BORDER_SUBTLE_RGBA}; "
+                "width: 1px; margin: 8px 4px; max-width: 1px;"
+            )
             return sep
 
         # === 모든 액션 생성 (단축키 유지를 위해) ===

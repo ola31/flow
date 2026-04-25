@@ -37,7 +37,7 @@ from flow.ui.styles import (
     GREEN, GREEN_MUTED, AMBER, AMBER_MUTED, RED,
     RADIUS_SM, RADIUS_MD, RADIUS_LG, FONT_SM, FONT_MD, FONT_LG, FONT_XL,
     FW_REGULAR, FW_MEDIUM, FW_SEMI,
-    SP_SM, SP_MD, SP_LG,
+    SP_XS, SP_SM, SP_MD, SP_LG,
 )
 
 from flow.domain.project import Project
@@ -956,15 +956,16 @@ class SongListWidget(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── 헤더
+        # ── 헤더 — Linear-style 슬림 (40px) + 헤어라인 separator
         header_frame = QFrame()
-        header_frame.setFixedHeight(44)
+        header_frame.setFixedHeight(40)
         header_frame.setStyleSheet(
-            f"background: {BG_SURFACE}; border-bottom: 1px solid {BORDER};"
+            f"background: {BG_SURFACE}; "
+            f"border-bottom: 1px solid {BORDER_SUBTLE_RGBA};"
         )
         header_layout = QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(12, 0, 12, 0)
-        header_layout.setSpacing(6)
+        header_layout.setContentsMargins(SP_MD, 0, SP_SM, 0)
+        header_layout.setSpacing(SP_XS + 2)
 
         from flow.ui.icons import icon_label
         self._title_icon = icon_label("view_list", 16, TEXT_SECONDARY, header_frame)
