@@ -20,6 +20,8 @@ OS 기본 다이얼로그(QMessageBox, QInputDialog)는 타이틀바 글자 잘�
 
 from __future__ import annotations
 
+import os
+
 from PySide6.QtCore import Qt, QPoint, QSize
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import (
@@ -178,6 +180,17 @@ class _FlowDialog(QDialog):
             self.reject()
             return
         super().keyPressEvent(event)
+
+    def exec(self) -> int:
+        """pytest 실행 중에는 다이얼로그를 띄우지 않고 즉시 Accept 반환.
+
+        모달 다이얼로그가 자동 테스트 흐름을 막지 않도록 함. 특정 동작
+        검증이 필요한 테스트는 flow_warning/flow_question 등을
+        monkeypatch.setattr로 직접 패치하면 됨.
+        """
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            return QDialog.DialogCode.Accepted
+        return super().exec()
 
 
 def _make_button(text: str, *, primary: bool = False) -> QPushButton:
