@@ -564,13 +564,14 @@ class _SongCard(QFrame):
         self._status_row.addStretch()
         root.addLayout(self._status_row)
 
-        # ── 시트 탭 행 (선택 시만 표시)
+        # ── 시트 탭 영역 (선택 시만 표시) — 줄바꿈 그리드로 N개 이상도 안전
+        from PySide6.QtWidgets import QGridLayout
         self._tabs_container = QWidget()
-        tabs_layout = QHBoxLayout(self._tabs_container)
+        tabs_layout = QGridLayout(self._tabs_container)
         tabs_layout.setContentsMargins(30, 0, 0, 0)
-        tabs_layout.setSpacing(4)
+        tabs_layout.setHorizontalSpacing(4)
+        tabs_layout.setVerticalSpacing(4)
         self._tabs_layout = tabs_layout
-        self._tabs_layout.addStretch()
         self._tabs_container.hide()
         root.addWidget(self._tabs_container)
 
@@ -618,6 +619,9 @@ class _SongCard(QFrame):
         self._tabs_container.setVisible(selected and bool(self._sheet_tabs))
         self._refresh_frame_style()
 
+    # 시트 탭 한 행에 들어갈 최대 개수 (280px - 30px margin / 약 40px 한 탭)
+    _TABS_PER_ROW = 6
+
     def _refresh_tabs(self, current_sheet_id: str | None) -> None:
         # 기존 탭 제거
         for tab in self._sheet_tabs:
@@ -631,7 +635,12 @@ class _SongCard(QFrame):
             tab.set_current(sheet.id == current_sheet_id)
             tab.clicked.connect(lambda checked, s=sheet: self.sheet_selected.emit(s))
             self._sheet_tabs.append(tab)
-            self._tabs_layout.insertWidget(self._tabs_layout.count() - 1, tab)
+            row, col = divmod(i, self._TABS_PER_ROW)
+            self._tabs_layout.addWidget(tab, row, col)
+        # 마지막 컬럼 이후 stretch로 좌측 정렬
+        last_row_count = len(valid_sheets) % self._TABS_PER_ROW or self._TABS_PER_ROW
+        if last_row_count < self._TABS_PER_ROW:
+            self._tabs_layout.setColumnStretch(self._TABS_PER_ROW, 1)
 
     def _refresh_frame_style(self) -> None:
         if self._is_selected:
