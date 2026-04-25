@@ -527,13 +527,13 @@ class _SongCard(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(10, 8, 10, 8)
-        root.setSpacing(6)
+        root.setContentsMargins(SP_SM, SP_XS + 2, SP_SM, SP_XS + 2)
+        root.setSpacing(4)
 
         # ── 상단 행: 번호 배지 + 곡 이름 + 액션 버튼
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
-        top_row.setSpacing(8)
+        top_row.setSpacing(SP_XS + 2)
 
         self._badge = QLabel(str(self._position))
         self._badge.setFixedSize(22, 22)
@@ -546,11 +546,13 @@ class _SongCard(QFrame):
 
         self._name_label = QLabel(self._song.name)
         self._name_label.setStyleSheet(
-            f"font-size: {FONT_LG}px; font-weight: 500; color: {TEXT_PRIMARY}; background: transparent;"
+            f"font-size: {FONT_LG}px; font-weight: {FW_MEDIUM}; color: {TEXT_PRIMARY}; background: transparent;"
         )
         self._name_label.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
         )
+        self._name_label.setMinimumWidth(0)
+        self._name_label.setToolTip(self._song.name)
         top_row.addWidget(self._name_label, 1)
 
         # 편집 버튼 (hover 시 표시)
@@ -1003,8 +1005,8 @@ class SongListWidget(QWidget):
         self._cards_widget = QWidget()
         self._cards_widget.setStyleSheet("background: transparent;")
         self._cards_layout = QVBoxLayout(self._cards_widget)
-        self._cards_layout.setContentsMargins(8, 8, 8, 8)
-        self._cards_layout.setSpacing(6)
+        self._cards_layout.setContentsMargins(SP_XS, SP_XS, SP_XS, SP_XS)
+        self._cards_layout.setSpacing(4)
         self._cards_layout.addStretch()
 
         self._scroll.setWidget(self._cards_widget)

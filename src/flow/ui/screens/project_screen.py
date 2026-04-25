@@ -269,12 +269,12 @@ class ProjectScreen(QWidget):
         )
         if live:
             self._mapping_panel.hide()
-            self._h_splitter.setSizes([200, 800, 280, 0])
+            self._h_splitter.setSizes([240, 800, 280, 0])
         else:
             self._pip.hide()
             # mapping panel visibility managed by MainWindow
             cur_map = self._h_splitter.sizes()[3] if len(self._h_splitter.sizes()) > 3 else 0
-            self._h_splitter.setSizes([200, 800, 0, cur_map])
+            self._h_splitter.setSizes([240, 800, 0, cur_map])
 
     def sync_nav_verse(self, verse_index: int) -> None:
         btn = self._nav_verse_group.button(verse_index)
@@ -394,8 +394,8 @@ class ProjectScreen(QWidget):
         self._h_splitter.setHandleWidth(1)
 
         self._song_list = SongListWidget()
-        self._song_list.setMaximumWidth(260)
-        self._song_list.setMinimumWidth(180)
+        self._song_list.setMaximumWidth(320)
+        self._song_list.setMinimumWidth(220)
         self._h_splitter.addWidget(self._song_list)
 
         center_widget = QWidget()
@@ -470,6 +470,6 @@ class ProjectScreen(QWidget):
         self._h_splitter.setStretchFactor(1, 1)
         self._h_splitter.setStretchFactor(2, 0)
         self._h_splitter.setStretchFactor(3, 0)
-        self._h_splitter.setSizes([200, 800, 0, 0])
+        self._h_splitter.setSizes([240, 800, 0, 0])
 
         main_layout.addWidget(self._h_splitter)
