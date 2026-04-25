@@ -47,6 +47,56 @@ import threading
 _GLOBAL_CONVERT_LOCK = threading.Lock()
 
 
+def _trim_pdf_edge_artifacts(png_path: Path, max_trim: int = 3) -> None:
+    """PDF→PNG 변환 시 페이지 경계로 생기는 1~2px 흰 줄을 잘라낸다.
+
+    LibreOffice가 PDF에 페이지 boundary를 그리고 PyMuPDF가 이를 흰
+    픽셀로 렌더링하면, 송출 시 슬라이드 가장자리에 흰 선이 보임.
+    각 가장자리 행/열 중 평균 밝기가 250+ 인 것만 트리밍 (콘텐츠 손실 방지).
+    """
+    try:
+        from PIL import Image
+        img = Image.open(str(png_path))
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        w, h = img.size
+        if w < 10 or h < 10:
+            return
+
+        def _row_is_white(y: int) -> bool:
+            # 32개 샘플로 가장자리 행 판정 (전체 스캔보다 빠름)
+            xs = [int(x * (w - 1) / 31) for x in range(32)]
+            return all(
+                sum(img.getpixel((x, y))) >= 250 * 3 for x in xs
+            )
+
+        def _col_is_white(x: int) -> bool:
+            ys = [int(y * (h - 1) / 31) for y in range(32)]
+            return all(
+                sum(img.getpixel((x, y))) >= 250 * 3 for y in ys
+            )
+
+        top = 0
+        while top < max_trim and _row_is_white(top):
+            top += 1
+        bottom = h
+        while bottom > h - max_trim and _row_is_white(bottom - 1):
+            bottom -= 1
+        left = 0
+        while left < max_trim and _col_is_white(left):
+            left += 1
+        right = w
+        while right > w - max_trim and _col_is_white(right - 1):
+            right -= 1
+
+        if (top, left, bottom, right) != (0, 0, h, w):
+            cropped = img.crop((left, top, right, bottom))
+            cropped.save(str(png_path))
+    except Exception:
+        # 트리밍 실패는 silent — 원본 유지
+        pass
+
+
 def _convert_pdf_to_images(
     pdf_path: Path, cache_dir: Path, status_callback=None
 ) -> bool:
@@ -73,6 +123,7 @@ def _convert_pdf_to_images(
 
                     target = cache_dir / f"slide_{i}.png"
                     pix.save(str(target))
+                    _trim_pdf_edge_artifacts(target)
 
             return True
         except Exception as e:
