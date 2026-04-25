@@ -34,7 +34,7 @@ from flow.ui.styles import (
     FONT_LG,
     FONT_MD,
     FONT_SM,
-    FONT_2XL,
+    FONT_HEAD,
     RADIUS_LG,
     RADIUS_MD,
     SP_LG,
@@ -110,7 +110,7 @@ class WorkspaceDialog(QDialog):
 
         title = QLabel("워크스페이스 선택")
         title.setStyleSheet(
-            f"font-size: {FONT_2XL}px; font-weight: 600; color: {TEXT_PRIMARY};"
+            f"font-size: {FONT_HEAD}px; font-weight: 600; color: {TEXT_PRIMARY};"
         )
         root.addWidget(title)
 
