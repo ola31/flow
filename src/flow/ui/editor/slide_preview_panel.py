@@ -176,7 +176,7 @@ class SlidePreviewPanel(QWidget):
         self._engine_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._engine_label.setStyleSheet(
             f"QLabel {{ color: {TEXT_TERTIARY}; font-size: {FONT_XS}px; "
-            "background: transparent; }}"
+            "background: transparent; }"
         )
         overlay_layout.addWidget(self._engine_label)
 
@@ -217,12 +217,12 @@ class SlidePreviewPanel(QWidget):
         self._progress_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._progress_text.setStyleSheet(
             f"QLabel {{ color: {TEXT_TERTIARY}; font-size: {FONT_SM}px; "
-            "background: transparent; }}"
+            "background: transparent; }"
         )
         overlay_layout.addWidget(self._progress_text)
 
         self._loading_overlay.setStyleSheet(
-            "QWidget { background-color: rgba(15, 16, 17, 230); "
+            f"QWidget {{ background-color: rgba(15, 16, 17, 230); "
             f"border-radius: {RADIUS_LG}px; }}"
         )
         self._loading_overlay.hide()  # 초기에는 숨김

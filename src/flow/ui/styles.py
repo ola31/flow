@@ -345,24 +345,28 @@ TOOLBAR_DEFAULT = f"""
 
 TOOLBAR_LIVE = f"""
     QWidget#CustomToolbar {{
-        background-color: {RED_MUTED};
-        border-bottom: 2px solid {RED};
+        background-color: {BG_SURFACE};
+        border-top: 3px solid {RED};
+        border-bottom: 1px solid {BORDER_SUBTLE_RGBA};
     }}
     {_TOOLBAR_BUTTON_BASE}
     QToolButton:checked {{
-        background-color: {RED};
-        color: white;
+        background-color: {SURFACE_SUBTLE};
+        color: {TEXT_PRIMARY};
+        border: 1px solid {BORDER_STANDARD_RGBA};
     }}
 """
 
 TOOLBAR_SONG_EDIT = f"""
     QWidget#CustomToolbar {{
-        background-color: {ACCENT_SURFACE};
-        border-bottom: 2px solid {ACCENT};
+        background-color: {BG_SURFACE};
+        border-top: 3px solid {ACCENT};
+        border-bottom: 1px solid {BORDER_SUBTLE_RGBA};
     }}
     {_TOOLBAR_BUTTON_BASE}
     QToolButton:checked {{
-        background-color: {ACCENT};
-        color: white;
+        background-color: {SURFACE_SUBTLE};
+        color: {TEXT_PRIMARY};
+        border: 1px solid {BORDER_STANDARD_RGBA};
     }}
 """

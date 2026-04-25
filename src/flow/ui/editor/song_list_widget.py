@@ -369,7 +369,7 @@ class SongLibraryDialog(QDialog):
         )
         if not scan_dir.exists():
             self._show_empty(
-                icon="music_note",
+                icon="image",
                 title="라이브러리가 비어있습니다",
                 description="새 곡을 먼저 만들어 주세요",
             )
@@ -405,7 +405,7 @@ class SongLibraryDialog(QDialog):
                 )
             else:
                 self._show_empty(
-                    icon="music_note",
+                    icon="image",
                     title="추가할 수 있는 곡이 없습니다",
                     description="새 곡을 먼저 만들어 주세요",
                 )

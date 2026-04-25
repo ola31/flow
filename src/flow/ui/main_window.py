@@ -477,6 +477,14 @@ class MainWindow(QMainWindow):
         self._sep_live1 = create_sep()
         self._sep_song1 = create_sep()
 
+        # 라이브 송출 중 배지 — 빨간 닷 + 텍스트, 라이브 모드에서만 표시
+        self._live_badge = QLabel("●  라이브 송출 중")
+        self._live_badge.setStyleSheet(
+            f"color: {RED}; background: transparent; "
+            f"font-size: {FONT_MD}px; font-weight: 600; padding: 0 8px;"
+        )
+        self._live_badge.hide()
+
         # === 모드별 버튼 그룹 정의 ===
         self._toolbar_groups = {
             "default": [
@@ -494,6 +502,8 @@ class MainWindow(QMainWindow):
             ],
             "live": [
                 self._btn_home,
+                self._sep_live1,
+                self._live_badge,
                 "stretch",
                 self._btn_display,
                 self._btn_exit_live,
@@ -631,22 +641,13 @@ class MainWindow(QMainWindow):
         if not self._is_dirty and self._undo_stack.isClean():
             return True
 
-        from PySide6.QtWidgets import QMessageBox
+        from flow.ui.dialogs import flow_save_changes, SAVE, DISCARD
 
-        reply = QMessageBox.question(
-            self,
-            "저장 확인",
-            "저장되지 않은 변경사항이 있습니다.\n진행하기 전에 저장하시겠습니까?",
-            QMessageBox.StandardButton.Save
-            | QMessageBox.StandardButton.Discard
-            | QMessageBox.StandardButton.Cancel,
-        )
-
-        if reply == QMessageBox.StandardButton.Save:
+        choice = flow_save_changes(self)
+        if choice == SAVE:
             self._save_project()
             return True
-
-        return reply == QMessageBox.StandardButton.Discard
+        return choice == DISCARD
 
     def _new_project(self) -> None:
         """새 프로젝트 폴더 생성 및 시작"""

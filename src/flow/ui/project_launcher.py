@@ -409,7 +409,7 @@ class ProjectLauncher(QWidget):
             "곡 라이브러리",
             "악보 · PPT · 핫스팟 매핑의 기본 단위",
             icon_name="music_note",
-            empty_icon="music_note",
+            empty_icon="image",
             empty_title="곡이 없습니다",
             empty_description="새 곡을 만들거나 외부 폴더에서 가져오세요",
         )

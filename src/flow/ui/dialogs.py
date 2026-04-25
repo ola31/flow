@@ -299,6 +299,81 @@ def flow_question(parent, title: str, message: str,
     )
 
 
+# ─── 3-way 다이얼로그 (저장/버리기/취소 패턴) ────────────────────────────────
+
+# 반환값 상수
+SAVE = "save"
+DISCARD = "discard"
+CANCEL = "cancel"
+
+
+def flow_save_changes(
+    parent,
+    title: str = "저장 확인",
+    message: str = "저장되지 않은 변경사항이 있습니다.\n진행하기 전에 저장하시겠습니까?",
+    *,
+    save_text: str = "저장",
+    discard_text: str = "저장 안 함",
+    cancel_text: str = "취소",
+) -> str:
+    """3-way 저장/버리기/취소 다이얼로그.
+
+    Returns:
+        SAVE | DISCARD | CANCEL 문자열 상수
+    """
+    dlg = _FlowDialog(parent, title=title)
+    dlg.setMinimumWidth(440)
+    body = dlg.body_layout()
+
+    header = QHBoxLayout()
+    header.setSpacing(SP_MD)
+    glyph = QLabel(_QUESTION_GLYPH[0])
+    glyph.setFixedSize(40, 24)
+    glyph.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    glyph.setStyleSheet(
+        f"background: {SURFACE_SUBTLE}; color: {_QUESTION_GLYPH[1]}; "
+        f"border-radius: {RADIUS_MD}px; "
+        f"font-size: {FONT_MD}px; font-weight: {FW_SEMI};"
+    )
+    header.addWidget(glyph, 0, Qt.AlignmentFlag.AlignTop)
+
+    msg_label = QLabel(message)
+    msg_label.setWordWrap(True)
+    msg_label.setStyleSheet(
+        f"color: {TEXT_PRIMARY}; font-size: {FONT_MD}px; "
+        f"font-weight: {FW_REGULAR}; background: transparent; border: none;"
+    )
+    msg_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+    header.addWidget(msg_label, 1)
+    body.addLayout(header)
+
+    # 결과 추적용
+    result = {"value": CANCEL}
+
+    btn_cancel = _make_button(cancel_text)
+    btn_cancel.clicked.connect(lambda: (result.update(value=CANCEL), dlg.reject()))
+
+    btn_discard = _make_button(discard_text)
+    btn_discard.setStyleSheet(
+        f"QPushButton {{ background: {SURFACE_GHOST}; color: {RED}; "
+        f"border: 1px solid {BORDER_STANDARD_RGBA}; "
+        f"border-radius: {RADIUS_MD}px; padding: {SP_SM}px {SP_LG}px; "
+        f"font-weight: {FW_MEDIUM}; }}"
+        f"QPushButton:hover {{ background: {SURFACE_SUBTLE}; border-color: {RED}; }}"
+    )
+    btn_discard.clicked.connect(lambda: (result.update(value=DISCARD), dlg.accept()))
+
+    btn_save = _make_button(save_text, primary=True)
+    btn_save.clicked.connect(lambda: (result.update(value=SAVE), dlg.accept()))
+    btn_save.setDefault(True)
+    btn_save.setAutoDefault(True)
+
+    dlg.add_button_row([btn_cancel, btn_discard, btn_save])
+
+    dlg.exec()
+    return result["value"]
+
+
 # ─── 텍스트 입력 다이얼로그 (QInputDialog.getText 대체) ────────────────────
 
 
