@@ -8,32 +8,38 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from flow.ui.styles import (
+    BG_ELEVATED, BG_HOVER, ACCENT, ACCENT_INTER, ACCENT_MUTED,
+    TEXT_PRIMARY, TEXT_SECONDARY, FONT_MD, FW_MEDIUM, RADIUS_MD,
+)
+
 
 class VerseSelector(QWidget):
     verse_changed = Signal(int)
 
-    _BASE_STYLE = """
-        QPushButton {
-            background-color: #222222;
+    _BASE_STYLE = f"""
+        QPushButton {{
+            background-color: {BG_ELEVATED};
             border: none;
-            border-radius: 6px;
-            color: #a0a0a0;
-            font-size: 12px;
+            border-radius: {RADIUS_MD}px;
+            color: {TEXT_SECONDARY};
+            font-size: {FONT_MD}px;
+            font-weight: {FW_MEDIUM};
             padding: 0 6px;
-        }
-        QPushButton:hover {
-            background-color: #2a2a2a;
-            color: #e8e8e8;
-        }
-        QPushButton:checked {
-            background-color: #1e2d4a;
-            color: #5b8def;
-            border-bottom: 2px solid #5b8def;
-        }
+        }}
+        QPushButton:hover {{
+            background-color: {BG_HOVER};
+            color: {TEXT_PRIMARY};
+        }}
+        QPushButton:checked {{
+            background-color: {ACCENT_MUTED};
+            color: {ACCENT_INTER};
+            border-bottom: 2px solid {ACCENT};
+        }}
     """
 
     _MAPPED_PATCH = {
-        "color: #a0a0a0;": "color: #c8d8e8;",
+        f"color: {TEXT_SECONDARY};": f"color: {TEXT_PRIMARY};",
     }
 
     def __init__(self, parent: QWidget | None = None) -> None:

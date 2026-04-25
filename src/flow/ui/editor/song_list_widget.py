@@ -31,9 +31,12 @@ from PySide6.QtWidgets import (
 from flow.ui.styles import (
     BG_DEEP, BG_SURFACE, BG_ELEVATED, BG_HOVER, BG_INPUT,
     BORDER, BORDER_FOCUS, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY, TEXT_INVERSE,
-    ACCENT, ACCENT_HOVER, ACCENT_MUTED, ACCENT_SURFACE,
+    ACCENT, ACCENT_INTER, ACCENT_HOVER, ACCENT_MUTED, ACCENT_SURFACE,
+    SURFACE_GHOST, SURFACE_SUBTLE, SURFACE_RAISED,
+    BORDER_SUBTLE_RGBA, BORDER_STANDARD_RGBA,
     GREEN, GREEN_MUTED, AMBER, AMBER_MUTED, RED,
     RADIUS_SM, RADIUS_MD, RADIUS_LG, FONT_SM, FONT_MD, FONT_LG, FONT_XL,
+    FW_REGULAR, FW_MEDIUM, FW_SEMI,
     SP_SM, SP_MD, SP_LG,
 )
 
@@ -280,7 +283,7 @@ class SongLibraryDialog(QDialog):
         # 헤더
         header = QLabel("곡 라이브러리")
         header.setStyleSheet(
-            f"font-size: 18px; font-weight: 600; color: {ACCENT};"
+            f"font-size: 18px; font-weight: {FW_SEMI}; color: {TEXT_PRIMARY};"
         )
         root.addWidget(header)
 
@@ -733,7 +736,7 @@ class _StandalonePanel(QWidget):
         # 곡 이름 헤더
         self._song_name = QLabel("—")
         self._song_name.setStyleSheet(
-            f"font-size: {FONT_XL}px; font-weight: 500; color: {ACCENT};"
+            f"font-size: {FONT_XL}px; font-weight: {FW_SEMI}; color: {TEXT_PRIMARY};"
         )
         layout.addWidget(self._song_name)
 
@@ -930,12 +933,12 @@ class SongListWidget(QWidget):
         header_layout.setSpacing(6)
 
         from flow.ui.icons import icon_label
-        self._title_icon = icon_label("view_list", 16, ACCENT, header_frame)
+        self._title_icon = icon_label("view_list", 16, TEXT_SECONDARY, header_frame)
         header_layout.addWidget(self._title_icon)
 
         self._title_label = QLabel("셋리스트")
         self._title_label.setStyleSheet(
-            f"font-size: {FONT_LG}px; font-weight: 500; color: {ACCENT};"
+            f"font-size: {FONT_LG}px; font-weight: {FW_SEMI}; color: {TEXT_PRIMARY};"
         )
         header_layout.addWidget(self._title_label)
 
@@ -1036,7 +1039,7 @@ class SongListWidget(QWidget):
             self._title_icon.setFont(icon_font(16))
             self._title_icon.setText(icon("view_list"))
             self._title_label.setStyleSheet(
-                f"font-size: {FONT_LG}px; font-weight: 500; color: {ACCENT};"
+                f"font-size: {FONT_LG}px; font-weight: {FW_SEMI}; color: {TEXT_PRIMARY};"
             )
             self._footer.setVisible(True)
 

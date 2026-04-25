@@ -359,7 +359,7 @@ class ProjectLauncher(QWidget):
         title = QLabel("FLOW")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet(
-            f"font-size: 36px; font-weight: 300; color: {ACCENT}; "
+            f"font-size: 36px; font-weight: 300; color: {TEXT_PRIMARY}; "
             "letter-spacing: 8px;"
         )
         hdr.addWidget(title)
