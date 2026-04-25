@@ -382,6 +382,7 @@ def flow_select_screen(
     screens: list,
     *,
     current_name: str = "",
+    default_windowed: bool | None = None,
     title: str = "송출 모니터 선택",
 ) -> tuple[object | None, bool] | None:
     """송출에 사용할 QScreen + 윈도우 모드 여부 선택.
@@ -452,7 +453,10 @@ def flow_select_screen(
         f"color: {TEXT_SECONDARY}; font-size: {FONT_SM}px; "
         f"background: transparent; padding: {SP_SM}px 0;"
     )
-    chk_windowed.setChecked(n == 1)  # 단일 모니터 기본값: 윈도우 모드
+    # 기본값: 명시적으로 전달된 값이 우선, 없으면 단일 모니터에서 윈도우 모드
+    chk_windowed.setChecked(
+        default_windowed if default_windowed is not None else (n == 1)
+    )
     body.addWidget(chk_windowed)
 
     btn_cancel = _make_button("취소")

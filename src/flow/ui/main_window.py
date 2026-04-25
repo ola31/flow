@@ -1504,8 +1504,8 @@ class MainWindow(QMainWindow):
     def _pick_display_screen(self):
         """송출 모니터/모드 결정. (screen, windowed) 튜플 또는 None(취소).
 
-        - 저장된 선택이 있고 모니터가 여전히 연결되어 있으면 그대로 사용
-        - 그렇지 않으면 다이얼로그로 선택 (모니터 1개여도 확인용으로 표시)
+        매번 다이얼로그를 띄워 사용자가 확인하도록 한다. 이전에 저장된
+        선택은 기본값으로 미리 체크되어 있어 Enter 한 번이면 바로 진행.
         """
         from PySide6.QtWidgets import QApplication
 
@@ -1516,23 +1516,26 @@ class MainWindow(QMainWindow):
         saved_name = self._config_service.get_display_screen_name()
         saved_windowed = self._config_service.get_display_windowed_mode()
 
-        if saved_name:
-            for s in screens:
-                if s.name() == saved_name:
-                    return (s, saved_windowed)
+        # 저장된 모니터가 더 이상 없으면 안내
+        if saved_name and not any(s.name() == saved_name for s in screens):
             self._statusbar.showMessage(
                 f"이전 송출 모니터('{saved_name}')를 찾을 수 없습니다. 다시 선택해 주세요.",
                 4000,
             )
+            saved_name = ""
 
-        # 다이얼로그로 선택 (모니터 1개여도 확인 절차)
+        # 매 송출마다 확인 다이얼로그 (저장된 선택은 미리 체크됨)
         from flow.ui.dialogs import flow_select_screen
-        result = flow_select_screen(self, screens, current_name=saved_name)
+        result = flow_select_screen(
+            self, screens,
+            current_name=saved_name,
+            default_windowed=saved_windowed,
+        )
         if result is None:
             return None  # 사용자 취소
 
         screen, windowed = result
-        # 선택 저장
+        # 다음 송출의 기본값으로 저장
         if screen is not None:
             self._config_service.set_display_screen_name(screen.name())
         self._config_service.set_display_windowed_mode(windowed)
