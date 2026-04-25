@@ -28,9 +28,9 @@ from flow.ui.styles import (
     ACCENT, ACCENT_HOVER, ACCENT_MUTED, ACCENT_SURFACE,
     GREEN, GREEN_MUTED, AMBER, RED,
     RADIUS_SM, RADIUS_MD, RADIUS_LG, RADIUS_XL,
-    FONT_SM, FONT_MD, FONT_LG, FONT_XL, FONT_2XL, FONT_TITLE,
+    FONT_XS, FONT_SM, FONT_MD, FONT_LG, FONT_XL, FONT_2XL, FONT_TITLE,
     FW_REGULAR, FW_MEDIUM, FW_SEMI,
-    SP_SM, SP_MD, SP_LG, SP_XL, SP_2XL,
+    SP_XS, SP_SM, SP_MD, SP_LG, SP_XL, SP_2XL,
 )
 
 
@@ -200,35 +200,37 @@ class _Panel(QFrame):
         _shadow(self, blur=32, offset=6, opacity=60)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(SP_XL, SP_XL, SP_XL, SP_XL)
+        root.setContentsMargins(SP_LG + 4, SP_LG + 4, SP_LG + 4, SP_LG + 4)
         root.setSpacing(0)
 
         # 제목
         lbl_title = QLabel(title)
         lbl_title.setStyleSheet(
-            f"font-size: {FONT_2XL}px; font-weight: 600; color: {TEXT_PRIMARY};"
+            f"font-size: {FONT_2XL}px; font-weight: {FW_SEMI}; color: {TEXT_PRIMARY};"
         )
         root.addWidget(lbl_title)
-        root.addSpacing(4)
+        root.addSpacing(SP_XS)
 
         # 부제
         lbl_sub = QLabel(subtitle)
-        lbl_sub.setStyleSheet(f"font-size: {FONT_MD}px; color: {TEXT_TERTIARY};")
+        lbl_sub.setStyleSheet(
+            f"font-size: {FONT_MD}px; color: {TEXT_TERTIARY}; font-weight: {FW_REGULAR};"
+        )
         root.addWidget(lbl_sub)
-        root.addSpacing(SP_XL)
+        root.addSpacing(SP_LG)
 
         # 버튼 영역
         self._btn_layout = QHBoxLayout()
         self._btn_layout.setSpacing(SP_SM)
         self._btn_layout.setContentsMargins(0, 0, 0, 0)
         root.addLayout(self._btn_layout)
-        root.addSpacing(SP_2XL)
+        root.addSpacing(SP_XL)
 
-        # "최근" 레이블
+        # "최근" 레이블 — 작은 capslike 라벨 (Linear 패턴)
         self._recent_label = QLabel("최근 항목")
         self._recent_label.setStyleSheet(
-            f"font-size: {FONT_SM}px; color: {TEXT_TERTIARY}; "
-            "letter-spacing: 1px;"
+            f"font-size: {FONT_XS}px; color: {TEXT_TERTIARY}; "
+            f"letter-spacing: 1px; font-weight: {FW_MEDIUM};"
         )
         root.addWidget(self._recent_label)
         root.addSpacing(SP_SM)
@@ -334,7 +336,7 @@ class ProjectLauncher(QWidget):
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(60, SP_LG, 60, SP_2XL)
+        root.setContentsMargins(48, SP_MD, 48, SP_XL)
         root.setSpacing(0)
 
         # ── 워크스페이스 헤더 — 단일 메뉴 트리거 버튼
@@ -391,11 +393,11 @@ class ProjectLauncher(QWidget):
         hdr.addWidget(sub)
 
         root.addLayout(hdr)
-        root.addSpacing(48)
+        root.addSpacing(SP_2XL + SP_SM)
 
         # ── 두 패널
         body = QHBoxLayout()
-        body.setSpacing(SP_XL)
+        body.setSpacing(SP_LG)
 
         self._song_panel = _Panel(
             "곡 라이브러리",
