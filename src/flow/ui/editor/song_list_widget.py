@@ -619,8 +619,8 @@ class _SongCard(QFrame):
         self._tabs_container.setVisible(selected and bool(self._sheet_tabs))
         self._refresh_frame_style()
 
-    # 시트 탭 한 행에 들어갈 최대 개수 (280px - 30px margin / 약 40px 한 탭)
-    _TABS_PER_ROW = 6
+    # 시트 탭 한 행에 들어갈 최대 개수
+    _TABS_PER_ROW = 4
 
     def _refresh_tabs(self, current_sheet_id: str | None) -> None:
         # 기존 탭 제거
