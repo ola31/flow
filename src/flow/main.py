@@ -21,6 +21,10 @@ def main() -> int:
     app.setApplicationName("Flow")
     app.setApplicationVersion("0.1.0")
 
+    # Pretendard Variable 폰트 등록 — 한글+영문 통합 가변 폰트
+    from flow.ui.styles import ensure_fonts_loaded
+    ensure_fonts_loaded()
+
     # [추가] 로딩 화면(Splash Screen) 설정
     import os
     import time
