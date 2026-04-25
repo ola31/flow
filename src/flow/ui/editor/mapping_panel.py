@@ -243,7 +243,7 @@ class MappingPanel(QFrame):
         self._subtitle = QLabel()
         self._subtitle.setStyleSheet(
             f"font-size: {FONT_SM}px; color: {TEXT_TERTIARY}; "
-            "border: none; margin-bottom: 4px;"
+            "border: none;"
         )
         root.addWidget(self._subtitle)
 

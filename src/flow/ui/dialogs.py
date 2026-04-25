@@ -236,8 +236,7 @@ def _make_message_dialog(
     msg_label.setWordWrap(True)
     msg_label.setStyleSheet(
         f"color: {TEXT_PRIMARY}; font-size: {FONT_MD}px; "
-        f"font-weight: {FW_REGULAR}; background: transparent; "
-        "border: none; line-height: 1.5;"
+        f"font-weight: {FW_REGULAR}; background: transparent; border: none;"
     )
     msg_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     header.addWidget(msg_label, 1)
