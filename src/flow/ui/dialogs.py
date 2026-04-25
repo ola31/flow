@@ -42,7 +42,7 @@ from flow.ui.styles import (
     ACCENT, ACCENT_INTER, AMBER, RED, GREEN,
     SURFACE_GHOST, SURFACE_SUBTLE, SURFACE_RAISED,
     BORDER_SUBTLE_RGBA, BORDER_STANDARD_RGBA,
-    FONT_SM, FONT_MD, FONT_LG, FONT_XL, FW_REGULAR, FW_MEDIUM, FW_SEMI,
+    FONT_SM, FONT_MD, FONT_LG, FONT_HEAD, FW_REGULAR, FW_MEDIUM, FW_SEMI,
     RADIUS_MD, RADIUS_LG, SP_SM, SP_MD, SP_LG, SP_XL, SP_2XL,
 )
 
@@ -102,7 +102,7 @@ class _FlowDialog(QDialog):
 
         self._title_label = QLabel(self._title_text)
         self._title_label.setStyleSheet(
-            f"color: {TEXT_PRIMARY}; font-size: {FONT_MD}px; "
+            f"color: {TEXT_PRIMARY}; font-size: {FONT_HEAD}px; "
             f"font-weight: {FW_SEMI}; background: transparent; border: none;"
         )
         layout.addWidget(self._title_label, 1)
