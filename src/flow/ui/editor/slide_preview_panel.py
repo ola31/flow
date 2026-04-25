@@ -50,20 +50,26 @@ class SlidePreviewPanel(QWidget):
         self._setup_ui()
 
     def _setup_ui(self) -> None:
-        self.setStyleSheet("background-color: #1a1a1a; ")
+        from flow.ui.styles import (
+            BG_SURFACE, BG_ELEVATED, BG_DEEP, TEXT_PRIMARY, TEXT_SECONDARY,
+            TEXT_TERTIARY, ACCENT, ACCENT_INTER, ACCENT_HOVER,
+            BORDER_SUBTLE_RGBA, BORDER_STANDARD_RGBA,
+            SURFACE_GHOST, SURFACE_SUBTLE, SURFACE_RAISED,
+            FONT_XS, FONT_SM, FONT_MD, FONT_LG, FW_MEDIUM, FW_SEMI,
+            RADIUS_SM, RADIUS_MD, RADIUS_LG, SP_XS, SP_SM,
+        )
+
+        self.setStyleSheet(f"background-color: {BG_SURFACE};")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 4, 10, 4)
-        layout.setSpacing(4)
+        layout.setContentsMargins(SP_SM, SP_XS, SP_SM, SP_XS)
+        layout.setSpacing(SP_XS)
 
         # 제목 및 버튼 레이아웃
         header_widget = QWidget()
         header_layout = QHBoxLayout(header_widget)
-        header_layout.setContentsMargins(5, 0, 5, 0)
+        header_layout.setContentsMargins(SP_XS, 0, SP_XS, 0)
 
-        from flow.ui.icons import icon_label as _icon_label
-        from flow.ui.styles import (
-            TEXT_PRIMARY, TEXT_SECONDARY, FONT_MD, FW_SEMI,
-        )
+        from flow.ui.icons import icon_label as _icon_label, icon_qicon
         self._title_icon = _icon_label("slideshow", 14, TEXT_SECONDARY)
         header_layout.addWidget(self._title_icon)
 
@@ -73,21 +79,14 @@ class SlidePreviewPanel(QWidget):
         )
         header_layout.addWidget(self._title, 1)
 
-        from flow.ui.icons import icon_qicon
         self._btn_reload = QPushButton("새로고침")
-        self._btn_reload.setIcon(icon_qicon("refresh", 14, "#ccc"))
+        self._btn_reload.setIcon(icon_qicon("refresh", 12, TEXT_SECONDARY))
         self._btn_reload.setFixedHeight(26)
         self._btn_reload.setMinimumWidth(70)
         self._btn_reload.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_reload.setToolTip("모든 곡의 슬라이드 새로고침")
         self._btn_reload.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_reload.setStyleSheet("""
-            QPushButton {
-                background-color: #333; color: #ccc; border: 1px solid #444; border-radius: 4px; font-size: 10px; font-weight: 500;
-            }
-            QPushButton:hover { background-color: #444; color: white; border: 1px solid #2196f3; }
-            QPushButton:disabled { color: #555; background-color: #222; border: 1px solid #333; }
-        """)
+        # 스타일은 글로벌 QPushButton (ghost) 사용 — 로컬 오버라이드 제거
         self._btn_reload.clicked.connect(self.reload_all_requested.emit)
         header_layout.addWidget(self._btn_reload)
 
@@ -98,13 +97,7 @@ class SlidePreviewPanel(QWidget):
         self._btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_close.setToolTip("PPT 닫기")
         self._btn_close.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_close.setStyleSheet("""
-            QPushButton {
-                background-color: #333; color: #888; border: 1px solid #444; border-radius: 4px; font-size: 10px;
-            }
-            QPushButton:hover { background-color: #444; color: #ff5555; border: 1px solid #ff5555; }
-            QPushButton:disabled { color: #444; background-color: #222; border: 1px solid #333; }
-        """)
+        self._btn_close.setProperty("variant", "danger")
         header_layout.addWidget(self._btn_close)
 
         layout.addWidget(header_widget)
@@ -125,47 +118,46 @@ class SlidePreviewPanel(QWidget):
         self._list.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._list.setDragEnabled(True)
         self._list.setFixedHeight(155)
-        self._list.setStyleSheet("""
-            QListWidget { 
-                background-color: #222; 
-                border: 1px solid #333; 
-                border-radius: 8px;
+        self._list.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {BG_ELEVATED};
+                border: 1px solid {BORDER_SUBTLE_RGBA};
+                border-radius: {RADIUS_LG}px;
                 padding: 5px;
-            }
-            QListWidget::item {
+            }}
+            QListWidget::item {{
                 background-color: transparent;
-                border: 1px solid #2e2e2e;
-                border-radius: 6px;
+                border: 1px solid {BORDER_SUBTLE_RGBA};
+                border-radius: {RADIUS_MD}px;
                 padding: 4px;
-                color: #888;
-                font-size: 10px;
-            }
-            QListWidget::item:hover {
-                border: 1px solid #5b8def;
-            }
-            QListWidget::item:selected {
-                border: 2px solid #5b8def;
-                color: #5b8def;
-            }
-            
-            /* 스크롤바 스타일링 고도화 */
-            QScrollBar:horizontal {
-                height: 12px;
-                background: #1a1a1a;
-                margin: 2px 10px 2px 10px;
+                color: {TEXT_TERTIARY};
+                font-size: {FONT_XS}px;
+            }}
+            QListWidget::item:hover {{
+                border: 1px solid {BORDER_STANDARD_RGBA};
+            }}
+            QListWidget::item:selected {{
+                border: 2px solid {ACCENT_INTER};
+                color: {TEXT_PRIMARY};
+            }}
+
+            QScrollBar:horizontal {{
+                height: 10px;
+                background: transparent;
+                margin: 2px 8px 2px 8px;
                 border-radius: 4px;
-            }
-            QScrollBar::handle:horizontal {
-                background: #444;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {SURFACE_RAISED};
                 min-width: 40px;
                 border-radius: 4px;
-            }
-            QScrollBar::handle:horizontal:hover {
-                background: #2196f3;
-            }
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background: {BORDER_STANDARD_RGBA};
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
                 width: 0px;
-            }
+            }}
         """)
         self._list.itemDoubleClicked.connect(self._on_item_double_clicked)
         self._list.currentItemChanged.connect(self._on_current_item_changed)
@@ -182,26 +174,19 @@ class SlidePreviewPanel(QWidget):
         # 엔진 정보 라벨
         self._engine_label = QLabel("PPT 변환 엔진")
         self._engine_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._engine_label.setStyleSheet("""
-            QLabel {
-                color: #888;
-                font-size: 10px;
-                background: transparent;
-            }
-        """)
+        self._engine_label.setStyleSheet(
+            f"QLabel {{ color: {TEXT_TERTIARY}; font-size: {FONT_XS}px; "
+            "background: transparent; }}"
+        )
         overlay_layout.addWidget(self._engine_label)
 
         # 메인 로딩 라벨
         self._loading_label = QLabel("이미지 생성 중...")
         self._loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._loading_label.setStyleSheet("""
-            QLabel {
-                color: #2196f3;
-                font-weight: 500;
-                background-color: transparent;
-                font-size: 13px;
-            }
-        """)
+        self._loading_label.setStyleSheet(
+            f"QLabel {{ color: {TEXT_PRIMARY}; font-weight: {FW_MEDIUM}; "
+            f"background-color: transparent; font-size: {FONT_LG}px; }}"
+        )
         overlay_layout.addWidget(self._loading_label)
 
         # 프로그레스 바
@@ -211,41 +196,35 @@ class SlidePreviewPanel(QWidget):
         self._progress_bar.setValue(0)
         self._progress_bar.setFixedWidth(200)
         self._progress_bar.setFixedHeight(16)
-        self._progress_bar.setStyleSheet("""
-            QProgressBar {
-                background-color: #333;
-                border: 1px solid #444;
-                border-radius: 6px;
+        self._progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                background-color: {SURFACE_GHOST};
+                border: 1px solid {BORDER_STANDARD_RGBA};
+                border-radius: {RADIUS_MD}px;
                 text-align: center;
-                color: white;
-                font-size: 10px;
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #2196f3, stop:1 #64b5f6);
-                border-radius: 5px;
-            }
+                color: {TEXT_PRIMARY};
+                font-size: {FONT_XS}px;
+            }}
+            QProgressBar::chunk {{
+                background: {ACCENT};
+                border-radius: {RADIUS_SM}px;
+            }}
         """)
         overlay_layout.addWidget(self._progress_bar, 0, Qt.AlignmentFlag.AlignCenter)
 
         # 진행률 텍스트 (예: "12 / 28 슬라이드")
         self._progress_text = QLabel("0 / 0 슬라이드")
         self._progress_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._progress_text.setStyleSheet("""
-            QLabel {
-                color: #aaa;
-                font-size: 11px;
-                background: transparent;
-            }
-        """)
+        self._progress_text.setStyleSheet(
+            f"QLabel {{ color: {TEXT_TERTIARY}; font-size: {FONT_SM}px; "
+            "background: transparent; }}"
+        )
         overlay_layout.addWidget(self._progress_text)
 
-        self._loading_overlay.setStyleSheet("""
-            QWidget {
-                background-color: rgba(30, 30, 30, 230);
-                border-radius: 10px;
-            }
-        """)
+        self._loading_overlay.setStyleSheet(
+            "QWidget { background-color: rgba(15, 16, 17, 230); "
+            f"border-radius: {RADIUS_LG}px; }}"
+        )
         self._loading_overlay.hide()  # 초기에는 숨김
 
     def resizeEvent(self, event) -> None:

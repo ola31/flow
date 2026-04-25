@@ -440,22 +440,31 @@ class _SheetTab(QPushButton):
         self._refresh_style(active)
 
     def _refresh_style(self, active: bool) -> None:
+        # Linear 패턴: active = 미묘한 white-overlay + ACCENT_INTER 텍스트
+        # 솔리드 인디고 채움 안 함
         if active:
             self.setStyleSheet(f"""
                 QPushButton {{
-                    background: {ACCENT}; color: #fff;
-                    border: none; border-radius: {RADIUS_SM}px;
+                    background: {SURFACE_SUBTLE}; color: {ACCENT_INTER};
+                    border: 1px solid {BORDER_STANDARD_RGBA};
+                    border-radius: {RADIUS_SM}px;
                     font-size: 10px; padding: 0 6px;
+                    font-weight: {FW_SEMI};
                 }}
             """)
         else:
             self.setStyleSheet(f"""
                 QPushButton {{
-                    background: {BG_HOVER}; color: {TEXT_TERTIARY};
-                    border: 1px solid {BORDER}; border-radius: {RADIUS_SM}px;
+                    background: {SURFACE_GHOST}; color: {TEXT_TERTIARY};
+                    border: 1px solid {BORDER_SUBTLE_RGBA};
+                    border-radius: {RADIUS_SM}px;
                     font-size: 10px; padding: 0 6px;
+                    font-weight: {FW_MEDIUM};
                 }}
-                QPushButton:hover {{ background: {BG_ELEVATED}; color: {TEXT_SECONDARY}; }}
+                QPushButton:hover {{
+                    background: {SURFACE_RAISED};
+                    color: {TEXT_SECONDARY};
+                }}
             """)
 
 
@@ -606,12 +615,14 @@ class _SongCard(QFrame):
     def set_selected(self, selected: bool, current_sheet_id: str | None = None) -> None:
         self._is_selected = selected
         self._current_sheet_id = current_sheet_id
+        # Selected: 미묘한 white-overlay + ACCENT_INTER 텍스트 (Linear 패턴)
+        # Idle: 더 어두운 배경 + 흐린 텍스트
         self._badge.setStyleSheet(
-            f"background: {ACCENT}; color: #fff; border-radius: 11px; "
-            "font-size: 10px;"
+            f"background: {SURFACE_SUBTLE}; color: {ACCENT_INTER}; "
+            f"border-radius: 11px; font-size: 10px; font-weight: {FW_SEMI};"
             if selected else
-            f"background: {BG_ELEVATED}; color: {TEXT_TERTIARY}; border-radius: 11px; "
-            "font-size: 10px;"
+            f"background: {SURFACE_GHOST}; color: {TEXT_TERTIARY}; "
+            f"border-radius: 11px; font-size: 10px; font-weight: {FW_MEDIUM};"
         )
         self._name_label.setStyleSheet(
             f"font-size: {FONT_LG}px; font-weight: 500; color: #fff; background: transparent;"
@@ -646,24 +657,27 @@ class _SongCard(QFrame):
             self._tabs_layout.setColumnStretch(self._TABS_PER_ROW, 1)
 
     def _refresh_frame_style(self) -> None:
+        # Linear 패턴: selected = 미묘한 white-overlay + 좌측 액센트 바
+        # idle = ghost(거의 투명), hover = subtle white-overlay
         if self._is_selected:
             self.setStyleSheet(f"""
                 QFrame#SongCard {{
-                    background: {ACCENT_SURFACE};
-                    border-left: 3px solid {ACCENT};
-                    border-top: none; border-right: none; border-bottom: none;
+                    background: {SURFACE_SUBTLE};
+                    border: 1px solid {BORDER_STANDARD_RGBA};
+                    border-left: 3px solid {ACCENT_INTER};
                     border-radius: {RADIUS_LG}px;
                 }}
             """)
         else:
             self.setStyleSheet(f"""
                 QFrame#SongCard {{
-                    background: {BG_ELEVATED};
-                    border: none;
+                    background: {SURFACE_GHOST};
+                    border: 1px solid {BORDER_SUBTLE_RGBA};
                     border-radius: {RADIUS_LG}px;
                 }}
                 QFrame#SongCard:hover {{
-                    background: {BG_HOVER};
+                    background: {SURFACE_SUBTLE};
+                    border-color: {BORDER_STANDARD_RGBA};
                 }}
             """)
 
@@ -747,7 +761,7 @@ class _StandalonePanel(QWidget):
 
         layout.addStretch()
 
-        # PPT 편집 열기 (기본 프로그램으로 slides.pptx 열기)
+        # PPT 편집 열기 — 글로벌 ghost 스타일 사용
         self._btn_open_ppt = QPushButton("PPT 편집 열기")
         self._btn_open_ppt.setFixedHeight(34)
         self._btn_open_ppt.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -755,47 +769,23 @@ class _StandalonePanel(QWidget):
         self._btn_open_ppt.setToolTip(
             "이 곡의 slides.pptx를 기본 프로그램(PowerPoint 등)으로 엽니다"
         )
-        self._btn_open_ppt.setStyleSheet(f"""
-            QPushButton {{
-                background: {BG_HOVER}; color: {TEXT_SECONDARY};
-                border: 1px solid {BORDER_FOCUS}; border-radius: {RADIUS_MD}px;
-                font-size: {FONT_SM}px;
-            }}
-            QPushButton:hover {{ background: {BG_ELEVATED}; border-color: {ACCENT}; color: {TEXT_PRIMARY}; }}
-            QPushButton:disabled {{ color: {TEXT_TERTIARY}; border-color: {BORDER}; }}
-        """)
         self._btn_open_ppt.clicked.connect(self.open_ppt_requested.emit)
         layout.addWidget(self._btn_open_ppt)
 
-        # PPT 가져오기 버튼
+        # PPT 가져오기 — 글로벌 ghost 스타일 사용
         self._btn_ppt = QPushButton("PPT 가져오기")
         self._btn_ppt.setFixedHeight(34)
         self._btn_ppt.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_ppt.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_ppt.setStyleSheet(f"""
-            QPushButton {{
-                background: {BG_HOVER}; color: {TEXT_SECONDARY};
-                border: 1px solid {BORDER_FOCUS}; border-radius: {RADIUS_MD}px;
-                font-size: {FONT_SM}px;
-            }}
-            QPushButton:hover {{ background: {BG_ELEVATED}; border-color: {ACCENT}; color: {TEXT_PRIMARY}; }}
-        """)
         self._btn_ppt.clicked.connect(self.import_ppt_requested.emit)
         layout.addWidget(self._btn_ppt)
 
-        # 악보 이미지 추가 버튼
+        # 악보 이미지 추가 버튼 — 패널 내 Primary CTA
         self._btn_add = QPushButton("＋  악보 이미지 추가")
         self._btn_add.setFixedHeight(34)
         self._btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_add.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_add.setStyleSheet(f"""
-            QPushButton {{
-                background: {ACCENT}; color: {TEXT_INVERSE};
-                border: none; border-radius: {RADIUS_MD}px;
-                font-size: {FONT_SM}px;
-            }}
-            QPushButton:hover {{ background: {ACCENT_HOVER}; }}
-        """)
+        self._btn_add.setProperty("variant", "primary")
         self._btn_add.clicked.connect(self.add_sheet_requested.emit)
         layout.addWidget(self._btn_add)
 
@@ -854,29 +844,43 @@ class _PageCard(QFrame):
         badge = QLabel(f"P{page_num}")
         badge.setFixedSize(26, 26)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # 페이지 번호 배지 — active일 때 ACCENT_INTER 텍스트 + 미묘한 white-overlay
         badge.setStyleSheet(
-            f"background: {ACCENT}; color: {TEXT_INVERSE}; border-radius: 13px; "
-            "font-size: 10px;"
+            f"background: {SURFACE_SUBTLE}; color: {ACCENT_INTER}; "
+            f"border-radius: 13px; font-size: 10px; font-weight: {FW_SEMI};"
             if active else
-            f"background: {BG_ELEVATED}; color: {TEXT_TERTIARY}; border-radius: 13px; "
-            "font-size: 10px;"
+            f"background: {SURFACE_GHOST}; color: {TEXT_TERTIARY}; "
+            f"border-radius: 13px; font-size: 10px; font-weight: {FW_MEDIUM};"
         )
         layout.addWidget(badge)
 
         name_lbl = QLabel(self._sheet.name)
         name_lbl.setStyleSheet(
-            f"font-size: {FONT_MD}px; color: #fff;"
+            f"font-size: {FONT_MD}px; color: {TEXT_PRIMARY}; font-weight: {FW_MEDIUM};"
             if active else
             f"font-size: {FONT_MD}px; color: {TEXT_SECONDARY};"
         )
         layout.addWidget(name_lbl, 1)
 
-        self.setStyleSheet(
-            f"QFrame#PageCard {{ background: {ACCENT_SURFACE}; border: 1px solid {ACCENT}; border-radius: {RADIUS_MD}px; }}"
-            if active else
-            f"QFrame#PageCard {{ background: {BG_INPUT}; border: 1px solid {BORDER}; border-radius: {RADIUS_MD}px; }}"
-            f"QFrame#PageCard:hover {{ background: {BG_HOVER}; border-color: {BORDER_FOCUS}; }}"
-        )
+        # active 상태: 좌측 액센트 바 + 미묘한 white-overlay (Linear 패턴)
+        if active:
+            self.setStyleSheet(
+                f"QFrame#PageCard {{ "
+                f"background: {SURFACE_SUBTLE}; "
+                f"border: 1px solid {BORDER_STANDARD_RGBA}; "
+                f"border-left: 3px solid {ACCENT_INTER}; "
+                f"border-radius: {RADIUS_MD}px; }}"
+            )
+        else:
+            self.setStyleSheet(
+                f"QFrame#PageCard {{ "
+                f"background: {SURFACE_GHOST}; "
+                f"border: 1px solid {BORDER_SUBTLE_RGBA}; "
+                f"border-radius: {RADIUS_MD}px; }}"
+                f"QFrame#PageCard:hover {{ "
+                f"background: {SURFACE_SUBTLE}; "
+                f"border-color: {BORDER_STANDARD_RGBA}; }}"
+            )
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
