@@ -77,12 +77,22 @@ class SongManagerDialog(QDialog):
         self._scan_and_load()
 
     def _setup_ui(self):
+        from flow.ui.styles import (
+            BG_DEEP, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY,
+            ACCENT_INTER, BORDER_SUBTLE_RGBA, BORDER_STANDARD_RGBA,
+            SURFACE_SUBTLE, SURFACE_RAISED,
+            FONT_MD, FONT_LG, FW_MEDIUM, FW_SEMI,
+            RADIUS_MD, SP_SM,
+        )
+
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
+        layout.setSpacing(SP_SM + 2)
 
         # 1. 안내 문구
         label = QLabel("곡 및 시트 관리 (순서 변경 및 편집)")
-        label.setStyleSheet("font-weight: bold; color: #2196f3; font-size: 13px;")
+        label.setStyleSheet(
+            f"font-weight: {FW_SEMI}; color: {TEXT_PRIMARY}; font-size: {FONT_LG}px;"
+        )
         layout.addWidget(label)
 
         # 2. 트리 위젯 (2열 구조: 0=체크박스, 1=이름 및 버튼)
@@ -93,30 +103,26 @@ class SongManagerDialog(QDialog):
         self.song_tree.setAlternatingRowColors(False)
         self.song_tree.setDragEnabled(False)
         self.song_tree.setAcceptDrops(False)
-
-        # 열 너비 설정 (0번 열은 체크박스용으로 작게)
         self.song_tree.setColumnWidth(0, 40)
 
-        self.song_tree.setStyleSheet("""
-            QTreeWidget {
-                background-color: #1e1e1e;
-                border: 1px solid #333;
-                border-radius: 6px;
+        self.song_tree.setStyleSheet(f"""
+            QTreeWidget {{
+                background-color: {BG_DEEP};
+                border: 1px solid {BORDER_STANDARD_RGBA};
+                border-radius: {RADIUS_MD}px;
                 outline: none;
-                color: #ccc;
-            }
-            QTreeWidget::item {
+                color: {TEXT_SECONDARY};
+            }}
+            QTreeWidget::item {{
                 height: 32px;
-                border-bottom: 1px solid #252525;
-            }
-            QTreeWidget::item:hover {
-                background-color: #2a2a2a;
-            }
-            QTreeWidget::item:selected {
-                background-color: #26384a;
-                color: #2196f3;
-                font-weight: bold;
-            }
+                border-bottom: 1px solid {BORDER_SUBTLE_RGBA};
+            }}
+            QTreeWidget::item:hover {{ background-color: {SURFACE_SUBTLE}; }}
+            QTreeWidget::item:selected {{
+                background-color: {SURFACE_RAISED};
+                color: {ACCENT_INTER};
+                font-weight: {FW_SEMI};
+            }}
         """)
         self.song_tree.itemChanged.connect(self._on_item_changed)
         self.song_tree.itemDoubleClicked.connect(lambda: self._on_rename_clicked())
@@ -124,7 +130,7 @@ class SongManagerDialog(QDialog):
         self.song_tree.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self.song_tree)
 
-        # 3. 상단 툴바 스타일의 버튼 그룹
+        # 3. 상단 툴바 스타일의 버튼 그룹 — 글로벌 스타일 + variant 사용
         btn_row1 = QHBoxLayout()
         btn_row1.setSpacing(6)
 
@@ -133,17 +139,9 @@ class SongManagerDialog(QDialog):
             btn.setFixedHeight(30)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             if style == "primary":
-                btn.setStyleSheet(
-                    "background-color: #2196f3; color: white; font-weight: bold; border-radius: 4px;"
-                )
+                btn.setProperty("variant", "primary")
             elif style == "danger":
-                btn.setStyleSheet(
-                    "background-color: #333; color: #ff5252; border: 1px solid #444; border-radius: 4px;"
-                )
-            else:
-                btn.setStyleSheet(
-                    "background-color: #333; color: #ccc; border: 1px solid #444; border-radius: 4px;"
-                )
+                btn.setProperty("variant", "danger")
             return btn
 
         self.btn_add_new = create_btn("+ 새 곡", "primary")

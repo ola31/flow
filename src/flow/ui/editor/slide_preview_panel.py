@@ -338,8 +338,9 @@ class SlidePreviewPanel(QWidget):
                 item.setText(label)
 
             # 텍스트 색상으로 매핑 상태 표시 (stylesheet에 무시 안 됨)
-            mapped_color = QColor("#5b8def")
-            normal_color = QColor("#888888")
+            from flow.ui.styles import ACCENT_INTER, TEXT_TERTIARY
+            mapped_color = QColor(ACCENT_INTER)
+            normal_color = QColor(TEXT_TERTIARY)
             target = mapped_color if is_mapped else normal_color
             if item.foreground().color() != target:
                 item.setForeground(target)
@@ -388,7 +389,8 @@ class SlidePreviewPanel(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, i)
 
             if is_mapped:
-                item.setForeground(QColor("#5b8def"))
+                from flow.ui.styles import ACCENT_INTER
+                item.setForeground(QColor(ACCENT_INTER))
 
             self._list.addItem(item)
 

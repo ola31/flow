@@ -115,8 +115,9 @@ class LivePIP(QFrame):
         root.setContentsMargins(6, 6, 6, 6)
         root.setSpacing(6)
 
-        self._preview_pane = _PIPPane("PREVIEW", "#5b8def")
-        self._live_pane = _PIPPane("LIVE", "#ef4444")
+        from flow.ui.styles import ACCENT_INTER, RED
+        self._preview_pane = _PIPPane("PREVIEW", ACCENT_INTER)
+        self._live_pane = _PIPPane("LIVE", RED)
 
         root.addWidget(self._preview_pane, 1)
 
