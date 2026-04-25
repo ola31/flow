@@ -13,13 +13,23 @@ from PySide6.QtWidgets import (
 )
 
 from flow.domain.hotspot import Hotspot
+from flow.ui.styles import (
+    BG_DEEP, BG_SURFACE, BG_ELEVATED,
+    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY, TEXT_QUAT,
+    ACCENT, ACCENT_INTER, RED, GREEN,
+    SURFACE_GHOST, SURFACE_SUBTLE, SURFACE_RAISED,
+    BORDER_SUBTLE_RGBA, BORDER_STANDARD_RGBA, BORDER_FOCUS,
+    FONT_XS, FONT_SM, FONT_MD, FONT_LG, FW_REGULAR, FW_MEDIUM, FW_SEMI,
+    RADIUS_SM, RADIUS_MD, SP_XS, SP_SM, SP_MD,
+)
 
 _PANEL_W = 260
 _THUMB_W = _PANEL_W - 32  # left/right padding
 _THUMB_H = int(_THUMB_W * 9 / 16)
 
 _VERSE_NAMES = ["1절", "2절", "3절", "4절", "5절", "후렴"]
-_VERSE_COLORS = ["#64b5f6", "#81c784", "#ffb74d", "#ce93d8", "#ef9a9a", "#fff176"]
+# 절 라벨용 차분한 무채색 — 액센트는 active 상태에만 등장하도록
+_VERSE_LABEL_COLOR = TEXT_SECONDARY
 
 
 class _VerseRow(QFrame):
@@ -49,19 +59,20 @@ class _VerseRow(QFrame):
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(4)
 
-        color = _VERSE_COLORS[self._verse_index]
         self._badge = QLabel(_VERSE_NAMES[self._verse_index])
         self._badge.setFixedHeight(20)
         self._badge.setMinimumWidth(34)
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._badge.setStyleSheet(
-            f"background: transparent; color: {color}; "
-            "font-size: 11px; font-weight: 500; border: none;"
+            f"background: transparent; color: {_VERSE_LABEL_COLOR}; "
+            f"font-size: {FONT_SM}px; font-weight: {FW_MEDIUM}; border: none;"
         )
         header.addWidget(self._badge)
 
         self._slide_label = QLabel("—")
-        self._slide_label.setStyleSheet("font-size: 11px; color: #555; border: none;")
+        self._slide_label.setStyleSheet(
+            f"font-size: {FONT_SM}px; color: {TEXT_QUAT}; border: none;"
+        )
         header.addWidget(self._slide_label)
         header.addStretch()
 
@@ -70,12 +81,16 @@ class _VerseRow(QFrame):
         self._btn_unmap.setMinimumWidth(40)
         self._btn_unmap.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_unmap.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_unmap.setStyleSheet("""
-            QPushButton {
-                background: #3a2222; color: #e57373; border: none;
-                border-radius: 3px; font-size: 10px; padding: 0;
-            }
-            QPushButton:hover { background: #522828; }
+        self._btn_unmap.setStyleSheet(f"""
+            QPushButton {{
+                background: {SURFACE_GHOST}; color: {RED};
+                border: 1px solid {BORDER_SUBTLE_RGBA};
+                border-radius: {RADIUS_SM}px; font-size: {FONT_XS}px; padding: 0;
+            }}
+            QPushButton:hover {{
+                background: {SURFACE_SUBTLE};
+                border-color: {RED};
+            }}
         """)
         self._btn_unmap.clicked.connect(lambda: self.unmap_requested.emit(self._verse_index))
         self._btn_unmap.hide()
@@ -106,7 +121,7 @@ class _VerseRow(QFrame):
                     self._thumb.setText("")
                     self._slide_label.setText(f"슬라이드 {slide_index + 1}")
                     self._slide_label.setStyleSheet(
-                        "font-size: 11px; color: #4caf50; border: none;"
+                        f"font-size: {FONT_SM}px; color: {GREEN}; border: none;"
                     )
                     self._btn_unmap.show()
                     self._refresh_style()
@@ -118,7 +133,9 @@ class _VerseRow(QFrame):
         self._thumb.setPixmap(QPixmap())
         self._thumb.setText("없음")
         self._slide_label.setText("—")
-        self._slide_label.setStyleSheet("font-size: 11px; color: #555; border: none;")
+        self._slide_label.setStyleSheet(
+            f"font-size: {FONT_SM}px; color: {TEXT_QUAT}; border: none;"
+        )
         self._btn_unmap.hide()
         self._is_mapped = False
         self._refresh_style()
@@ -128,26 +145,37 @@ class _VerseRow(QFrame):
         self._refresh_style()
 
     def _refresh_style(self) -> None:
-        color = _VERSE_COLORS[self._verse_index]
+        # active: white-overlay + ACCENT 좌측 바 (Linear 패턴)
+        # mapped: 미묘한 white-overlay
+        # idle:   거의 투명
         if self._is_active:
-            border = f"2px solid {color}"
-            bg = "#1e2a38"
-            thumb_border = f"1px solid {color}"
+            row_style = (
+                f"QFrame#VerseRow {{ background: {SURFACE_SUBTLE}; "
+                f"border: 1px solid {BORDER_STANDARD_RGBA}; "
+                f"border-left: 3px solid {ACCENT_INTER}; "
+                f"border-radius: {RADIUS_MD}px; }}"
+            )
+            thumb_border = f"1px solid {BORDER_STANDARD_RGBA}"
         elif self._is_mapped:
-            border = "1px solid #3a4a3a"
-            bg = "#1a221a"
-            thumb_border = "1px solid #3a4a3a"
+            row_style = (
+                f"QFrame#VerseRow {{ background: {SURFACE_GHOST}; "
+                f"border: 1px solid {BORDER_STANDARD_RGBA}; "
+                f"border-radius: {RADIUS_MD}px; }}"
+            )
+            thumb_border = f"1px solid {BORDER_SUBTLE_RGBA}"
         else:
-            border = "1px solid #2a2a2a"
-            bg = "#1a1a1a"
-            thumb_border = "1px dashed #2a2a2a"
+            row_style = (
+                f"QFrame#VerseRow {{ background: transparent; "
+                f"border: 1px dashed {BORDER_SUBTLE_RGBA}; "
+                f"border-radius: {RADIUS_MD}px; }}"
+            )
+            thumb_border = f"1px dashed {BORDER_SUBTLE_RGBA}"
 
-        self.setStyleSheet(
-            f"QFrame#VerseRow {{ background: {bg}; border: {border}; border-radius: 6px; }}"
-        )
+        self.setStyleSheet(row_style)
         self._thumb.setStyleSheet(
-            f"background: #111; border: {thumb_border}; border-radius: 3px; "
-            "color: #444; font-size: 11px;"
+            f"background: {BG_DEEP}; border: {thumb_border}; "
+            f"border-radius: {RADIUS_SM}px; "
+            f"color: {TEXT_QUAT}; font-size: {FONT_SM}px;"
         )
 
     def mousePressEvent(self, event) -> None:
@@ -174,24 +202,24 @@ class MappingPanel(QFrame):
         self.hide()
 
     def _setup_ui(self) -> None:
-        from flow.ui.styles import BG_SURFACE, BORDER
         self.setStyleSheet(f"""
             QFrame#MappingPanel {{
                 background: {BG_SURFACE};
-                border-left: 1px solid {BORDER};
+                border-left: 1px solid {BORDER_SUBTLE_RGBA};
             }}
         """)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 10, 8, 10)
-        root.setSpacing(6)
+        root.setContentsMargins(SP_SM, SP_SM + 2, SP_SM, SP_SM + 2)
+        root.setSpacing(SP_SM - 2)
 
         # ── 헤더
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         self._title = QLabel("핫스팟 매핑")
         self._title.setStyleSheet(
-            "font-size: 13px; font-weight: 500; color: #ccc; border: none;"
+            f"font-size: {FONT_LG}px; font-weight: {FW_SEMI}; "
+            f"color: {TEXT_PRIMARY}; border: none;"
         )
         header.addWidget(self._title)
         header.addStretch()
@@ -200,12 +228,12 @@ class MappingPanel(QFrame):
         btn_close.setFixedSize(24, 24)
         btn_close.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_close.setStyleSheet("""
-            QPushButton {
-                background: transparent; color: #666; border: none;
-                font-size: 13px; padding: 0;
-            }
-            QPushButton:hover { color: #ccc; }
+        btn_close.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {TEXT_TERTIARY}; border: none;
+                font-size: {FONT_LG}px; padding: 0;
+            }}
+            QPushButton:hover {{ color: {TEXT_PRIMARY}; }}
         """)
         btn_close.clicked.connect(self._on_close)
         header.addWidget(btn_close)
@@ -214,37 +242,33 @@ class MappingPanel(QFrame):
         # 부제
         self._subtitle = QLabel()
         self._subtitle.setStyleSheet(
-            "font-size: 11px; color: #555; border: none; margin-bottom: 4px;"
+            f"font-size: {FONT_SM}px; color: {TEXT_TERTIARY}; "
+            "border: none; margin-bottom: 4px;"
         )
         root.addWidget(self._subtitle)
 
-        # 구분선
+        # 구분선 (헤어라인)
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background: #2a2a2a; max-height: 1px; border: none;")
+        sep.setStyleSheet(
+            f"background: {BORDER_SUBTLE_RGBA}; max-height: 1px; border: none;"
+        )
         root.addWidget(sep)
 
-        # ── 절 행 스크롤 영역
+        # ── 절 행 스크롤 영역 — 글로벌 스크롤바 스타일 사용
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("""
-            QScrollArea { background: transparent; border: none; }
-            QScrollBar:vertical {
-                border: none; background: transparent; width: 4px; margin: 0;
-            }
-            QScrollBar::handle:vertical {
-                background: #333; border-radius: 2px; min-height: 20px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-        """)
+        scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+        )
 
         rows_widget = QWidget()
         rows_widget.setStyleSheet("background: transparent;")
         rows_layout = QVBoxLayout(rows_widget)
         rows_layout.setContentsMargins(0, 0, 0, 0)
-        rows_layout.setSpacing(6)
+        rows_layout.setSpacing(SP_XS + 2)
 
         for i in range(6):
             row = _VerseRow(i)
@@ -261,7 +285,8 @@ class MappingPanel(QFrame):
         hint = QLabel("슬라이드 패널에서 더블클릭하면\n현재 절에 매핑됩니다")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint.setStyleSheet(
-            "font-size: 10px; color: #444; border: none; padding: 4px 0;"
+            f"font-size: {FONT_XS}px; color: {TEXT_QUAT}; "
+            "border: none; padding: 4px 0;"
         )
         root.addWidget(hint)
 

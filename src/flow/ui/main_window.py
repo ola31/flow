@@ -158,17 +158,16 @@ class MainWindow(QMainWindow):
             )
             return
 
-        from PySide6.QtWidgets import QInputDialog
+        from flow.ui.dialogs import flow_input_text
 
-        new_name, ok = QInputDialog.getText(
+        new_name, ok = flow_input_text(
             self,
             "프로젝트 복제",
             f"'{src_name}'의 복사본 이름:",
-            text=f"{src_name} 복사본",
+            default=f"{src_name} 복사본",
         )
-        if not ok or not new_name.strip():
+        if not ok or not new_name:
             return
-        new_name = new_name.strip()
 
         try:
             self._repo.clone_workspace_project(self._workspace, src_name, new_name)
@@ -236,19 +235,20 @@ class MainWindow(QMainWindow):
         if item_type == "project" and self._workspace is not None:
             ws_name = self._detect_workspace_project(Path(path))
             if ws_name is not None:
-                reply = QMessageBox.question(
+                from flow.ui.dialogs import flow_question, flow_error
+                ok = flow_question(
                     self,
                     "프로젝트 삭제",
                     f"'{ws_name}' 프로젝트를 워크스페이스에서 완전히 삭제할까요?\n"
-                    "로컬 곡(songs/)도 함께 삭제됩니다.\n"
-                    "library/ 의 공용 곡은 영향받지 않습니다.",
+                    "로컬 곡(songs/)도 함께 삭제됩니다. library/의 공용 곡은 영향받지 않습니다.",
+                    yes_text="삭제", no_text="취소",
                 )
-                if reply != QMessageBox.StandardButton.Yes:
+                if not ok:
                     return
                 try:
                     self._repo.delete_workspace_project(self._workspace, ws_name)
                 except Exception as e:
-                    QMessageBox.critical(
+                    flow_error(
                         self, "삭제 실패", f"프로젝트를 삭제할 수 없습니다:\n{e}"
                     )
                     return
@@ -643,14 +643,14 @@ class MainWindow(QMainWindow):
 
         # 워크스페이스 모드: 이름만 묻고 workspace/projects/ 하위에 생성
         if self._workspace is not None:
-            from PySide6.QtWidgets import QInputDialog
+            from flow.ui.dialogs import flow_input_text
 
-            name, ok = QInputDialog.getText(
-                self, "새 프로젝트", "프로젝트 이름:"
+            name, ok = flow_input_text(
+                self, "새 프로젝트", "프로젝트 이름:",
+                placeholder="예: 2024-12-25 성탄절",
             )
-            if not ok or not name.strip():
+            if not ok or not name:
                 return
-            name = name.strip()
 
             project_dir = self._workspace.project_dir(name)
             if project_dir.exists():
@@ -730,13 +730,14 @@ class MainWindow(QMainWindow):
 
     def _new_song(self) -> None:
         # 1. 곡 이름 입력 받기
-        from PySide6.QtWidgets import QInputDialog
+        from flow.ui.dialogs import flow_input_text
 
-        name, ok = QInputDialog.getText(self, "새 곡 생성", "곡 제목을 입력하세요:")
-        if not ok or not name.strip():
+        name, ok = flow_input_text(
+            self, "새 곡 생성", "곡 제목을 입력하세요:",
+            placeholder="예: 주님의기쁨",
+        )
+        if not ok or not name:
             return
-
-        name = name.strip()
 
         # 2. 모드에 따른 처리
         if self._project and not self._is_standalone:
@@ -812,7 +813,8 @@ class MainWindow(QMainWindow):
 
     def _enter_song_edit_mode(self, song) -> None:
         if self._is_live:
-            QMessageBox.warning(
+            from flow.ui.dialogs import flow_warning
+            flow_warning(
                 self,
                 "라이브 모드",
                 "라이브 송출 중에는 곡 편집 모드로 전환할 수 없습니다.\n"
@@ -1350,13 +1352,14 @@ class MainWindow(QMainWindow):
 
         new_song_dir = Path(parent_dir).resolve() / folder_name
         if new_song_dir.exists():
-            reply = QMessageBox.question(
+            from flow.ui.dialogs import flow_question
+            ok = flow_question(
                 self,
                 "폴더 존재",
                 f"'{folder_name}' 폴더가 이미 존재합니다. 덮어쓰시겠습니까?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                yes_text="덮어쓰기", no_text="취소",
             )
-            if reply != QMessageBox.StandardButton.Yes:
+            if not ok:
                 return
             shutil.rmtree(new_song_dir)
 

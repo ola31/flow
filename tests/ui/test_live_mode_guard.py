@@ -84,13 +84,13 @@ class TestEnterSongEditModeBlocksLive:
             mw._is_live = True
             mw._is_standalone = False
 
-            # QMessageBox.warning이 실제 띄워지지 않도록 패치
+            # flow_warning이 실제 다이얼로그를 띄우지 않도록 패치
             shown = {"called": False}
-            from PySide6.QtWidgets import QMessageBox
+            import flow.ui.dialogs as _dialogs
             monkeypatch.setattr(
-                QMessageBox,
-                "warning",
-                lambda *a, **k: (shown.update(called=True), QMessageBox.StandardButton.Ok)[1],
+                _dialogs,
+                "flow_warning",
+                lambda *a, **k: (shown.update(called=True), True)[1],
             )
 
             mw._enter_song_edit_mode(song)

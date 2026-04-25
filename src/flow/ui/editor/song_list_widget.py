@@ -1389,27 +1389,28 @@ class SongListWidget(QWidget):
             return
         song = self._project.selected_songs[0]
         pptx_path = song.abs_slides_path
+        from flow.ui.dialogs import flow_warning, flow_question
         if not pptx_path.exists():
-            QMessageBox.warning(
+            flow_warning(
                 self,
                 "PPT 없음",
-                f"이 곡에 연결된 PPT 파일이 없습니다.\n먼저 'PPT 가져오기'로 추가하세요.\n\n{pptx_path}",
+                f"이 곡에 연결된 PPT 파일이 없습니다.\n"
+                f"먼저 'PPT 가져오기'로 추가하세요.\n\n{pptx_path}",
             )
             return
 
-        reply = QMessageBox.information(
+        ok = flow_question(
             self,
             "PPT 편집 열기",
             "이 곡의 PPT를 기본 프로그램(PowerPoint 등)으로 엽니다.\n\n"
-            "Flow는 자동 슬라이드 변환을 일시 중지합니다.\n\n"
+            "Flow는 편집 중 자동 슬라이드 변환을 일시 중지합니다.\n\n"
             "권장 작업 순서:\n"
             "  1. PowerPoint에서 편집 후 저장\n"
             "  2. PowerPoint를 완전히 닫기\n"
-            "  3. Flow로 돌아와서 슬라이드 패널의 '새로고침' 클릭\n"
-            "     → 변경 반영 + 자동 변환 재개",
-            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            "  3. Flow로 돌아와서 슬라이드 패널의 '새로고침' 클릭",
+            yes_text="PPT 열기", no_text="취소",
         )
-        if reply != QMessageBox.StandardButton.Ok:
+        if not ok:
             return
 
         # 진행 중이거나 대기 중인 슬라이드 변환 작업 중단 + 파일 watcher 일시 중지
