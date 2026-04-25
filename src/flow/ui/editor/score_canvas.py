@@ -269,12 +269,15 @@ class ScoreCanvas(QWidget):
             self._draw_empty_hint(painter)
 
         # 고스트 핫스팟 (마우스 따라다니는 미리보기)
+        # 팝오버가 떠있으면 다음 클릭은 새 핫스팟 추가가 아니라 팝오버 닫기로
+        # 동작하므로 고스트도 그리지 않아 시각적 혼동 방지
         if (
             self._score_sheet
             and self._edit_mode
             and self._hotspot_editable
             and self._mouse_pos
             and not self._is_dragging
+            and not self._popover.isVisible()
         ):
             self._draw_ghost_hotspot(painter)
 
@@ -614,7 +617,10 @@ class ScoreCanvas(QWidget):
                 and self._hotspot_editable
                 and self._score_sheet
                 and self._widget_to_image_coords(pos.x(), pos.y())
+                and not self._popover.isVisible()
             ):
+                # 팝오버가 떠있을 땐 클릭이 핫스팟 추가가 아닌 팝오버 닫기로
+                # 가니까 십자 커서/추가 안내를 숨김
                 self.setCursor(Qt.CursorShape.CrossCursor)
                 self.setToolTip("클릭해서 핫스팟 추가")
             else:
