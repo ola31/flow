@@ -1401,15 +1401,13 @@ class MainWindow(QMainWindow):
 
     def _toggle_live_mode(self) -> None:
         if self._is_live:
-            msg = QMessageBox(self)
-            msg.setWindowTitle("라이브 모드 종료")
-            msg.setText("라이브 모드를 종료하시겠습니까?")
-            msg.setStandardButtons(
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            msg.setDefaultButton(QMessageBox.StandardButton.No)
-            msg.setMinimumWidth(320)
-            if msg.exec() == QMessageBox.StandardButton.Yes:
+            from flow.ui.dialogs import flow_question
+            if flow_question(
+                self,
+                "라이브 모드 종료",
+                "라이브 모드를 종료하시겠습니까?",
+                yes_text="종료", no_text="계속 송출",
+            ):
                 self._exit_live()
         else:
             self._enter_live()
