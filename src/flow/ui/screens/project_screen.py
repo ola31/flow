@@ -46,8 +46,12 @@ class _PIPPane(QFrame):
         self._badge.setFixedHeight(16)
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._badge.setStyleSheet(
-            f"font-size: 10px; font-weight: 500; color: {color}; letter-spacing: 1px;"
+            f"font-size: 10px; font-weight: 500; color: {color};"
         )
+        from PySide6.QtGui import QFont
+        _bf = self._badge.font()
+        _bf.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0)
+        self._badge.setFont(_bf)
         layout.addWidget(self._badge)
 
         self._image = QLabel()
@@ -442,8 +446,12 @@ class ProjectScreen(QWidget):
             "Enter / Space : 송출     B : 블랙아웃     1–5 / C : 절 이동     Esc : 편집 모드로"
         )
         hint_label.setStyleSheet(
-            f"font-size: {FONT_SM}px; color: {RED}; letter-spacing: 0.5px; background: transparent;"
+            f"font-size: {FONT_SM}px; color: {RED}; background: transparent;"
         )
+        from PySide6.QtGui import QFont
+        _hf = hint_label.font()
+        _hf.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.5)
+        hint_label.setFont(_hf)
         hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint_layout.addWidget(hint_label)
         self._live_hint_bar.hide()

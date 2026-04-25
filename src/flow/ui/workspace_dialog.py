@@ -164,8 +164,12 @@ class WorkspaceDialog(QDialog):
         # 최근 목록
         recent_label = QLabel("최근 워크스페이스")
         recent_label.setStyleSheet(
-            f"font-size: {FONT_SM}px; color: {TEXT_TERTIARY}; letter-spacing: 1px;"
+            f"font-size: {FONT_SM}px; color: {TEXT_TERTIARY};"
         )
+        from PySide6.QtGui import QFont
+        _rf = recent_label.font()
+        _rf.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0)
+        recent_label.setFont(_rf)
         root.addWidget(recent_label)
 
         scroll = QScrollArea()

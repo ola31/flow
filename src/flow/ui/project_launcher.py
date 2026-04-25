@@ -227,11 +227,15 @@ class _Panel(QFrame):
         root.addSpacing(SP_XL)
 
         # "최근" 레이블 — 작은 capslike 라벨 (Linear 패턴)
+        # letter-spacing은 stylesheet 미지원 → QFont로 적용
         self._recent_label = QLabel("최근 항목")
         self._recent_label.setStyleSheet(
             f"font-size: {FONT_XS}px; color: {TEXT_TERTIARY}; "
-            f"letter-spacing: 1px; font-weight: {FW_MEDIUM};"
+            f"font-weight: {FW_MEDIUM};"
         )
+        _f = self._recent_label.font()
+        _f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0)
+        self._recent_label.setFont(_f)
         root.addWidget(self._recent_label)
         root.addSpacing(SP_SM)
 
@@ -380,9 +384,11 @@ class ProjectLauncher(QWidget):
         title = QLabel("FLOW")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet(
-            f"font-size: 36px; font-weight: {FW_REGULAR}; color: {TEXT_PRIMARY}; "
-            "letter-spacing: 8px;"
+            f"font-size: 36px; font-weight: {FW_REGULAR}; color: {TEXT_PRIMARY};"
         )
+        _t_font = title.font()
+        _t_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 8.0)
+        title.setFont(_t_font)
         hdr.addWidget(title)
 
         sub = QLabel("예배 슬라이드 송출 시스템")
