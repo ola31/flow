@@ -311,8 +311,22 @@ class MainWindow(QMainWindow):
         if state_str:
             self.restoreState(QByteArray.fromHex(state_str.encode()))
 
+        # 활동바 + 콘텐츠 스택 — VS Code 패턴
+        from flow.ui.activity_bar import ActivityBar
+
+        central = QWidget()
+        central_layout = QHBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+
+        self._activity_bar = ActivityBar()
+        self._activity_bar.home_requested.connect(self._close_current_project)
+        self._activity_bar.settings_requested.connect(self._show_settings)
+        central_layout.addWidget(self._activity_bar)
+
         self._stack = QStackedWidget()
-        self.setCentralWidget(self._stack)
+        central_layout.addWidget(self._stack, 1)
+        self.setCentralWidget(central)
 
         self._home_screen = HomeScreen()
         self._stack.addWidget(self._home_screen)
@@ -486,14 +500,11 @@ class MainWindow(QMainWindow):
         self._live_badge.hide()
 
         # === 모드별 버튼 그룹 정의 ===
+        # 홈/설정은 활동바(좌측)로 이동했으므로 툴바에서 제거됨
         self._toolbar_groups = {
             "default": [
-                self._btn_home,
-                self._sep_edit1,
                 self._btn_save,
                 self._btn_save_as,
-                self._sep_edit2,
-                self._btn_settings,
                 "stretch",
                 self._btn_undo,
                 self._btn_redo,
@@ -501,8 +512,6 @@ class MainWindow(QMainWindow):
                 self._btn_to_live,
             ],
             "live": [
-                self._btn_home,
-                self._sep_live1,
                 self._live_badge,
                 "stretch",
                 self._btn_display,
@@ -1502,6 +1511,9 @@ class MainWindow(QMainWindow):
         self._close_project_action.setToolTip(
             "" if editable else "라이브 모드 중에는 홈으로 이동할 수 없습니다 (Esc로 먼저 라이브 종료)"
         )
+        # 활동바 홈 버튼도 동일 상태
+        if hasattr(self, "_activity_bar"):
+            self._activity_bar.set_home_enabled(editable)
 
         # 편집 관련 액션만 제어
         self._undo_action.setEnabled(editable)
