@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QPoint, Signal
 from PySide6.QtGui import QAction, QColor, QFont
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -22,11 +22,14 @@ from PySide6.QtWidgets import (
 
 from flow.ui.styles import (
     BG_DEEP, BG_SURFACE, BG_ELEVATED, BG_HOVER, BG_INPUT,
-    BORDER, BORDER_FOCUS, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY, TEXT_INVERSE,
+    BORDER, BORDER_FOCUS, BORDER_SUBTLE_RGBA, BORDER_STANDARD_RGBA,
+    SURFACE_GHOST, SURFACE_SUBTLE, SURFACE_RAISED,
+    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY, TEXT_INVERSE,
     ACCENT, ACCENT_HOVER, ACCENT_MUTED, ACCENT_SURFACE,
     GREEN, GREEN_MUTED, AMBER, RED,
-    RADIUS_MD, RADIUS_LG, RADIUS_XL,
+    RADIUS_SM, RADIUS_MD, RADIUS_LG, RADIUS_XL,
     FONT_SM, FONT_MD, FONT_LG, FONT_XL, FONT_2XL, FONT_TITLE,
+    FW_REGULAR, FW_MEDIUM, FW_SEMI,
     SP_SM, SP_MD, SP_LG, SP_XL, SP_2XL,
 )
 
@@ -331,55 +334,60 @@ class ProjectLauncher(QWidget):
 
     def _setup_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(60, 24, 60, 32)
+        root.setContentsMargins(60, SP_LG, 60, SP_2XL)
         root.setSpacing(0)
 
-        # ── 워크스페이스 헤더 바
+        # ── 워크스페이스 헤더 — 단일 메뉴 트리거 버튼
+        # 좌측 상단에 작게 배치 (Linear 패턴: 팀/워크스페이스 selector)
         ws_bar = QHBoxLayout()
-        ws_bar.setSpacing(SP_SM)
+        ws_bar.setSpacing(0)
 
-        self._ws_label = QLabel("워크스페이스 없음")
-        self._ws_label.setStyleSheet(
-            f"font-size: {FONT_SM}px; color: {TEXT_TERTIARY}; "
-            "letter-spacing: 1px;"
-        )
-        ws_bar.addWidget(self._ws_label)
-        ws_bar.addStretch()
-
-        self._btn_switch_ws = QPushButton("워크스페이스 변경")
-        self._btn_switch_ws.setFixedHeight(28)
-        self._btn_switch_ws.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_switch_ws.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_switch_ws.setStyleSheet(
+        self._ws_button = QPushButton("워크스페이스 없음")
+        self._ws_button.setFixedHeight(30)
+        self._ws_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ws_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._ws_button.setStyleSheet(
             f"""
             QPushButton {{
-                background: transparent; color: {TEXT_TERTIARY};
-                border: 1px solid {BORDER}; border-radius: {RADIUS_MD}px;
-                font-size: {FONT_SM}px; padding: 0 {SP_MD}px;
+                background: {SURFACE_GHOST};
+                color: {TEXT_SECONDARY};
+                border: 1px solid {BORDER_SUBTLE_RGBA};
+                border-radius: {RADIUS_MD}px;
+                font-size: {FONT_SM}px;
+                font-weight: {FW_MEDIUM};
+                padding: 0 {SP_MD}px;
+                text-align: left;
             }}
-            QPushButton:hover {{ color: {TEXT_PRIMARY}; border-color: {BORDER_FOCUS}; }}
+            QPushButton:hover {{
+                background: {SURFACE_SUBTLE};
+                border-color: {BORDER_STANDARD_RGBA};
+                color: {TEXT_PRIMARY};
+            }}
             """
         )
-        self._btn_switch_ws.clicked.connect(self.switch_workspace_requested.emit)
-        ws_bar.addWidget(self._btn_switch_ws)
+        self._ws_button.clicked.connect(self._show_workspace_menu)
+        ws_bar.addWidget(self._ws_button)
+        ws_bar.addStretch()
         root.addLayout(ws_bar)
-        root.addSpacing(SP_XL)
+        root.addSpacing(SP_2XL + SP_SM)
 
-        # ── 헤더
+        # ── 메인 헤더 (FLOW 타이틀 + 부제)
         hdr = QVBoxLayout()
-        hdr.setSpacing(6)
+        hdr.setSpacing(SP_SM)
 
         title = QLabel("FLOW")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet(
-            f"font-size: 36px; font-weight: 300; color: {TEXT_PRIMARY}; "
+            f"font-size: 36px; font-weight: {FW_REGULAR}; color: {TEXT_PRIMARY}; "
             "letter-spacing: 8px;"
         )
         hdr.addWidget(title)
 
         sub = QLabel("예배 슬라이드 송출 시스템")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sub.setStyleSheet(f"font-size: {FONT_LG}px; color: {TEXT_TERTIARY};")
+        sub.setStyleSheet(
+            f"font-size: {FONT_MD}px; color: {TEXT_TERTIARY}; font-weight: {FW_REGULAR};"
+        )
         hdr.addWidget(sub)
 
         root.addLayout(hdr)
@@ -432,14 +440,62 @@ class ProjectLauncher(QWidget):
         """워크스페이스를 설정하고 프로젝트/라이브러리 목록을 자동 갱신."""
         self._workspace = workspace
         if workspace is None:
-            self._ws_label.setText("워크스페이스 없음")
+            self._ws_button.setText("워크스페이스 없음 ▾")
+            self._ws_button.setToolTip("")
             self._song_panel.set_cards([])
             self._proj_panel.set_cards([])
             return
 
-        self._ws_label.setText(f"워크스페이스: {workspace.name}")
-        self._ws_label.setToolTip(str(workspace.root))
+        self._ws_button.setText(f"{workspace.name}  ▾")
+        self._ws_button.setToolTip(str(workspace.root))
         self.refresh_workspace_items()
+
+    def _show_workspace_menu(self) -> None:
+        """워크스페이스 헤더 클릭 시 액션 메뉴 표시."""
+        from flow.ui.icons import icon_qicon
+
+        menu = QMenu(self)
+        menu.setStyleSheet(self._menu_stylesheet())
+
+        if self._workspace is not None:
+            act_open = QAction(
+                icon_qicon("folder_open", 16, TEXT_SECONDARY),
+                "워크스페이스 폴더 열기",
+                self,
+            )
+            act_open.triggered.connect(self._open_workspace_folder)
+            menu.addAction(act_open)
+            menu.addSeparator()
+
+        act_switch = QAction(
+            icon_qicon("refresh", 16, TEXT_SECONDARY),
+            "워크스페이스 변경 / 새로 만들기",
+            self,
+        )
+        act_switch.triggered.connect(self.switch_workspace_requested.emit)
+        menu.addAction(act_switch)
+
+        # 버튼 바로 아래에 표시
+        below = self._ws_button.mapToGlobal(QPoint(0, self._ws_button.height() + 4))
+        menu.exec(below)
+
+    def _menu_stylesheet(self) -> str:
+        return f"""
+            QMenu {{ background: {BG_ELEVATED}; color: {TEXT_PRIMARY};
+                     border: 1px solid {BORDER_FOCUS}; border-radius: {RADIUS_MD}px;
+                     padding: 4px; }}
+            QMenu::item {{ padding: {SP_SM}px {SP_LG}px; font-size: {FONT_MD}px;
+                            border-radius: {RADIUS_SM}px; }}
+            QMenu::item:selected {{ background: {BG_HOVER}; color: {TEXT_PRIMARY}; }}
+            QMenu::separator {{ height: 1px; background: {BORDER}; margin: 4px 6px; }}
+        """
+
+    def _open_workspace_folder(self) -> None:
+        if self._workspace is None:
+            return
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._workspace.root)))
 
     def refresh_workspace_items(self) -> None:
         """워크스페이스의 projects/ 및 library/ 내용을 읽어 카드 갱신."""
