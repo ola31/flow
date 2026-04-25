@@ -383,22 +383,28 @@ def flow_select_screen(
     *,
     current_name: str = "",
     title: str = "송출 모니터 선택",
-) -> object | None:
-    """송출에 사용할 QScreen 선택. 선택된 QScreen 또는 None(취소) 반환.
+) -> tuple[object | None, bool] | None:
+    """송출에 사용할 QScreen + 윈도우 모드 여부 선택.
 
-    Args:
-        screens: QApplication.screens() 결과 리스트
-        current_name: 현재 저장된 화면 이름 (강조 표시용)
+    Returns:
+        (screen, windowed) 튜플 — screen은 선택된 QScreen, windowed는
+        True면 fullscreen 대신 윈도우 모드로 송출. 사용자 취소 시 None 반환.
     """
-    from PySide6.QtWidgets import QButtonGroup, QRadioButton
+    from PySide6.QtWidgets import QButtonGroup, QRadioButton, QCheckBox
 
     dlg = _FlowDialog(parent, title=title)
     dlg.setMinimumWidth(480)
     body = dlg.body_layout()
 
-    intro = QLabel(
-        f"{len(screens)}개의 모니터가 감지되었습니다. 송출할 모니터를 선택하세요."
-    )
+    n = len(screens)
+    if n > 1:
+        intro_text = f"{n}개의 모니터가 감지되었습니다. 송출할 모니터를 선택하세요."
+    else:
+        intro_text = (
+            "모니터가 1개만 감지되었습니다. 이 모니터로 송출하면 화면 전체를 "
+            "덮습니다 (Flow 창이 가려짐). 윈도우 모드를 선택하면 작은 창으로 띄울 수 있습니다."
+        )
+    intro = QLabel(intro_text)
     intro.setWordWrap(True)
     intro.setStyleSheet(
         f"color: {TEXT_SECONDARY}; font-size: {FONT_MD}px; "
@@ -410,12 +416,11 @@ def flow_select_screen(
     radios: list[tuple[QRadioButton, object]] = []
     for i, screen in enumerate(screens):
         geo = screen.geometry()
-        is_primary = screen == screens[0]  # heuristic — primary often first
         try:
             from PySide6.QtGui import QGuiApplication
             is_primary = screen == QGuiApplication.primaryScreen()
         except Exception:
-            pass
+            is_primary = (i == 0)
 
         label_text = (
             f"모니터 {i + 1}  ·  {geo.width()} × {geo.height()}"
@@ -433,20 +438,27 @@ def flow_select_screen(
         if current_name and screen.name() == current_name:
             radio.setChecked(True)
         elif not current_name and not is_primary and i > 0:
-            # 디폴트: 주 모니터가 아닌 첫 번째
             radio.setChecked(True)
         group.addButton(radio, i)
         radios.append((radio, screen))
         body.addWidget(radio)
 
-    # 어느 것도 체크되어 있지 않으면 첫 번째 자동 선택
     if not any(r.isChecked() for r, _ in radios):
         radios[0][0].setChecked(True)
+
+    # 윈도우 모드 체크박스 — 단일 모니터 환경의 기본 옵션, 다중 모니터에서도 선택 가능
+    chk_windowed = QCheckBox("윈도우 모드로 표시 (전체화면 대신 작은 창)")
+    chk_windowed.setStyleSheet(
+        f"color: {TEXT_SECONDARY}; font-size: {FONT_SM}px; "
+        f"background: transparent; padding: {SP_SM}px 0;"
+    )
+    chk_windowed.setChecked(n == 1)  # 단일 모니터 기본값: 윈도우 모드
+    body.addWidget(chk_windowed)
 
     btn_cancel = _make_button("취소")
     btn_cancel.clicked.connect(dlg.reject)
 
-    btn_ok = _make_button("선택", primary=True)
+    btn_ok = _make_button("송출 시작", primary=True)
     btn_ok.clicked.connect(dlg.accept)
     btn_ok.setDefault(True)
     btn_ok.setAutoDefault(True)
@@ -456,10 +468,12 @@ def flow_select_screen(
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return None
 
+    chosen_screen = None
     for radio, screen in radios:
         if radio.isChecked():
-            return screen
-    return None
+            chosen_screen = screen
+            break
+    return (chosen_screen, chk_windowed.isChecked())
 
 
 # ─── 텍스트 입력 다이얼로그 (QInputDialog.getText 대체) ────────────────────

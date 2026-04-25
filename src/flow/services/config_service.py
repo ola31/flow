@@ -18,6 +18,7 @@ class ConfigService:
             "window_geometry": "",
             "window_state": "",
             "display_screen_name": "",  # 송출 모니터 식별 (QScreen.name)
+            "display_windowed_mode": False,  # 송출을 윈도우 모드로
         }
         self.load()
 
@@ -201,6 +202,15 @@ class ConfigService:
         """송출 모니터 이름 저장 (QScreen.name() 값)."""
         self.load()
         self._config["display_screen_name"] = name or ""
+        self.save()
+
+    def get_display_windowed_mode(self) -> bool:
+        self.load()
+        return bool(self._config.get("display_windowed_mode", False))
+
+    def set_display_windowed_mode(self, windowed: bool) -> None:
+        self.load()
+        self._config["display_windowed_mode"] = bool(windowed)
         self.save()
 
     def get_max_verses(self) -> int:

@@ -152,31 +152,42 @@ class DisplayWindow(QWidget):
         self._lyric_label.clear()
         self._lyric_label.setPixmap(QPixmap())
     
-    def show_on_screen(self, screen) -> None:
-        """지정한 QScreen에 전체화면 표시.
+    def show_on_screen(self, screen, *, windowed: bool = False) -> None:
+        """지정한 QScreen에 표시.
 
-        screen이 None이면 윈도우 모드로 표시 (싱글 모니터 폴백).
+        Args:
+            screen: 표시할 QScreen. None이면 주 모니터.
+            windowed: True면 작은 창 모드(960×540, 우측 하단), False면 전체화면.
         """
-        if screen is not None:
-            geometry = screen.geometry()
-            self.setGeometry(geometry)
-            # Qt6에서는 화면 이동 후 윈도우 핸들에도 명시적으로 스크린 지정
-            handle = self.windowHandle()
-            if handle is not None:
-                handle.setScreen(screen)
-            self.showFullScreen()
-        else:
-            # 싱글 모니터 또는 자동 윈도우 모드
+        if windowed:
             self.setWindowFlags(Qt.WindowType.Window)
             self.resize(960, 540)
             self.show()
-            screens = QApplication.screens()
-            if screens:
-                geo = screens[0].availableGeometry()
+            target_screen = screen
+            if target_screen is None:
+                screens = QApplication.screens()
+                if screens:
+                    target_screen = screens[0]
+            if target_screen is not None:
+                geo = target_screen.availableGeometry()
                 self.move(
                     geo.x() + geo.width() - self.width() - 20,
                     geo.y() + geo.height() - self.height() - 20,
                 )
+            return
+
+        # 전체화면 모드
+        if screen is None:
+            screens = QApplication.screens()
+            if screens:
+                screen = screens[0]
+        if screen is not None:
+            geometry = screen.geometry()
+            self.setGeometry(geometry)
+            handle = self.windowHandle()
+            if handle is not None:
+                handle.setScreen(screen)
+            self.showFullScreen()
 
     def show_fullscreen_on_secondary(self) -> None:
         """레거시 호환 — 두 번째 모니터(없으면 윈도우)에 표시."""
