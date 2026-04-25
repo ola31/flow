@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
 from flow.ui.icons import icon_label
 from flow.ui.styles import (
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY,
-    FONT_SM, FONT_MD, FONT_LG, FW_REGULAR, FW_MEDIUM, FW_SEMI,
+    FONT_SM, FONT_MD, FONT_LG, FONT_HEAD, FW_REGULAR, FW_MEDIUM, FW_SEMI,
     SP_SM, SP_MD, SP_LG, SP_XL, SP_2XL,
 )
 
@@ -82,7 +82,7 @@ class EmptyState(QFrame):
         if title:
             title_lbl = QLabel(title)
             title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            title_size = FONT_MD if compact else FONT_LG
+            title_size = FONT_MD if compact else FONT_HEAD
             title_lbl.setStyleSheet(
                 f"color: {TEXT_PRIMARY}; font-size: {title_size}px; "
                 f"font-weight: {FW_SEMI}; background: transparent;"
