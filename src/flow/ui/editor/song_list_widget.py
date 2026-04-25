@@ -35,7 +35,7 @@ from flow.ui.styles import (
     SURFACE_GHOST, SURFACE_SUBTLE, SURFACE_RAISED,
     BORDER_SUBTLE_RGBA, BORDER_STANDARD_RGBA,
     GREEN, GREEN_MUTED, AMBER, AMBER_MUTED, RED,
-    RADIUS_SM, RADIUS_MD, RADIUS_LG, FONT_SM, FONT_MD, FONT_LG, FONT_XL,
+    RADIUS_SM, RADIUS_MD, RADIUS_LG, FONT_SM, FONT_MD, FONT_LG, FONT_TITLE,
     FW_REGULAR, FW_MEDIUM, FW_SEMI,
     SP_XS, SP_SM, SP_MD, SP_LG,
 )
@@ -147,7 +147,7 @@ class _LibrarySongCard(QFrame):
 
         name_lbl = QLabel(info["name"])
         name_lbl.setStyleSheet(
-            f"font-size: {FONT_XL}px; font-weight: 500; color: {TEXT_PRIMARY}; background: transparent;"
+            f"font-size: {FONT_TITLE}px; font-weight: 500; color: {TEXT_PRIMARY}; background: transparent;"
         )
         left.addWidget(name_lbl)
 
@@ -782,7 +782,7 @@ class _StandalonePanel(QWidget):
         # 곡 이름 헤더
         self._song_name = QLabel("—")
         self._song_name.setStyleSheet(
-            f"font-size: {FONT_XL}px; font-weight: {FW_SEMI}; color: {TEXT_PRIMARY};"
+            f"font-size: {FONT_TITLE}px; font-weight: {FW_SEMI}; color: {TEXT_PRIMARY};"
         )
         layout.addWidget(self._song_name)
 
