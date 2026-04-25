@@ -331,12 +331,16 @@ class SongLibraryDialog(QDialog):
         self._scroll.setWidget(self._list_widget)
         root.addWidget(self._scroll, 1)
 
-        # 빈 상태 라벨
-        self._empty_label = QLabel()
-        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet(f"font-size: {FONT_MD}px; color: {TEXT_TERTIARY}; padding: 20px;")
-        self._empty_label.hide()
-        root.addWidget(self._empty_label)
+        # 빈 상태 — 컴팩트 EmptyState (다이얼로그 안이라 작게)
+        from flow.ui.empty_state import EmptyState
+        self._empty_widget = EmptyState(
+            icon="search",
+            title="추가할 수 있는 곡이 없습니다",
+            description="새 곡을 먼저 만들어 주세요",
+            compact=True,
+        )
+        self._empty_widget.hide()
+        root.addWidget(self._empty_widget)
 
         # 하단 닫기
         btn_close = QPushButton("닫기")
@@ -364,7 +368,11 @@ class SongLibraryDialog(QDialog):
             else self._songs_dir
         )
         if not scan_dir.exists():
-            self._show_empty("곡 라이브러리가 비어있습니다")
+            self._show_empty(
+                icon="music_note",
+                title="라이브러리가 비어있습니다",
+                description="새 곡을 먼저 만들어 주세요",
+            )
             return
 
         for folder in sorted(scan_dir.iterdir()):
@@ -390,12 +398,20 @@ class SongLibraryDialog(QDialog):
 
         if not infos:
             if self._all_infos:
-                self._show_empty("검색 결과가 없습니다")
+                self._show_empty(
+                    icon="search",
+                    title="검색 결과가 없습니다",
+                    description="다른 검색어로 시도해 보세요",
+                )
             else:
-                self._show_empty("추가 가능한 곡이 없습니다\n새 곡을 먼저 만들어 주세요")
+                self._show_empty(
+                    icon="music_note",
+                    title="추가할 수 있는 곡이 없습니다",
+                    description="새 곡을 먼저 만들어 주세요",
+                )
             return
 
-        self._empty_label.hide()
+        self._empty_widget.hide()
         self._scroll.show()
 
         workspace_mode = self._workspace is not None
@@ -405,9 +421,23 @@ class SongLibraryDialog(QDialog):
             self._cards.append(card)
             self._list_layout.insertWidget(self._list_layout.count() - 1, card)
 
-    def _show_empty(self, text: str) -> None:
-        self._empty_label.setText(text)
-        self._empty_label.show()
+    def _show_empty(
+        self, icon: str = "search", title: str = "", description: str = ""
+    ) -> None:
+        """빈 상태 위젯을 새로 만들어 교체."""
+        from flow.ui.empty_state import EmptyState
+
+        # 기존 위젯 제거 후 새로 만들기 (EmptyState는 set_* API 없음)
+        parent_layout = self._empty_widget.parentWidget().layout()
+        idx = parent_layout.indexOf(self._empty_widget)
+        self._empty_widget.deleteLater()
+
+        self._empty_widget = EmptyState(
+            icon=icon, title=title, description=description, compact=True
+        )
+        parent_layout.insertWidget(idx, self._empty_widget)
+        self._empty_widget.show()
+        self._scroll.hide()
 
     def _on_song_added(self, name: str, source: str) -> None:
         self.song_chosen.emit(name, source)

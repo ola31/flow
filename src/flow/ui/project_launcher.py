@@ -165,11 +165,21 @@ class _RecentCard(QFrame):
 class _Panel(QFrame):
     """홈 화면의 좌/우 패널."""
 
-    def __init__(self, title: str, subtitle: str, icon_name: str = "", parent=None) -> None:
+    def __init__(
+        self,
+        title: str,
+        subtitle: str,
+        icon_name: str = "",
+        empty_icon: str = "search",
+        empty_title: str = "아직 없습니다",
+        empty_description: str = "",
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("HomePanel")
         self._cards: list[_RecentCard] = []
         self._icon_name = icon_name
+        self._empty_config = (empty_icon, empty_title, empty_description)
 
         self.setStyleSheet(f"""
             QFrame#HomePanel {{
@@ -246,11 +256,14 @@ class _Panel(QFrame):
         scroll.setWidget(self._cards_widget)
         root.addWidget(scroll, 1)
 
-        # 빈 상태
-        self._empty = QLabel("아직 없습니다")
-        self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty.setStyleSheet(
-            f"font-size: {FONT_MD}px; color: {TEXT_TERTIARY}; padding: {SP_2XL}px 0;"
+        # 빈 상태 — Linear-style 디자인
+        from flow.ui.empty_state import EmptyState
+        empty_icon, empty_title, empty_desc = self._empty_config
+        self._empty = EmptyState(
+            icon=empty_icon,
+            title=empty_title,
+            description=empty_desc,
+            compact=True,
         )
         root.addWidget(self._empty)
 
@@ -379,7 +392,10 @@ class ProjectLauncher(QWidget):
         self._song_panel = _Panel(
             "곡 라이브러리",
             "악보 · PPT · 핫스팟 매핑의 기본 단위",
-            "music_note",
+            icon_name="music_note",
+            empty_icon="music_note",
+            empty_title="곡이 없습니다",
+            empty_description="새 곡을 만들거나 외부 폴더에서 가져오세요",
         )
         self._btn_new_song = self._song_panel.add_action_btn("새 곡 만들기", primary=True)
         self._btn_open_song = self._song_panel.add_action_btn("폴더에서 열기")
@@ -390,7 +406,10 @@ class ProjectLauncher(QWidget):
         self._proj_panel = _Panel(
             "프로젝트",
             "곡을 조합해 예배 셋리스트로 사용",
-            "view_list",
+            icon_name="view_list",
+            empty_icon="view_list",
+            empty_title="프로젝트가 없습니다",
+            empty_description="새 프로젝트를 만들어 곡들을 셋리스트로 구성하세요",
         )
         self._btn_new_proj = self._proj_panel.add_action_btn("새 프로젝트", primary=True)
         self._btn_open_proj = self._proj_panel.add_action_btn("폴더에서 열기")
