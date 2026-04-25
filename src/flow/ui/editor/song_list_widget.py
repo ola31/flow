@@ -1385,23 +1385,25 @@ class SongListWidget(QWidget):
             self,
             "PPT 편집 열기",
             "이 곡의 PPT를 기본 프로그램(PowerPoint 등)으로 엽니다.\n\n"
+            "Flow는 자동 슬라이드 변환을 일시 중지합니다.\n\n"
             "권장 작업 순서:\n"
             "  1. PowerPoint에서 편집 후 저장\n"
             "  2. PowerPoint를 완전히 닫기\n"
-            "  3. Flow로 돌아와서 슬라이드 패널의 '새로고침'을 클릭\n\n"
-            "주의: Flow와 PowerPoint가 같은 파일을 동시에 점유하면 "
-            "파워포인트가 저장 오류를 내거나 튕길 수 있습니다.",
+            "  3. Flow로 돌아와서 슬라이드 패널의 '새로고침' 클릭\n"
+            "     → 변경 반영 + 자동 변환 재개",
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
         )
         if reply != QMessageBox.StandardButton.Ok:
             return
 
-        # 진행 중이거나 대기 중인 슬라이드 변환 작업 중단 — 파일 락 경합 최소화
+        # 진행 중이거나 대기 중인 슬라이드 변환 작업 중단 + 파일 watcher 일시 중지
+        # → PowerPoint가 저장하는 동안 자동 리로드로 인한 파일 락 충돌 방지.
+        # 사용자가 PowerPoint를 닫고 슬라이드 패널의 '새로고침'을 누르면 재개됨.
         if self._main_window is not None:
             slide_manager = getattr(self._main_window, "_slide_manager", None)
             if slide_manager is not None:
                 try:
-                    slide_manager.stop_workers()
+                    slide_manager.pause_file_watching()
                 except Exception:
                     pass
 

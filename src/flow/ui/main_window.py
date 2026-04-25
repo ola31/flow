@@ -1961,6 +1961,11 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("로드된 곡이 없습니다", 3000)
             return
 
+        # 외부 PPT 편집 중이었다면 watcher 재개 (PowerPoint 저장/종료 후
+        # 사용자가 '새로고침'을 누르는 흐름을 가정)
+        if self._slide_manager.is_watch_paused():
+            self._slide_manager.resume_file_watching()
+
         self.statusBar().showMessage("슬라이드 새로고침 중...", 0)
         self._slide_manager.reload_all_songs()
         self._slide_preview.refresh_slides()

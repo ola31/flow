@@ -195,8 +195,36 @@ class SlideManager(QObject):
         self._connect_worker(self._worker)
         self._worker.start()
 
+        # 외부 PowerPoint 편집 중 파일 watcher 일시 중지 플래그
+        self._watch_paused: bool = False
+
     def stop_workers(self):
         self._worker.abort_current_task()
+
+    def is_watch_paused(self) -> bool:
+        return self._watch_paused
+
+    def pause_file_watching(self) -> None:
+        """파일 watcher 일시 중지.
+
+        외부 프로그램(예: PowerPoint)에서 PPT를 편집하는 동안 호출.
+        편집 중 저장이 발생해도 자동 리로드를 시도하지 않아 파일 락 충돌
+        및 PowerPoint 크래시를 예방한다.
+        """
+        self._watch_paused = True
+        self.stop_watching()  # observer 자체 중지
+        # 진행 중인 변환도 함께 중단해 COM/file handle 점유 해제
+        self.stop_workers()
+
+    def resume_file_watching(self) -> None:
+        """파일 watcher 재개.
+
+        사용자가 외부 편집을 마쳤을 때 호출. 보통 슬라이드 새로고침
+        흐름과 함께 트리거된다.
+        """
+        self._watch_paused = False
+        if self._pptx_path and self._pptx_path.exists():
+            self.start_watching()
 
     def _connect_worker(self, worker: SlideWorker) -> None:
         worker.single_load_finished.connect(self._on_single_load_finished)
@@ -315,6 +343,9 @@ class SlideManager(QObject):
         if path:
             self._pptx_path = Path(path)
         if not self._pptx_path or not self._pptx_path.parent.exists():
+            return
+        # pause 상태에선 다른 코드 경로(load_pptx 등)에서 호출돼도 watcher 비활성 유지
+        if self._watch_paused:
             return
 
         self.stop_watching()

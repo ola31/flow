@@ -101,3 +101,51 @@ class TestSlideWorker:
 
         assert worker._abort_requested is False
         assert not worker._task_queue.empty()
+
+
+class TestFileWatcherPause:
+    """외부 PPT 편집 시나리오를 위한 watcher 일시 중지/재개."""
+
+    def test_initial_state_not_paused(self, manager):
+        assert manager.is_watch_paused() is False
+
+    def test_pause_sets_flag_and_stops_observer(self, manager, tmp_path):
+        # observer가 동작 중이라고 가정 — pptx_path 설정 후 시작
+        pptx = tmp_path / "x.pptx"
+        pptx.write_bytes(b"fake")
+        manager.start_watching(pptx)
+        assert manager._observer is not None
+
+        manager.pause_file_watching()
+        assert manager.is_watch_paused() is True
+        assert manager._observer is None  # stop_watching이 None으로 만듦
+
+    def test_paused_state_blocks_start_watching(self, manager, tmp_path):
+        pptx = tmp_path / "x.pptx"
+        pptx.write_bytes(b"fake")
+        manager.pause_file_watching()  # pause 먼저
+
+        # 다른 코드 경로(load_pptx 등)에서 start_watching이 호출돼도 무시
+        manager.start_watching(pptx)
+        assert manager._observer is None
+
+    def test_resume_restarts_watcher(self, manager, tmp_path):
+        pptx = tmp_path / "x.pptx"
+        pptx.write_bytes(b"fake")
+        manager._pptx_path = pptx.resolve()
+
+        manager.pause_file_watching()
+        assert manager.is_watch_paused() is True
+
+        manager.resume_file_watching()
+        assert manager.is_watch_paused() is False
+        assert manager._observer is not None
+
+    def test_resume_noop_if_pptx_missing(self, manager, tmp_path):
+        manager._pptx_path = tmp_path / "no.pptx"  # 존재하지 않음
+
+        manager.pause_file_watching()
+        manager.resume_file_watching()
+
+        assert manager.is_watch_paused() is False
+        assert manager._observer is None  # 파일 없으면 시작 안 함
