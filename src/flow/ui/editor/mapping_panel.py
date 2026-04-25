@@ -19,7 +19,7 @@ from flow.ui.styles import (
     ACCENT, ACCENT_INTER, RED, GREEN,
     SURFACE_GHOST, SURFACE_SUBTLE, SURFACE_RAISED,
     BORDER_SUBTLE_RGBA, BORDER_STANDARD_RGBA, BORDER_FOCUS,
-    FONT_XS, FONT_SM, FONT_MD, FONT_LG, FW_REGULAR, FW_MEDIUM, FW_SEMI,
+    FONT_XS, FONT_SM, FONT_MD, FONT_LG, FONT_TITLE, FW_REGULAR, FW_MEDIUM, FW_SEMI,
     RADIUS_SM, RADIUS_MD, SP_XS, SP_SM, SP_MD,
 )
 
@@ -218,7 +218,7 @@ class MappingPanel(QFrame):
         header.setContentsMargins(0, 0, 0, 0)
         self._title = QLabel("핫스팟 매핑")
         self._title.setStyleSheet(
-            f"font-size: {FONT_LG}px; font-weight: {FW_SEMI}; "
+            f"font-size: {FONT_TITLE}px; font-weight: {FW_SEMI}; "
             f"color: {TEXT_PRIMARY}; border: none;"
         )
         header.addWidget(self._title)
@@ -231,7 +231,7 @@ class MappingPanel(QFrame):
         btn_close.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; color: {TEXT_TERTIARY}; border: none;
-                font-size: {FONT_LG}px; padding: 0;
+                font-size: {FONT_TITLE}px; padding: 0;
             }}
             QPushButton:hover {{ color: {TEXT_PRIMARY}; }}
         """)
