@@ -900,7 +900,7 @@ class MainWindow(QMainWindow):
             self._update_toolbar_for_mode("song_edit")
 
             self.setWindowTitle(f"Flow - [곡 편집] {song.name}")
-            self._project_screen.set_page_title(f"[곡 편집] {song.name}")
+            self._project_screen.set_page_title(song.name, kicker="SONG")
             self._clear_dirty()
             self._statusbar.showMessage(f"곡 편집 모드로 전환되었습니다: {song.name}")
 
@@ -1415,7 +1415,7 @@ class MainWindow(QMainWindow):
             self._save_project()
 
             self.setWindowTitle(f"Flow - [곡 편집] {song.name}")
-            self._project_screen.set_page_title(f"[곡 편집] {song.name}")
+            self._project_screen.set_page_title(song.name, kicker="SONG")
             self._clear_dirty()
             self._statusbar.showMessage(
                 f"곡이 새 폴더에 저장되었습니다: {new_song_dir}"
