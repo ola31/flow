@@ -9,7 +9,11 @@ from pptx.exc import PackageNotFoundError
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import sys
-from flow.services.slide_converter import SlideConverter, create_slide_converter
+from flow.services.slide_converter import (
+    SlideConverter,
+    create_slide_converter,
+    NoConverterAvailableError,
+)
 
 
 class SlideLoadError(Exception):
@@ -179,6 +183,10 @@ class SlideManager(QObject):
     songs_metadata_started = Signal()
     songs_metadata_finished = Signal(int)
 
+    # PPT 변환 엔진(PowerPoint/LibreOffice)이 없을 때 PPT 조작 시도 시 발화.
+    # MainWindow가 catch해서 설치 안내 다이얼로그를 띄운다.
+    engine_missing = Signal()
+
     def __init__(self, converter: SlideConverter = None) -> None:
         super().__init__()
         self._pptx_path: Path | None = None
@@ -186,20 +194,31 @@ class SlideManager(QObject):
         self._songs: list = []
         self._slide_offsets: dict[str, int] = {}
         self._total_slide_count: int = 0
-        self._converter = converter or create_slide_converter()
+        try:
+            self._converter = converter or create_slide_converter()
+        except NoConverterAvailableError:
+            self._converter = None
         self._observer = None
         self._old_workers: list[SlideWorker] = []
         self._pending_reload_song = None
 
-        self._worker = SlideWorker(self._converter)
-        self._connect_worker(self._worker)
-        self._worker.start()
+        if self._converter is not None:
+            self._worker = SlideWorker(self._converter)
+            self._connect_worker(self._worker)
+            self._worker.start()
+        else:
+            self._worker = None
 
         # 외부 PowerPoint 편집 중 파일 watcher 일시 중지 플래그
         self._watch_paused: bool = False
 
+    def is_engine_available(self) -> bool:
+        """PPT 변환 엔진이 사용 가능한지."""
+        return self._converter is not None
+
     def stop_workers(self):
-        self._worker.abort_current_task()
+        if self._worker is not None:
+            self._worker.abort_current_task()
 
     def is_watch_paused(self) -> bool:
         return self._watch_paused
@@ -241,6 +260,13 @@ class SlideManager(QObject):
         worker.error.disconnect(self.load_error.emit)
 
     def reset_worker(self):
+        if self._converter is None:
+            self._songs = []
+            self._slide_offsets = {}
+            self._total_slide_count = 0
+            self._slide_count = 0
+            return
+
         old = self._worker
         self._disconnect_worker(old)
         old.stop()
@@ -262,6 +288,11 @@ class SlideManager(QObject):
         if not p or not p.is_file():
             self._pptx_path = None
             self._slide_count = 0
+            self.load_finished.emit(0)
+            return
+
+        if self._converter is None:
+            self.engine_missing.emit()
             self.load_finished.emit(0)
             return
 
@@ -288,6 +319,11 @@ class SlideManager(QObject):
                 song_data_list.append((s.name, s.abs_slides_path))
 
         if not song_data_list:
+            self.load_finished.emit(0)
+            return
+
+        if self._converter is None:
+            self.engine_missing.emit()
             self.load_finished.emit(0)
             return
 
@@ -363,7 +399,8 @@ class SlideManager(QObject):
 
     def shutdown(self):
         self.stop_watching()
-        self._worker.stop()
+        if self._worker is not None:
+            self._worker.stop()
         for w in self._old_workers:
             if w.isRunning():
                 w.stop()
@@ -395,6 +432,9 @@ class SlideManager(QObject):
         self._total_slide_count = offset
 
     def reload_song(self, song):
+        if song.has_slides and self._converter is None:
+            self.engine_missing.emit()
+            return
         if self._songs:
             if song.has_slides:
                 self._pending_reload_song = song
@@ -411,6 +451,9 @@ class SlideManager(QObject):
             self._worker.add_task(PPTTask(PPTTask.LOAD_SINGLE, song.abs_slides_path))
 
     def reload_all_songs(self):
+        if self._converter is None:
+            self.engine_missing.emit()
+            return
         if self._songs:
             self._converter.clear_cache()
             self.load_songs(self._songs)

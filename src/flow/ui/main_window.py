@@ -86,6 +86,8 @@ class MainWindow(QMainWindow):
         # 송출 관련
         self._display_window: DisplayWindow | None = None
         self._slide_manager = SlideManager()
+        self._install_guide_shown = False
+        self._slide_manager.engine_missing.connect(self._on_engine_missing)
         from flow.ui.live.live_controller import LiveController
 
         self._live_controller = LiveController(self, slide_manager=self._slide_manager)
@@ -280,6 +282,17 @@ class MainWindow(QMainWindow):
         self._toolbar.hide()
         self._statusbar.hide()
         self.setWindowTitle("Flow - 시작하기")
+
+    def _on_engine_missing(self) -> None:
+        """SlideManager가 PPT 변환 엔진을 못 찾았을 때 설치 안내 표시.
+
+        세션당 한 번만 표시 (사용자가 또 PPT 조작하면 다시 안 띄움).
+        """
+        if self._install_guide_shown:
+            return
+        self._install_guide_shown = True
+        from flow.ui.dialogs import flow_show_install_guide
+        flow_show_install_guide(self)
 
     def _show_launcher(self):
         self.show_home()
