@@ -20,10 +20,12 @@ from flow.ui.styles import (
     BORDER_SUBTLE_RGBA,
     RED,
     RED_MUTED,
+    TEXT_PRIMARY,
     TEXT_SECONDARY,
+    TEXT_TERTIARY,
     ACCENT,
     ACCENT_MUTED,
-    FONT_SM,
+    FONT_2XS, FONT_XS, FONT_SM, FONT_MD, FW_MEDIUM,
     SP_XS, SP_SM, SP_MD,
 )
 from flow.services.slide_manager import SlideManager
@@ -48,7 +50,7 @@ class _PIPPane(QFrame):
         self._badge.setFixedHeight(16)
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._badge.setStyleSheet(
-            f"font-size: 10px; font-weight: 500; color: {color};"
+            f"font-size: {FONT_2XS}px; font-weight: {FW_MEDIUM}; color: {color};"
         )
         from PySide6.QtGui import QFont
         _bf = self._badge.font()
@@ -67,7 +69,9 @@ class _PIPPane(QFrame):
         self._text = QLabel()
         self._text.setFixedHeight(16)
         self._text.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._text.setStyleSheet("font-size: 10px; color: #aaa;")
+        self._text.setStyleSheet(
+            f"font-size: {FONT_2XS}px; color: {TEXT_TERTIARY};"
+        )
         layout.addWidget(self._text)
 
     def _rescale(self) -> None:
@@ -303,12 +307,12 @@ class ProjectScreen(QWidget):
         nav_layout.setContentsMargins(12, 0, 12, 0)
         nav_layout.setSpacing(8)
 
-        _nav_btn_style = """
-            QPushButton {
+        _nav_btn_style = f"""
+            QPushButton {{
                 background: #2a2a2a; color: #aaa; border: 1px solid #444;
-                border-radius: 4px; padding: 2px 10px; font-size: 11px; font-weight: 500;
-            }
-            QPushButton:hover { background: #3a3a3a; color: white; }
+                border-radius: 4px; padding: 2px 10px; font-size: {FONT_XS}px; font-weight: {FW_MEDIUM};
+            }}
+            QPushButton:hover {{ background: #3a3a3a; color: white; }}
         """
 
         btn_prev = QPushButton("이전곡")
@@ -321,7 +325,7 @@ class ProjectScreen(QWidget):
         self._nav_song_name = QLabel("")
         self._nav_song_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._nav_song_name.setStyleSheet(
-            "font-size: 13px; font-weight: 500; color: #e0e0e0;"
+            f"font-size: {FONT_MD}px; font-weight: {FW_MEDIUM}; color: {TEXT_PRIMARY};"
         )
         nav_layout.addWidget(self._nav_song_name, 1)
 
@@ -337,17 +341,17 @@ class ProjectScreen(QWidget):
         nav_sep.setStyleSheet("background: #444; max-width: 1px; margin: 6px 4px;")
         nav_layout.addWidget(nav_sep)
 
-        _verse_btn_style = """
-            QPushButton {
+        _verse_btn_style = f"""
+            QPushButton {{
                 background: #2a2a2a; color: #999; border: 1px solid #444;
-                border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: 500;
+                border-radius: 4px; padding: 2px 6px; font-size: {FONT_XS}px; font-weight: {FW_MEDIUM};
                 min-width: 32px;
-            }
-            QPushButton:hover { background: #3a3a3a; color: white; }
-            QPushButton:checked {
+            }}
+            QPushButton:hover {{ background: #3a3a3a; color: white; }}
+            QPushButton:checked {{
                 background: #1a2a40; color: #64b5f6;
-                border: 1px solid #42a5f5; font-weight: 500;
-            }
+                border: 1px solid #42a5f5; font-weight: {FW_MEDIUM};
+            }}
         """
 
         from PySide6.QtWidgets import QButtonGroup
