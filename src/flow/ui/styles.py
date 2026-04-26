@@ -130,10 +130,6 @@ FONT_TITLE   = 18   # 패널 섹션 헤더
 FONT_HEAD    = 20   # 다이얼로그·EmptyState 제목
 FONT_DISPLAY = 24   # 페이지 최상위 헤드라인
 
-# 호환 alias (Phase E에서 제거 예정 — 신규 토큰으로 교체 후)
-FONT_XL  = FONT_LG    # 14 → 15 (한 단계 위)
-FONT_2XL = FONT_HEAD  # 16 → 20 (HEAD로 승격)
-
 # 가중치 — Linear의 시그니처는 510 (regular와 medium 사이)
 # Pretendard Variable은 모든 weight 지원
 FW_REGULAR = 400   # 본문
