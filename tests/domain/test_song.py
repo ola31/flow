@@ -17,10 +17,10 @@ class TestSongCreation:
 
     def test_create_song_with_name_and_folder(self):
         """이름과 폴더로 곡 생성"""
-        song = Song(name="주님의_기쁨", folder=Path("songs/주님의_기쁨"))
+        song = Song(name="song_a", folder=Path("songs/song_a"))
 
-        assert song.name == "주님의_기쁨"
-        assert song.folder == Path("songs/주님의_기쁨")
+        assert song.name == "song_a"
+        assert song.folder == Path("songs/song_a")
 
     def test_song_default_values(self):
         """곡 기본값 확인"""
@@ -205,30 +205,30 @@ class TestSongWorkspaceLoading:
 
     def test_load_from_library_when_only_library_exists(self, tmp_path):
         ws = Workspace.create(tmp_path / "ws")
-        self._write_song_json(ws.library_song_dir("은혜"), "은혜")
+        self._write_song_json(ws.library_song_dir("곡B"), "곡B")
 
-        song = Song.load_from_workspace(ws, "성탄절", "은혜")
+        song = Song.load_from_workspace(ws, "행사A", "곡B")
         assert song is not None
-        assert song.name == "은혜"
+        assert song.name == "곡B"
         assert song.source == "library"
-        assert song.folder == ws.library_song_dir("은혜").resolve()
+        assert song.folder == ws.library_song_dir("곡B").resolve()
 
     def test_load_from_local_when_both_exist(self, tmp_path):
         ws = Workspace.create(tmp_path / "ws")
-        self._write_song_json(ws.library_song_dir("은혜"), "은혜(lib)")
+        self._write_song_json(ws.library_song_dir("곡B"), "곡B(lib)")
 
-        local_path = ws.project_dir("성탄절") / "songs" / "은혜"
-        self._write_song_json(local_path, "은혜(local)")
+        local_path = ws.project_dir("행사A") / "songs" / "곡B"
+        self._write_song_json(local_path, "곡B(local)")
 
-        song = Song.load_from_workspace(ws, "성탄절", "은혜")
+        song = Song.load_from_workspace(ws, "행사A", "곡B")
         assert song is not None
-        assert song.name == "은혜(local)"  # 로컬 우선
+        assert song.name == "곡B(local)"  # 로컬 우선
         assert song.source == "local"
         assert song.folder == local_path.resolve()
 
     def test_returns_none_when_song_missing(self, tmp_path):
         ws = Workspace.create(tmp_path / "ws")
-        assert Song.load_from_workspace(ws, "성탄절", "없는곡") is None
+        assert Song.load_from_workspace(ws, "행사A", "없는곡") is None
 
     def test_order_is_preserved(self, tmp_path):
         ws = Workspace.create(tmp_path / "ws")

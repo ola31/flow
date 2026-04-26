@@ -48,7 +48,7 @@ def _seed_library_song(workspace: Workspace, name: str) -> Path:
 
 class TestWorkspaceLifecycle:
     def test_create_and_reopen_workspace(self, tmp_path: Path):
-        root = tmp_path / "내교회"
+        root = tmp_path / "내워크스페이스"
 
         ws = Workspace.create(root)
         assert ws.root == root.resolve()

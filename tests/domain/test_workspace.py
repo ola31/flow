@@ -55,12 +55,12 @@ class TestWorkspaceCreation:
 
 class TestWorkspacePaths:
     def test_library_song_dir(self, workspace: Workspace):
-        path = workspace.library_song_dir("주님의기쁨")
-        assert path == workspace.library_dir / "주님의기쁨"
+        path = workspace.library_song_dir("곡A")
+        assert path == workspace.library_dir / "곡A"
 
     def test_project_dir(self, workspace: Workspace):
-        path = workspace.project_dir("성탄절")
-        assert path == workspace.projects_dir / "성탄절"
+        path = workspace.project_dir("행사A")
+        assert path == workspace.projects_dir / "행사A"
 
     def test_name_from_root(self, workspace: Workspace):
         assert workspace.name == workspace.root.name
@@ -118,20 +118,20 @@ class TestSongResolution:
         return path
 
     def test_resolves_library_when_only_library_exists(self, workspace: Workspace):
-        lib_song = self._create_library_song(workspace, "은혜")
-        resolved = workspace.resolve_song_folder("성탄절", "은혜")
+        lib_song = self._create_library_song(workspace, "곡B")
+        resolved = workspace.resolve_song_folder("행사A", "곡B")
         assert resolved == lib_song
 
     def test_resolves_local_when_both_exist(self, workspace: Workspace):
-        self._create_library_song(workspace, "은혜")
-        local_song = self._create_local_song(workspace, "성탄절", "은혜")
-        resolved = workspace.resolve_song_folder("성탄절", "은혜")
+        self._create_library_song(workspace, "곡B")
+        local_song = self._create_local_song(workspace, "행사A", "곡B")
+        resolved = workspace.resolve_song_folder("행사A", "곡B")
         assert resolved == local_song
 
     def test_resolves_local_when_only_local_exists(self, workspace: Workspace):
-        local_song = self._create_local_song(workspace, "성탄절", "커스텀곡")
-        resolved = workspace.resolve_song_folder("성탄절", "커스텀곡")
+        local_song = self._create_local_song(workspace, "행사A", "커스텀곡")
+        resolved = workspace.resolve_song_folder("행사A", "커스텀곡")
         assert resolved == local_song
 
     def test_returns_none_when_nowhere(self, workspace: Workspace):
-        assert workspace.resolve_song_folder("성탄절", "없는곡") is None
+        assert workspace.resolve_song_folder("행사A", "없는곡") is None

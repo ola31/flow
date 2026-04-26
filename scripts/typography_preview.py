@@ -226,7 +226,7 @@ class ContextPanel(QWidget):
         v.addWidget(section)
 
         # 곡 카드 시뮬
-        for i, name in enumerate(["주 안에 있는 나에게", "은혜로다", "주만 바라볼지라"], 1):
+        for i, name in enumerate(["보통 길이의 곡 제목 예시", "짧은 곡", "조금 더 긴 곡 제목 예시"], 1):
             row = QWidget()
             row_name = f"PreviewSongRow{i}"
             row.setObjectName(row_name)

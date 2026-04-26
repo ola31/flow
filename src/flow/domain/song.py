@@ -18,7 +18,7 @@ class Song:
 
     각 곡은 독립적인 폴더를 가지며, 슬라이드(PPT)와 악보(Sheet)를 포함합니다.
     """
-    name: str  # 곡 이름 (예: "주님의_기쁨")
+    name: str  # 곡 이름 (예: "my_song")
     folder: Path  # 곡 폴더 경로 (상대 또는 절대)
     score_sheets: list[ScoreSheet] = field(default_factory=list)  # 악보 목록 (다중 페이지 지원)
     slides_path: Optional[Path] = None  # slides.pptx 경로

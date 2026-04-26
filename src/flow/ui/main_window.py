@@ -756,7 +756,7 @@ class MainWindow(QMainWindow):
 
         name, ok = flow_input_text(
             self, "새 곡 생성", "곡 제목을 입력하세요:",
-            placeholder="예: 주님의기쁨",
+            placeholder="예: 새 곡 이름",
         )
         if not ok or not name:
             return
