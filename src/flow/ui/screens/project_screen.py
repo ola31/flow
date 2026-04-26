@@ -307,11 +307,15 @@ class ProjectScreen(QWidget):
         main_layout.addWidget(self._toolbar)
 
         # ── 페이지 헤드라인 (project name 또는 곡 편집 모드에서는 song name)
+        from PySide6.QtWidgets import QSizePolicy
         self._page_title = QLabel("")
         self._page_title.setStyleSheet(
             f"font-size: {FONT_DISPLAY}px; font-weight: {FW_SEMI}; "
             f"color: {TEXT_PRIMARY}; background: transparent; "
             f"padding: {SP_LG}px {SP_LG}px {SP_XS}px {SP_LG}px;"
+        )
+        self._page_title.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         self._page_title.setVisible(False)  # MainWindow가 set_page_title로 켬
         main_layout.addWidget(self._page_title)
