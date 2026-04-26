@@ -81,7 +81,7 @@ class SongManagerDialog(QDialog):
             BG_DEEP, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY,
             ACCENT_INTER, BORDER_SUBTLE_RGBA, BORDER_STANDARD_RGBA,
             SURFACE_SUBTLE, SURFACE_RAISED,
-            FONT_MD, FONT_LG, FW_MEDIUM, FW_SEMI,
+            FONT_XS, FONT_SM, FONT_MD, FONT_LG, FW_MEDIUM, FW_SEMI,
             RADIUS_MD, SP_SM,
         )
 
@@ -302,11 +302,13 @@ class SongManagerDialog(QDialog):
         layout.setContentsMargins(4, 0, 4, 0)
         layout.setSpacing(6)
 
+        from flow.ui.styles import TEXT_PRIMARY, TEXT_SECONDARY, FONT_XS, FONT_SM, FW_SEMI
+
         label = QLabel(text)
         label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        style = "color: #ccc; font-size: 11px;"
+        style = f"color: {TEXT_SECONDARY}; font-size: {FONT_XS}px;"
         if is_bold:
-            style = "color: #eee; font-weight: bold; font-size: 12px;"
+            style = f"color: {TEXT_PRIMARY}; font-weight: {FW_SEMI}; font-size: {FONT_SM}px;"
         label.setStyleSheet(style)
 
         # 라벨이 가용 공간을 모두 차지하도록 설정
