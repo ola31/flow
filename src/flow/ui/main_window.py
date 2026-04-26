@@ -280,12 +280,8 @@ class MainWindow(QMainWindow):
         self._toolbar.hide()
         self._statusbar.hide()
         self.setWindowTitle("Flow - 시작하기")
-        if hasattr(self, '_project_screen'):
-            self._project_screen.set_page_title("")
 
     def _show_launcher(self):
-        if hasattr(self, '_project_screen'):
-            self._project_screen.set_page_title("")
         self.show_home()
 
     def show_project(self) -> None:
@@ -294,7 +290,6 @@ class MainWindow(QMainWindow):
         self._statusbar.show()
         if self._project:
             self.setWindowTitle(f"Flow - {self._project.name}")
-            self._project_screen.set_page_title(self._project.name)
         self._is_live = False
         self._live_mode_action.setChecked(False)
         self._canvas.set_edit_mode(True)
@@ -306,8 +301,6 @@ class MainWindow(QMainWindow):
 
     def _setup_ui(self) -> None:
         self.setWindowTitle("Flow - 슬라이드 송출")
-        if hasattr(self, '_project_screen'):
-            self._project_screen.set_page_title("")
         self.setMinimumSize(840, 600)
 
         from PySide6.QtCore import QByteArray
@@ -706,7 +699,6 @@ class MainWindow(QMainWindow):
                 self._slide_preview.refresh_slides()
 
                 self.setWindowTitle(f"Flow - {name}")
-                self._project_screen.set_page_title(name)
                 self._clear_dirty()
                 self._show_editor()
                 self._statusbar.showMessage(f"새 프로젝트가 생성되었습니다: {name}")
@@ -749,7 +741,6 @@ class MainWindow(QMainWindow):
             self._slide_preview.refresh_slides()
 
             self.setWindowTitle(f"Flow - {self._project.name}")
-            self._project_screen.set_page_title(self._project.name)
             self._config_service.add_recent_project(str(self._project_path))
             self._clear_dirty()
             self._show_editor()
@@ -828,7 +819,6 @@ class MainWindow(QMainWindow):
                 self._slide_manager.load_songs(self._project.selected_songs)
 
                 self.setWindowTitle(f"Flow - {self._project.name}")
-                self._project_screen.set_page_title(self._project.name)
                 self._clear_dirty()
                 self._show_editor()
                 self._statusbar.showMessage(f"새 곡이 생성되었습니다: {name}")
@@ -900,7 +890,6 @@ class MainWindow(QMainWindow):
             self._update_toolbar_for_mode("song_edit")
 
             self.setWindowTitle(f"Flow - [곡 편집] {song.name}")
-            self._project_screen.set_page_title(song.name, kicker="SONG")
             self._clear_dirty()
             self._statusbar.showMessage(f"곡 편집 모드로 전환되었습니다: {song.name}")
 
@@ -993,7 +982,6 @@ class MainWindow(QMainWindow):
 
             self._update_toolbar_for_mode("default")
             self.setWindowTitle(f"Flow - {self._project.name}")
-            self._project_screen.set_page_title(self._project.name)
             self._clear_dirty()
 
             self._statusbar.showMessage(
@@ -1063,7 +1051,6 @@ class MainWindow(QMainWindow):
                 self._slide_preview.refresh_slides()
 
             self.setWindowTitle(f"Flow - {self._project.name}")
-            self._project_screen.set_page_title(self._project.name)
             self._config_service.add_recent_project(str(self._project_path))
             self._clear_dirty()
             self._show_editor()
@@ -1129,7 +1116,6 @@ class MainWindow(QMainWindow):
                 self._slide_preview.refresh_slides()
 
             self.setWindowTitle(f"Flow - {self._project.name}")
-            self._project_screen.set_page_title(self._project.name)
             self._config_service.add_recent_project(path_str)
             self._clear_dirty()
             self._show_editor()
@@ -1182,7 +1168,6 @@ class MainWindow(QMainWindow):
             self._clear_dirty()
             self._show_editor()
             self.setWindowTitle(f"Flow - {self._project.name}")
-            self._project_screen.set_page_title(self._project.name)
             self._statusbar.showMessage(f"곡을 열었습니다: {path.name}")
 
         except Exception as e:
@@ -1242,7 +1227,6 @@ class MainWindow(QMainWindow):
             self._globalize_project_indices()
 
             self.setWindowTitle(f"Flow - {self._project.name}")
-            self._project_screen.set_page_title(self._project.name)
             self._undo_stack.setClean()  # 저장 시점 기록
             self._clear_dirty()  # [추가] 수동 dirty 플래그 명시적 제거 (Undo 스택과 별개로 보장)
             self._statusbar.showMessage(
@@ -1415,7 +1399,6 @@ class MainWindow(QMainWindow):
             self._save_project()
 
             self.setWindowTitle(f"Flow - [곡 편집] {song.name}")
-            self._project_screen.set_page_title(song.name, kicker="SONG")
             self._clear_dirty()
             self._statusbar.showMessage(
                 f"곡이 새 폴더에 저장되었습니다: {new_song_dir}"
@@ -1620,8 +1603,6 @@ class MainWindow(QMainWindow):
         event.accept()
 
     def _close_current_project(self) -> None:
-        if hasattr(self, '_project_screen'):
-            self._project_screen.set_page_title("")
         if self._is_live:
             self._statusbar.showMessage(
                 "라이브 모드 중에는 홈으로 이동할 수 없습니다. Esc로 먼저 라이브를 종료하세요.",

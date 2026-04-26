@@ -25,8 +25,8 @@ from flow.ui.styles import (
     TEXT_TERTIARY,
     ACCENT,
     ACCENT_MUTED,
-    FONT_2XS, FONT_XS, FONT_SM, FONT_MD, FONT_DISPLAY, FW_MEDIUM, FW_SEMI,
-    SP_XS, SP_SM, SP_MD, SP_LG,
+    FONT_2XS, FONT_XS, FONT_SM, FONT_MD, FW_MEDIUM,
+    SP_XS, SP_SM, SP_MD,
 )
 from flow.services.slide_manager import SlideManager
 from flow.ui.editor.mapping_panel import MappingPanel
@@ -288,16 +288,6 @@ class ProjectScreen(QWidget):
     def set_nav_song_name(self, name: str) -> None:
         self._nav_song_name.setText(name)
 
-    def set_page_title(self, text: str, kicker: str = "PROJECT") -> None:
-        """페이지 최상단의 큰 헤드라인 텍스트를 설정 (DISPLAY 24pt).
-
-        text가 빈 문자열이면 헤더 영역 전체를 숨김. kicker는 위쪽 작은
-        라벨 (예: "PROJECT", "SONG"). 기본값 "PROJECT".
-        """
-        self._page_title.setText(text)
-        self._page_title_kicker.setText(kicker)
-        self._page_title_wrapper.setVisible(bool(text))
-
     def _setup_ui(self) -> None:
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -307,39 +297,6 @@ class ProjectScreen(QWidget):
         self._toolbar.setObjectName("CustomToolbar")
         self._toolbar.setFixedHeight(44)
         main_layout.addWidget(self._toolbar)
-
-        # ── 페이지 헤드라인 (kicker + project/song name)
-        from PySide6.QtWidgets import QSizePolicy
-        from PySide6.QtGui import QFont
-        from flow.ui.styles import FONT_XS, SP_2XL
-
-        self._page_title_wrapper = QWidget()
-        header_layout = QVBoxLayout(self._page_title_wrapper)
-        header_layout.setContentsMargins(SP_2XL, SP_LG, SP_2XL, SP_MD)
-        header_layout.setSpacing(2)
-
-        self._page_title_kicker = QLabel("PROJECT")
-        self._page_title_kicker.setStyleSheet(
-            f"font-size: {FONT_XS}px; font-weight: {FW_MEDIUM}; "
-            f"color: {TEXT_TERTIARY}; background: transparent;"
-        )
-        _kf = self._page_title_kicker.font()
-        _kf.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.5)
-        self._page_title_kicker.setFont(_kf)
-        header_layout.addWidget(self._page_title_kicker)
-
-        self._page_title = QLabel("")
-        self._page_title.setStyleSheet(
-            f"font-size: {FONT_DISPLAY}px; font-weight: {FW_SEMI}; "
-            f"color: {TEXT_PRIMARY}; background: transparent;"
-        )
-        header_layout.addWidget(self._page_title)
-
-        self._page_title_wrapper.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
-        self._page_title_wrapper.setVisible(False)  # MainWindow가 set_page_title로 켬
-        main_layout.addWidget(self._page_title_wrapper)
 
         self._song_nav_bar = QWidget()
         self._song_nav_bar.setFixedHeight(36)
