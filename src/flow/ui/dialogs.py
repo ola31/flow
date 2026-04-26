@@ -544,3 +544,102 @@ def flow_input_text(
     if dlg.exec() == QDialog.DialogCode.Accepted:
         return line.text().strip(), True
     return "", False
+
+
+# ─── 설치 안내 다이얼로그 ───────────────────────────────────────────────────
+
+_LIBREOFFICE_URL = "https://www.libreoffice.org/download/download/"
+
+_INSTALL_GUIDE_BY_OS: dict[str, dict[str, str]] = {
+    "win32": {
+        "title": "PPT 변환 엔진 필요",
+        "message": (
+            "PPT 슬라이드를 미리보기로 변환하려면 Microsoft PowerPoint "
+            "또는 LibreOffice가 설치되어 있어야 합니다.\n\n"
+            "둘 다 없는 경우 LibreOffice 설치를 권장합니다 (무료, 가벼움).\n"
+            "다운로드 페이지에서 Windows 버전을 선택하세요."
+        ),
+    },
+    "darwin": {
+        "title": "PPT 변환 엔진 필요",
+        "message": (
+            "PPT 슬라이드를 미리보기로 변환하려면 Microsoft PowerPoint "
+            "또는 LibreOffice가 설치되어 있어야 합니다.\n\n"
+            "Homebrew 사용 시:\n"
+            "    brew install --cask libreoffice\n\n"
+            "또는 다운로드 페이지에서 macOS 버전을 받으세요."
+        ),
+    },
+    "linux": {
+        "title": "PPT 변환 엔진 필요",
+        "message": (
+            "PPT 슬라이드 변환을 위해 LibreOffice 설치가 필요합니다.\n\n"
+            "Debian/Ubuntu:\n"
+            "    sudo apt install libreoffice\n"
+            "Fedora:\n"
+            "    sudo dnf install libreoffice\n"
+            "Arch:\n"
+            "    sudo pacman -S libreoffice-fresh"
+        ),
+    },
+}
+
+
+def flow_show_install_guide(parent, *, platform_name: str = "") -> None:
+    """PPT 변환 엔진(PowerPoint/LibreOffice) 부재 시 설치 안내 다이얼로그.
+
+    Args:
+        platform_name: sys.platform 값 ("win32", "darwin", "linux"...).
+            빈 문자열이면 자동 감지.
+    """
+    import sys
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+
+    plat = platform_name or sys.platform
+    info = _INSTALL_GUIDE_BY_OS.get(plat, _INSTALL_GUIDE_BY_OS["linux"])
+
+    dlg = _FlowDialog(parent, title=info["title"])
+    dlg.setMinimumWidth(480)
+
+    body = dlg.body_layout()
+
+    header = QHBoxLayout()
+    header.setSpacing(SP_MD)
+    glyph = QLabel(_WARNING_GLYPH[0])
+    glyph.setFixedSize(40, 24)
+    glyph.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    glyph.setStyleSheet(
+        f"background: {SURFACE_SUBTLE}; color: {_WARNING_GLYPH[1]}; "
+        f"border-radius: {RADIUS_MD}px; "
+        f"font-size: {FONT_MD}px; font-weight: {FW_SEMI};"
+    )
+    header.addWidget(glyph, 0, Qt.AlignmentFlag.AlignTop)
+
+    msg = QLabel(info["message"])
+    msg.setWordWrap(True)
+    msg.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    msg.setStyleSheet(
+        f"color: {TEXT_PRIMARY}; font-size: {FONT_MD}px; "
+        f"font-weight: {FW_REGULAR}; background: transparent; border: none;"
+    )
+    msg.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+    header.addWidget(msg, 1)
+    body.addLayout(header)
+
+    buttons = []
+
+    btn_close = _make_button("확인")
+    btn_close.clicked.connect(dlg.reject)
+    buttons.append(btn_close)
+
+    btn_open = _make_button("LibreOffice 다운로드 페이지 열기", primary=True)
+    btn_open.clicked.connect(
+        lambda: QDesktopServices.openUrl(QUrl(_LIBREOFFICE_URL))
+    )
+    btn_open.setDefault(True)
+    btn_open.setAutoDefault(True)
+    buttons.append(btn_open)
+    dlg.add_button_row(buttons)
+
+    dlg.exec()
