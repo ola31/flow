@@ -343,62 +343,61 @@ class ProjectLauncher(QWidget):
         root.setContentsMargins(48, SP_MD, 48, SP_XL)
         root.setSpacing(0)
 
-        # ── 워크스페이스 헤더 — 단일 메뉴 트리거 버튼
-        # 좌측 상단에 작게 배치 (Linear 패턴: 팀/워크스페이스 selector)
-        ws_bar = QHBoxLayout()
-        ws_bar.setSpacing(0)
+        # ── 페이지 헤드라인 (workspace name) + FLOW kicker
+        header_row = QHBoxLayout()
+        header_row.setSpacing(SP_LG)
 
-        self._ws_button = QPushButton("워크스페이스 없음")
-        self._ws_button.setFixedHeight(30)
+        self._workspace_title = QLabel("워크스페이스 없음")
+        self._workspace_title.setStyleSheet(
+            f"font-size: {FONT_DISPLAY}px; font-weight: {FW_SEMI}; "
+            f"color: {TEXT_PRIMARY}; background: transparent;"
+        )
+        header_row.addWidget(self._workspace_title)
+
+        header_row.addStretch()
+
+        flow_kicker = QLabel("FLOW")
+        flow_kicker.setStyleSheet(
+            f"font-size: {FONT_XS}px; font-weight: {FW_MEDIUM}; "
+            f"color: {TEXT_TERTIARY}; background: transparent;"
+        )
+        _kf = flow_kicker.font()
+        _kf.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.5)
+        flow_kicker.setFont(_kf)
+        flow_kicker.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        header_row.addWidget(flow_kicker)
+
+        root.addLayout(header_row)
+
+        # ── Workspace 변경 링크 (작은 액션, 메뉴 트리거)
+        self._ws_button = QPushButton("Switch workspace ▾")
         self._ws_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._ws_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._ws_button.setStyleSheet(
             f"""
             QPushButton {{
-                background: {SURFACE_GHOST};
-                color: {TEXT_SECONDARY};
-                border: 1px solid {BORDER_SUBTLE_RGBA};
-                border-radius: {RADIUS_MD}px;
-                font-size: {FONT_SM}px;
+                background: transparent;
+                color: {TEXT_TERTIARY};
+                border: none;
+                font-size: {FONT_XS}px;
                 font-weight: {FW_MEDIUM};
-                padding: 0 {SP_MD}px;
+                padding: 0;
                 text-align: left;
             }}
             QPushButton:hover {{
-                background: {SURFACE_SUBTLE};
-                border-color: {BORDER_STANDARD_RGBA};
                 color: {TEXT_PRIMARY};
             }}
             """
         )
         self._ws_button.clicked.connect(self._show_workspace_menu)
-        ws_bar.addWidget(self._ws_button)
-        ws_bar.addStretch()
-        root.addLayout(ws_bar)
-        root.addSpacing(SP_2XL + SP_SM)
 
-        # ── 메인 헤더 (FLOW 타이틀 + 부제)
-        hdr = QVBoxLayout()
-        hdr.setSpacing(SP_SM)
+        ws_link_row = QHBoxLayout()
+        ws_link_row.setContentsMargins(0, SP_XS, 0, 0)
+        ws_link_row.setSpacing(0)
+        ws_link_row.addWidget(self._ws_button)
+        ws_link_row.addStretch()
+        root.addLayout(ws_link_row)
 
-        title = QLabel("FLOW")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet(
-            f"font-size: 36px; font-weight: {FW_REGULAR}; color: {TEXT_PRIMARY};"
-        )
-        _t_font = title.font()
-        _t_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 8.0)
-        title.setFont(_t_font)
-        hdr.addWidget(title)
-
-        sub = QLabel("악보 기반 슬라이드 송출 시스템")
-        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sub.setStyleSheet(
-            f"font-size: {FONT_MD}px; color: {TEXT_TERTIARY}; font-weight: {FW_REGULAR};"
-        )
-        hdr.addWidget(sub)
-
-        root.addLayout(hdr)
         root.addSpacing(SP_2XL + SP_SM)
 
         # ── 두 패널
@@ -448,13 +447,15 @@ class ProjectLauncher(QWidget):
         """워크스페이스를 설정하고 프로젝트/라이브러리 목록을 자동 갱신."""
         self._workspace = workspace
         if workspace is None:
-            self._ws_button.setText("워크스페이스 없음 ▾")
+            self._workspace_title.setText("워크스페이스 없음")
+            self._ws_button.setText("Switch workspace ▾")
             self._ws_button.setToolTip("")
             self._song_panel.set_cards([])
             self._proj_panel.set_cards([])
             return
 
-        self._ws_button.setText(f"{workspace.name}  ▾")
+        self._workspace_title.setText(workspace.name)
+        self._ws_button.setText("Switch workspace ▾")
         self._ws_button.setToolTip(str(workspace.root))
         self.refresh_workspace_items()
 

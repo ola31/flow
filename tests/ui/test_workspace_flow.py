@@ -108,8 +108,8 @@ class TestWorkspaceProjectLauncher:
 
         assert len(launcher._song_panel._cards) == 1
         assert len(launcher._proj_panel._cards) == 1
-        # 워크스페이스 헤더는 메뉴 트리거 버튼 — name이 표시되는지 확인
-        assert "ws" in launcher._ws_button.text()
+        # 워크스페이스 이름은 _workspace_title 레이블에 표시됨
+        assert workspace.name in launcher._workspace_title.text()
 
     def test_set_workspace_none_clears(self, qapp, workspace: Workspace):
         from flow.ui.project_launcher import ProjectLauncher
