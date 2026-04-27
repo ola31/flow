@@ -21,6 +21,7 @@ OS 기본 다이얼로그(QMessageBox, QInputDialog)는 타이틀바 글자 잘�
 from __future__ import annotations
 
 import os
+from enum import Enum
 
 from PySide6.QtCore import Qt, QPoint, QSize
 from PySide6.QtGui import QMouseEvent
@@ -42,7 +43,7 @@ from flow.ui.styles import (
     ACCENT, ACCENT_INTER, AMBER, RED, GREEN,
     SURFACE_GHOST, SURFACE_SUBTLE, SURFACE_RAISED,
     BORDER_SUBTLE_RGBA, BORDER_STANDARD_RGBA,
-    FONT_SM, FONT_MD, FONT_LG, FONT_HEAD, FW_REGULAR, FW_MEDIUM, FW_SEMI,
+    FONT_XS, FONT_SM, FONT_MD, FONT_LG, FONT_HEAD, FW_REGULAR, FW_MEDIUM, FW_SEMI,
     RADIUS_MD, RADIUS_LG, SP_SM, SP_MD, SP_LG, SP_XL, SP_2XL,
 )
 
@@ -643,3 +644,86 @@ def flow_show_install_guide(parent, *, platform_name: str = "") -> None:
     dlg.add_button_row(buttons)
 
     dlg.exec()
+
+
+# ─── PPT 엔진 사전 확인 다이얼로그 ─────────────────────────────────────────
+
+
+class PreflightChoice(Enum):
+    DOWNLOAD = "download"
+    INSTALL_GUIDE = "install_guide"
+    CANCEL = "cancel"
+
+
+def flow_show_engine_preflight(
+    parent,
+    *,
+    manifest_version: str,
+    size_mb: int,
+) -> PreflightChoice:
+    """Modal: ask user how to obtain LibreOffice. Returns one of PreflightChoice."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return PreflightChoice.DOWNLOAD  # auto-accept in tests
+
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+
+    dlg = _FlowDialog(parent, title="PPT 변환 엔진 필요")
+    dlg.setMinimumWidth(480)
+
+    body = dlg.body_layout()
+
+    title_label = QLabel(
+        f"PPT 슬라이드를 열려면 LibreOffice {manifest_version}이 필요해요"
+    )
+    title_label.setStyleSheet(
+        f"color: {TEXT_PRIMARY}; font-size: {FONT_HEAD}px; font-weight: {FW_SEMI};"
+    )
+    title_label.setWordWrap(True)
+    body.addWidget(title_label)
+
+    body_label = QLabel(
+        f"Flow가 자동으로 다운로드해서 앱 폴더 안에 보관할 수 있어요 (~{size_mb}MB).\n"
+        "시스템에는 설치되지 않아요."
+    )
+    body_label.setWordWrap(True)
+    body_label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: {FONT_MD}px;")
+    body.addWidget(body_label)
+
+    license_note = QLabel(
+        "LibreOffice는 The Document Foundation의 자유 소프트웨어 (MPL 2.0)입니다."
+    )
+    license_note.setStyleSheet(
+        f"color: {TEXT_TERTIARY}; font-size: {FONT_XS}px;"
+    )
+    license_note.setWordWrap(True)
+    body.addWidget(license_note)
+
+    btn_license = QPushButton("라이선스 보기")
+    btn_license.clicked.connect(
+        lambda: QDesktopServices.openUrl(
+            QUrl("https://www.libreoffice.org/about-us/licenses/")
+        )
+    )
+
+    btn_cancel = _make_button("취소")
+    btn_install = _make_button("수동 설치 안내")
+    btn_download = _make_button("지금 다운로드", primary=True)
+    btn_download.setDefault(True)
+    btn_download.setAutoDefault(True)
+
+    choice: dict[str, PreflightChoice] = {"value": PreflightChoice.CANCEL}
+    btn_cancel.clicked.connect(
+        lambda: (choice.update(value=PreflightChoice.CANCEL), dlg.reject())
+    )
+    btn_install.clicked.connect(
+        lambda: (choice.update(value=PreflightChoice.INSTALL_GUIDE), dlg.accept())
+    )
+    btn_download.clicked.connect(
+        lambda: (choice.update(value=PreflightChoice.DOWNLOAD), dlg.accept())
+    )
+
+    dlg.add_button_row([btn_license, btn_cancel, btn_install, btn_download])
+
+    dlg.exec()
+    return choice["value"]
