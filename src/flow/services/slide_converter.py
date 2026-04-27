@@ -368,6 +368,9 @@ class WindowsSlideConverter(SlideConverter):
             pass
 
     def _find_libreoffice(self) -> str | None:
+        bundled = _detect_bundled_libreoffice()
+        if bundled is not None:
+            return str(bundled)
         common_paths = [
             r"C:\Program Files\LibreOffice\program\soffice.exe",
             r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
@@ -391,11 +394,13 @@ class LinuxSlideConverter(SlideConverter):
     def convert_slide(
         self, pptx_path: Path, index: int, status_callback=None
     ) -> QImage:
+        bundled = _detect_bundled_libreoffice()
+        soffice_cmd = str(bundled) if bundled is not None else "libreoffice"
         return _convert_with_libreoffice(
             pptx_path,
             index,
             self._cache_dir,
-            "libreoffice",
+            soffice_cmd,
             status_callback=status_callback,
         )
 
@@ -438,6 +443,10 @@ class MacOSSlideConverter(SlideConverter):
     def _find_libreoffice(self) -> str | None:
         if self._soffice_path is not None:
             return self._soffice_path or None
+        bundled = _detect_bundled_libreoffice()
+        if bundled is not None:
+            self._soffice_path = str(bundled)
+            return self._soffice_path
         candidates = [
             "/Applications/LibreOffice.app/Contents/MacOS/soffice",
             str(Path.home() / "Applications/LibreOffice.app/Contents/MacOS/soffice"),
