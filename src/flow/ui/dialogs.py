@@ -21,15 +21,18 @@ OS 기본 다이얼로그(QMessageBox, QInputDialog)는 타이틀바 글자 잘�
 from __future__ import annotations
 
 import os
+import threading
 from enum import Enum
+from typing import Callable
 
-from PySide6.QtCore import Qt, QPoint, QSize
+from PySide6.QtCore import Qt, QPoint, QSize, QThread, Signal
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -727,3 +730,105 @@ def flow_show_engine_preflight(
 
     dlg.exec()
     return choice["value"]
+
+
+# ─── 다운로드 진행 다이얼로그 ───────────────────────────────────────────────
+
+
+class EngineDownloadWorker(QThread):
+    """Run LibreOfficeRuntime.install() on a background thread."""
+
+    progress = Signal(str, int, str)              # (phase, percent, message)
+    finished_with_status = Signal(bool, str)      # (success, error_message)
+
+    def __init__(
+        self,
+        install_fn: Callable[..., None],
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._install_fn = install_fn
+        self._cancel = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancel.set()
+
+    def run(self) -> None:
+        def _on_progress(phase: str, pct: int, msg: str) -> None:
+            self.progress.emit(phase, pct, msg)
+
+        try:
+            self._install_fn(
+                on_progress=_on_progress, cancel_event=self._cancel
+            )
+            self.finished_with_status.emit(True, "")
+        except Exception as exc:
+            self.finished_with_status.emit(False, str(exc))
+
+    def wait(self, msecs: int = -1) -> bool:  # type: ignore[override]
+        """Wait for the thread and then flush queued signals to the main thread."""
+        from PySide6.QtCore import QCoreApplication
+
+        result = super().wait(msecs)
+        QCoreApplication.processEvents()
+        return result
+
+
+def flow_run_engine_download(
+    parent,
+    *,
+    install_fn: Callable[..., None],
+) -> tuple[bool, str]:
+    """Modal progress dialog. Returns (success, error_msg)."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        try:
+            install_fn(
+                on_progress=lambda *a: None, cancel_event=threading.Event()
+            )
+            return True, ""
+        except Exception as exc:
+            return False, str(exc)
+
+    dlg = _FlowDialog(parent, title="LibreOffice 다운로드 중")
+    dlg.setMinimumWidth(480)
+
+    body = dlg.body_layout()
+
+    title_label = QLabel("PPT 변환 엔진을 받아오는 중...")
+    title_label.setStyleSheet(
+        f"color: {TEXT_PRIMARY}; font-size: {FONT_HEAD}px; font-weight: {FW_SEMI};"
+    )
+    body.addWidget(title_label)
+
+    msg = QLabel("준비 중...")
+    msg.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: {FONT_MD}px;")
+    body.addWidget(msg)
+
+    bar = QProgressBar()
+    bar.setRange(0, 100)
+    body.addWidget(bar)
+
+    btn_cancel = QPushButton("취소")
+
+    worker = EngineDownloadWorker(install_fn=install_fn, parent=dlg)
+    result = {"ok": False, "err": "cancelled"}
+
+    def on_progress(phase: str, pct: int, msg_text: str) -> None:
+        bar.setValue(pct)
+        msg.setText(msg_text)
+
+    def on_finished(ok: bool, err: str) -> None:
+        result["ok"] = ok
+        result["err"] = err
+        dlg.accept()
+
+    worker.progress.connect(on_progress)
+    worker.finished_with_status.connect(on_finished)
+    btn_cancel.clicked.connect(worker.cancel)
+
+    dlg.add_button_row([btn_cancel])
+
+    worker.start()
+    dlg.exec()
+    worker.wait(5000)
+    return result["ok"], result["err"]
