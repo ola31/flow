@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -11,26 +10,35 @@ from flow.services.runtime.libreoffice_runtime import (
 )
 
 
-def test_get_runtime_dir_linux(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_get_runtime_dir_linux(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr("sys.platform", "linux")
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     assert get_runtime_dir() == tmp_path / "Flow" / "runtime" / "libreoffice"
 
 
-def test_get_runtime_dir_linux_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_get_runtime_dir_linux_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr("sys.platform", "linux")
     monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     assert get_runtime_dir() == tmp_path / ".local/share/Flow/runtime/libreoffice"
 
 
-def test_get_runtime_dir_macos(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_get_runtime_dir_macos(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr("sys.platform", "darwin")
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    assert get_runtime_dir() == tmp_path / "Library/Application Support/Flow/runtime/libreoffice"
+    expected = tmp_path / "Library/Application Support/Flow/runtime/libreoffice"
+    assert get_runtime_dir() == expected
 
 
-def test_get_runtime_dir_windows(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_get_runtime_dir_windows(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr("sys.platform", "win32")
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     assert get_runtime_dir() == tmp_path / "Flow/runtime/libreoffice"
