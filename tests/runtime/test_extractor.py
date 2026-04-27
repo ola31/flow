@@ -52,11 +52,27 @@ def test_extract_unknown_format_raises(tmp_path: Path) -> None:
 
 
 def test_extract_blocks_path_traversal(tmp_path: Path) -> None:
-    """Tarballs with .. paths must be rejected."""
+    """Tarballs with .. paths must be rejected and leave nothing on disk."""
     archive = tmp_path / "evil.tar.gz"
     payload = tmp_path / "payload"
     payload.write_text("evil", encoding="utf-8")
     with tarfile.open(archive, "w:gz") as tf:
         tf.add(payload, arcname="../escaped")
-    with pytest.raises(ExtractionError, match="traversal"):
-        extract_archive(archive, tmp_path / "out", format="tar_gz")
+    target = tmp_path / "out"
+    with pytest.raises(ExtractionError):
+        extract_archive(archive, target, format="tar_gz")
+    assert not (tmp_path / "escaped").exists()
+
+
+def test_extract_blocks_sibling_prefix_traversal(tmp_path: Path) -> None:
+    """`../outX/...` must not escape into a sibling that shares a prefix."""
+    archive = tmp_path / "evil.tar.gz"
+    payload = tmp_path / "payload"
+    payload.write_text("evil", encoding="utf-8")
+    with tarfile.open(archive, "w:gz") as tf:
+        tf.add(payload, arcname="../outX/escaped")
+    target = tmp_path / "out"
+    (tmp_path / "outX").mkdir()
+    with pytest.raises(ExtractionError):
+        extract_archive(archive, target, format="tar_gz")
+    assert not (tmp_path / "outX" / "escaped").exists()

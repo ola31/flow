@@ -31,14 +31,12 @@ def extract_archive(
 
 
 def _extract_tar_gz(archive: Path, target_dir: Path) -> None:
+    # filter="data" (PEP 706) blocks path traversal, absolute paths,
+    # device/special files, and setuid/setgid bits — exactly what we want
+    # for an untrusted archive of regular files.
     try:
         with tarfile.open(archive, "r:gz") as tf:
-            for member in tf.getmembers():
-                # Block path traversal: name must resolve inside target_dir
-                resolved = (target_dir / member.name).resolve()
-                if not str(resolved).startswith(str(target_dir.resolve())):
-                    raise ExtractionError(f"path traversal blocked: {member.name}")
-            tf.extractall(target_dir)
+            tf.extractall(target_dir, filter="data")
     except tarfile.TarError as exc:
         raise ExtractionError(f"tar.gz extraction failed: {exc}") from exc
 
