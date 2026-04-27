@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -9,8 +10,10 @@ import pytest
 from flow.services.runtime.libreoffice_runtime import (
     DownloadCancelled,
     LibreOfficeRuntime,
+    Sha256MismatchError,
     download_with_progress,
     get_runtime_dir,
+    verify_sha256,
 )
 
 
@@ -141,3 +144,18 @@ def test_download_rejects_non_https() -> None:
             on_progress=lambda r, t: None,
             cancel_event=threading.Event(),
         )
+
+
+def test_verify_sha256_matching(tmp_path: Path) -> None:
+    f = tmp_path / "a"
+    f.write_bytes(b"hello")
+    expected = hashlib.sha256(b"hello").hexdigest()
+    verify_sha256(f, expected)  # no exception
+
+
+def test_verify_sha256_mismatch_deletes_file(tmp_path: Path) -> None:
+    f = tmp_path / "a"
+    f.write_bytes(b"hello")
+    with pytest.raises(Sha256MismatchError):
+        verify_sha256(f, "0" * 64)
+    assert not f.exists()

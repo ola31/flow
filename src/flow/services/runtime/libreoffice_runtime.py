@@ -1,6 +1,7 @@
 """Portable LibreOffice runtime — orchestrates detect / download / extract / locate."""
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 import threading
@@ -100,3 +101,22 @@ def download_with_progress(
         if dest.exists():
             dest.unlink()
         raise
+
+
+class Sha256MismatchError(RuntimeError):
+    """Downloaded file failed integrity check."""
+
+
+def verify_sha256(path: Path, expected_hex: str) -> None:
+    """Compute SHA256 of file, compare with expected. Deletes file on mismatch."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    actual = h.hexdigest()
+    if actual.lower() != expected_hex.lower():
+        if path.exists():
+            path.unlink()
+        raise Sha256MismatchError(
+            f"hash mismatch for {path.name}: expected {expected_hex}, got {actual}"
+        )
