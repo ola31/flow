@@ -1,15 +1,25 @@
 """SlideConverter - 플랫폼별 PPTX 슬라이드 이미지 변환 인터페이스"""
+from __future__ import annotations
 
 import abc
-import os
+import hashlib
+import platform
+import shutil
 import subprocess
 import sys
 import tempfile
-import shutil
-import hashlib
+import threading
 from pathlib import Path
-from PySide6.QtGui import QImage
+
 import fitz  # PyMuPDF
+from PySide6.QtGui import QImage
+
+from flow.services.runtime import (
+    LibreOfficeRuntime,
+    UnsupportedPlatformError,
+    get_manifest_for_resources,
+    get_runtime_dir,
+)
 
 
 class NoConverterAvailableError(RuntimeError):
@@ -57,8 +67,6 @@ def _get_project_root() -> Path:
     """프로젝트 루트 디렉토리 반환"""
     return Path(__file__).parent.parent.parent.parent
 
-
-import threading
 
 _GLOBAL_CONVERT_LOCK = threading.Lock()
 
@@ -565,6 +573,21 @@ def _detect_libreoffice() -> str | None:
     return shutil.which("soffice") or shutil.which("libreoffice")
 
 
+def _detect_bundled_libreoffice() -> Path | None:
+    """Return path to Flow's app-local LibreOffice if installed and current."""
+    try:
+        manifest = get_manifest_for_resources()
+        build = manifest.get_build_for_current_platform()
+    except (UnsupportedPlatformError, ValueError, FileNotFoundError):
+        return None
+    runtime = LibreOfficeRuntime(
+        runtime_dir=get_runtime_dir(),
+        manifest_version=manifest.version,
+        soffice_relpath=build.soffice_relpath,
+    )
+    return runtime.get_soffice_path()
+
+
 def _convert_with_libreoffice(
     pptx_path: Path, index: int, cache_dir: Path, soffice_cmd: str, status_callback=None
 ) -> QImage:
@@ -637,8 +660,6 @@ def _convert_with_libreoffice(
 
 def _find_bundled_onlyoffice() -> Path | None:
     """프로젝트 bin/ 폴더에 동봉된 ONLYOFFICE DocBuilder를 탐색."""
-    import platform
-
     os_map = {"win32": "window", "darwin": "macos", "linux": "linux"}
     os_key = os_map.get(sys.platform, sys.platform)
 
@@ -676,30 +697,32 @@ def _find_bundled_onlyoffice() -> Path | None:
 
 
 def create_slide_converter() -> SlideConverter:
-    """OS를 먼저 판별하고, 그 안에서 PowerPoint → LibreOffice → 동봉 ONLYOFFICE
-    순으로 사용 가능한 첫 엔진을 선택해 변환기를 반환한다.
+    """OS를 먼저 판별하고, 그 안에서 PowerPoint → 동봉 LibreOffice → 시스템
+    LibreOffice → 동봉 ONLYOFFICE 순으로 사용 가능한 첫 엔진을 선택해 변환기를
+    반환한다.
 
     Raises:
         NoConverterAvailableError: 어떤 엔진도 찾지 못한 경우.
     """
     has_pp = _detect_powerpoint()
-    has_lo = _detect_libreoffice() is not None
-    bundled = _find_bundled_onlyoffice()
+    has_system_lo = _detect_libreoffice() is not None
+    has_bundled_lo = _detect_bundled_libreoffice() is not None
+    bundled_oo = _find_bundled_onlyoffice()
 
     if sys.platform == "win32":
-        if has_pp or has_lo:
+        if has_pp or has_bundled_lo or has_system_lo:
             return WindowsSlideConverter()
-        if bundled is not None:
-            return OnlyOfficeSlideConverter(bundled)
+        if bundled_oo is not None:
+            return OnlyOfficeSlideConverter(bundled_oo)
     elif sys.platform == "darwin":
-        if has_pp or has_lo:
+        if has_pp or has_bundled_lo or has_system_lo:
             return MacOSSlideConverter()
-        if bundled is not None:
-            return OnlyOfficeSlideConverter(bundled)
+        if bundled_oo is not None:
+            return OnlyOfficeSlideConverter(bundled_oo)
     else:  # linux 및 기타
-        if has_lo:
+        if has_bundled_lo or has_system_lo:
             return LinuxSlideConverter()
-        if bundled is not None:
-            return OnlyOfficeSlideConverter(bundled)
+        if bundled_oo is not None:
+            return OnlyOfficeSlideConverter(bundled_oo)
 
     raise NoConverterAvailableError(sys.platform)
