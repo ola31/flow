@@ -10,8 +10,12 @@ import pytest
 
 from flow.services.runtime.libreoffice_runtime import (
     DownloadCancelledError,
+    InstallLock,
+    InstallLockError,
+    InsufficientDiskSpaceError,
     LibreOfficeRuntime,
     Sha256MismatchError,
+    check_disk_space,
     download_with_progress,
     get_runtime_dir,
     verify_sha256,
@@ -277,3 +281,36 @@ def test_install_cleans_up_on_sha_mismatch(tmp_path: Path) -> None:
             )
 
     assert not (runtime_dir / "INSTALLED_VERSION").exists()
+
+
+# --- Task 15: disk space pre-check ---
+
+
+def test_check_disk_space_passes_when_enough(tmp_path: Path) -> None:
+    check_disk_space(tmp_path, required_bytes=100)
+
+
+def test_check_disk_space_raises_when_insufficient(tmp_path: Path) -> None:
+    fake_usage = type("U", (), {"free": 50})()
+    with patch("shutil.disk_usage", return_value=fake_usage):
+        with pytest.raises(InsufficientDiskSpaceError):
+            check_disk_space(tmp_path, required_bytes=1000)
+
+
+# --- Task 16: concurrent install lock ---
+
+
+def test_install_lock_blocks_second_acquirer(tmp_path: Path) -> None:
+    lock_path = tmp_path / ".lock"
+    with InstallLock(lock_path):
+        with pytest.raises(InstallLockError):
+            with InstallLock(lock_path):
+                pass
+
+
+def test_install_lock_releases_on_exit(tmp_path: Path) -> None:
+    lock_path = tmp_path / ".lock"
+    with InstallLock(lock_path):
+        pass
+    with InstallLock(lock_path):
+        pass

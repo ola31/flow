@@ -28,6 +28,60 @@ class Sha256MismatchError(RuntimeError):
     """Downloaded file failed integrity check."""
 
 
+class InsufficientDiskSpaceError(RuntimeError):
+    """Not enough free disk space for the install."""
+
+    def __init__(self, required: int, available: int) -> None:
+        super().__init__(
+            f"Need {required // (1 << 20)} MB, "
+            f"only {available // (1 << 20)} MB available"
+        )
+        self.required = required
+        self.available = available
+
+
+class InstallLockError(RuntimeError):
+    """Another install is already in progress."""
+
+
+class InstallLock:
+    """Cross-process file lock. Use as context manager."""
+
+    def __init__(self, lock_path: Path) -> None:
+        self._path = lock_path
+        self._fh = None
+
+    def __enter__(self) -> InstallLock:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(str(self._path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            self._fh = os.fdopen(fd, "w")
+            self._fh.write(str(os.getpid()))
+            self._fh.flush()
+            return self
+        except FileExistsError:
+            raise InstallLockError(
+                f"Install already in progress (lock: {self._path})"
+            ) from None
+
+    def __exit__(self, *_exc) -> None:
+        if self._fh is not None:
+            self._fh.close()
+        try:
+            self._path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def check_disk_space(target_dir: Path, *, required_bytes: int) -> None:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    usage = shutil.disk_usage(target_dir)
+    if usage.free < required_bytes:
+        raise InsufficientDiskSpaceError(
+            required=required_bytes, available=usage.free
+        )
+
+
 def get_runtime_dir() -> Path:
     """User-data location for Flow's bundled LibreOffice."""
     if sys.platform == "win32":
@@ -88,53 +142,62 @@ class LibreOfficeRuntime:
     ) -> None:
         """Run the full install: download → verify → extract → atomic finalize."""
         self._dir.mkdir(parents=True, exist_ok=True)
-        download_dir = self._dir / self.DOWNLOAD_DIR
-        download_dir.mkdir(exist_ok=True)
-        archive = download_dir / f"libreoffice-{self._manifest_version}.archive"
+        with InstallLock(self._dir / ".lock"):
+            check_disk_space(self._dir, required_bytes=int(build.size_bytes * 2.5))
+            download_dir = self._dir / self.DOWNLOAD_DIR
+            download_dir.mkdir(exist_ok=True)
+            archive = download_dir / f"libreoffice-{self._manifest_version}.archive"
 
-        # Phase 1: download
-        def _dl_progress(received: int, total: int) -> None:
-            pct = int(received * 85 / total) if total > 0 else 0
-            on_progress(
-                "download",
-                pct,
-                f"{received // (1 << 20)} / {total // (1 << 20)} MB",
-            )
+            # Phase 1: download
+            def _dl_progress(received: int, total: int) -> None:
+                pct = int(received * 85 / total) if total > 0 else 0
+                on_progress(
+                    "download",
+                    pct,
+                    f"{received // (1 << 20)} / {total // (1 << 20)} MB",
+                )
 
-        try:
-            download_with_progress(
-                url=build.url,
-                dest=archive,
-                chunk_size=1 << 16,
-                on_progress=_dl_progress,
-                cancel_event=cancel_event,
-            )
+            try:
+                download_with_progress(
+                    url=build.url,
+                    dest=archive,
+                    chunk_size=1 << 16,
+                    on_progress=_dl_progress,
+                    cancel_event=cancel_event,
+                )
 
-            # Phase 2: verify
-            on_progress("verify", 87, "무결성 검증 중...")
-            verify_sha256(archive, build.sha256)
+                # Phase 2: verify
+                on_progress("verify", 87, "무결성 검증 중...")
+                verify_sha256(archive, build.sha256)
 
-            # Phase 3: extract into staging, then atomic rename
-            on_progress("extract", 90, "압축 해제 중...")
-            staging = download_dir / "staging"
-            if staging.exists():
-                shutil.rmtree(staging)
-            extract_archive(archive, staging, format=build.format)
+                # Phase 3: extract into staging, then atomic rename
+                on_progress("extract", 90, "압축 해제 중...")
+                staging = download_dir / "staging"
+                if staging.exists():
+                    shutil.rmtree(staging)
+                extract_archive(archive, staging, format=build.format)
 
-            final_version_dir = self._dir / self._manifest_version
-            if final_version_dir.exists():
-                shutil.rmtree(final_version_dir)
-            staging.rename(final_version_dir)
+                final_version_dir = self._dir / self._manifest_version
+                if final_version_dir.exists():
+                    shutil.rmtree(final_version_dir)
+                staging.rename(final_version_dir)
 
-            # Phase 4: atomic INSTALLED_VERSION write
-            on_progress("finalize", 99, "마무리 중...")
-            tmp = self._dir / (self.INSTALLED_VERSION_FILE + ".tmp")
-            tmp.write_text(self._manifest_version, encoding="utf-8")
-            os.replace(tmp, self._dir / self.INSTALLED_VERSION_FILE)
+                # Ensure soffice is executable on Linux/macOS
+                if sys.platform != "win32":
+                    soffice = final_version_dir / build.soffice_relpath
+                    if soffice.exists():
+                        st = soffice.stat()
+                        soffice.chmod(st.st_mode | 0o111)
 
-            on_progress("done", 100, "완료")
-        finally:
-            shutil.rmtree(download_dir, ignore_errors=True)
+                # Phase 4: atomic INSTALLED_VERSION write
+                on_progress("finalize", 99, "마무리 중...")
+                tmp = self._dir / (self.INSTALLED_VERSION_FILE + ".tmp")
+                tmp.write_text(self._manifest_version, encoding="utf-8")
+                os.replace(tmp, self._dir / self.INSTALLED_VERSION_FILE)
+
+                on_progress("done", 100, "완료")
+            finally:
+                shutil.rmtree(download_dir, ignore_errors=True)
 
 
 def download_with_progress(
