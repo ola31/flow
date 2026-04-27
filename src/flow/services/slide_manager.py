@@ -216,6 +216,22 @@ class SlideManager(QObject):
         """PPT 변환 엔진이 사용 가능한지."""
         return self._converter is not None
 
+    def rebuild_engine(self) -> None:
+        """런타임 설치 후 엔진을 재감지한다.
+
+        create_slide_converter()를 재호출해 변환기를 갱신하고,
+        worker가 없었다면 새로 생성·시작한다.
+        """
+        try:
+            self._converter = create_slide_converter()
+        except NoConverterAvailableError:
+            self._converter = None
+            return
+        if self._worker is None:
+            self._worker = SlideWorker(self._converter)
+            self._connect_worker(self._worker)
+            self._worker.start()
+
     def stop_workers(self):
         if self._worker is not None:
             self._worker.abort_current_task()

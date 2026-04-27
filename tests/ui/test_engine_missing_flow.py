@@ -83,3 +83,36 @@ def test_engine_error_returns_close_under_pytest(qapp_args) -> None:
         assert result == EngineErrorChoice.CLOSE
     finally:
         os.environ.pop("PYTEST_CURRENT_TEST", None)
+
+
+from unittest.mock import MagicMock, patch  # noqa: E402
+
+
+def test_main_window_routes_engine_missing_through_preflight(
+    qapp_args, qtbot, tmp_path
+) -> None:
+    """When engine_missing fires, MainWindow shows preflight; on DOWNLOAD success
+    it retries via slide_manager.rebuild_engine."""
+    from flow.ui.dialogs import PreflightChoice
+    from flow.ui.main_window import MainWindow
+
+    with patch("flow.ui.main_window.SlideManager") as mock_sm_cls, patch(
+        "flow.ui.main_window.flow_show_engine_preflight",
+        return_value=PreflightChoice.DOWNLOAD,
+    ) as mock_pre, patch(
+        "flow.ui.main_window.flow_run_engine_download",
+        return_value=(True, ""),
+    ) as mock_dl:
+        sm_inst = MagicMock()
+        sm_inst.engine_missing = MagicMock()
+        sm_inst.engine_missing.connect = MagicMock()
+        sm_inst.is_engine_available = MagicMock(return_value=False)
+        sm_inst.rebuild_engine = MagicMock()
+        mock_sm_cls.return_value = sm_inst
+
+        win = MainWindow()
+        win._on_engine_missing()
+
+        mock_pre.assert_called_once()
+        mock_dl.assert_called_once()
+        sm_inst.rebuild_engine.assert_called_once()

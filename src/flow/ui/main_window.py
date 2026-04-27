@@ -63,7 +63,22 @@ from flow.ui.styles import (
     RED_HOVER,
     RADIUS_MD,
     FONT_MD,
-    SP_XS, SP_SM,
+    SP_XS,
+    SP_SM,
+)
+from flow.services.runtime import (
+    LibreOfficeRuntime,
+    UnsupportedPlatformError,
+    get_manifest_for_resources,
+    get_runtime_dir,
+)
+from flow.ui.dialogs import (
+    EngineErrorChoice,
+    PreflightChoice,
+    flow_run_engine_download,
+    flow_show_engine_error,
+    flow_show_engine_preflight,
+    flow_show_install_guide,
 )
 
 
@@ -284,15 +299,59 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Flow - 시작하기")
 
     def _on_engine_missing(self) -> None:
-        """SlideManager가 PPT 변환 엔진을 못 찾았을 때 설치 안내 표시.
+        """SlideManager가 PPT 변환 엔진을 못 찾았을 때 Preflight → Download 흐름 실행.
 
-        세션당 한 번만 표시 (사용자가 또 PPT 조작하면 다시 안 띄움).
+        플랫폼 미지원 시 설치 안내로 폴백.
+        CANCEL/CLOSE 시 _install_guide_shown을 리셋해 다음 PPT 조작 때 재시도 가능.
         """
         if self._install_guide_shown:
             return
         self._install_guide_shown = True
-        from flow.ui.dialogs import flow_show_install_guide
-        flow_show_install_guide(self)
+
+        try:
+            manifest = get_manifest_for_resources()
+            build = manifest.get_build_for_current_platform()
+        except (UnsupportedPlatformError, ValueError, FileNotFoundError):
+            flow_show_install_guide(self)
+            return
+
+        while True:
+            choice = flow_show_engine_preflight(
+                self,
+                manifest_version=manifest.version,
+                size_mb=build.size_bytes // (1 << 20),
+            )
+            if choice == PreflightChoice.CANCEL:
+                self._install_guide_shown = False
+                return
+            if choice == PreflightChoice.INSTALL_GUIDE:
+                flow_show_install_guide(self)
+                return
+
+            runtime = LibreOfficeRuntime(
+                runtime_dir=get_runtime_dir(),
+                manifest_version=manifest.version,
+                soffice_relpath=build.soffice_relpath,
+            )
+
+            def _install_fn(*, on_progress, cancel_event):
+                runtime.install(
+                    build, on_progress=on_progress, cancel_event=cancel_event
+                )
+
+            ok, err = flow_run_engine_download(self, install_fn=_install_fn)
+            if ok:
+                self._slide_manager.rebuild_engine()
+                return
+
+            err_choice = flow_show_engine_error(self, error_message=err)
+            if err_choice == EngineErrorChoice.CLOSE:
+                self._install_guide_shown = False
+                return
+            if err_choice == EngineErrorChoice.INSTALL_GUIDE:
+                flow_show_install_guide(self)
+                return
+            # RETRY → loop continues
 
     def _show_launcher(self):
         self.show_home()
