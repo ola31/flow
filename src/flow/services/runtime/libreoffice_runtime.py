@@ -13,6 +13,20 @@ from typing import Callable
 from flow.services.runtime.extractor import extract_archive
 from flow.services.runtime.manifest import BuildEntry
 
+ProgressCallback = Callable[[int, int], None]
+"""(received_bytes, total_bytes)"""
+
+PhaseProgressCallback = Callable[[str, int, str], None]
+"""(phase, percent_0_100, human_message)"""
+
+
+class DownloadCancelledError(RuntimeError):
+    """Download was cancelled via the cancel_event."""
+
+
+class Sha256MismatchError(RuntimeError):
+    """Downloaded file failed integrity check."""
+
 
 def get_runtime_dir() -> Path:
     """User-data location for Flow's bundled LibreOffice."""
@@ -123,20 +137,6 @@ class LibreOfficeRuntime:
             shutil.rmtree(download_dir, ignore_errors=True)
 
 
-PhaseProgressCallback = Callable[[str, int, str], None]
-"""(phase, percent_0_100, human_message)"""
-
-ProgressCallback = Callable[[int, int], None]
-
-
-class DownloadCancelledError(RuntimeError):
-    """Download was cancelled via the cancel_event."""
-
-
-# Alias for backwards compatibility and plan references
-DownloadCancelled = DownloadCancelledError
-
-
 def download_with_progress(
     *,
     url: str,
@@ -147,7 +147,7 @@ def download_with_progress(
 ) -> None:
     """Stream URL → dest, calling on_progress(received, total) each chunk.
 
-    Raises DownloadCancelled if cancel_event is set; partial file deleted.
+    Raises DownloadCancelledError if cancel_event is set; partial file deleted.
     """
     if not url.startswith("https://"):
         raise ValueError("Only HTTPS URLs allowed")
@@ -159,25 +159,17 @@ def download_with_progress(
         with open(dest, "wb") as f:
             while True:
                 if cancel_event.is_set():
-                    raise DownloadCancelled()
+                    raise DownloadCancelledError()
                 chunk = response.read(chunk_size)
                 if not chunk:
                     break
                 f.write(chunk)
                 received += len(chunk)
                 on_progress(received, total)
-    except DownloadCancelled:
-        if dest.exists():
-            dest.unlink()
-        raise
     except Exception:
         if dest.exists():
             dest.unlink()
         raise
-
-
-class Sha256MismatchError(RuntimeError):
-    """Downloaded file failed integrity check."""
 
 
 def verify_sha256(path: Path, expected_hex: str) -> None:

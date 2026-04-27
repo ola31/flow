@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from flow.services.runtime.libreoffice_runtime import (
-    DownloadCancelled,
+    DownloadCancelledError,
     LibreOfficeRuntime,
     Sha256MismatchError,
     download_with_progress,
@@ -125,7 +125,7 @@ def test_download_cancellation(tmp_path: Path) -> None:
             cancel.set()
 
     with patch("urllib.request.urlopen", return_value=response):
-        with pytest.raises(DownloadCancelled):
+        with pytest.raises(DownloadCancelledError):
             download_with_progress(
                 url="https://example/x",
                 dest=target,
@@ -163,7 +163,7 @@ def test_verify_sha256_mismatch_deletes_file(tmp_path: Path) -> None:
     assert not f.exists()
 
 
-def _make_build(tmp_path: Path, content: bytes, soffice_relpath: str) -> BuildEntry:
+def _make_build(content: bytes, soffice_relpath: str) -> BuildEntry:
     return BuildEntry(
         url="https://example/lo.tar.gz",
         sha256=hashlib.sha256(content).hexdigest(),
@@ -185,7 +185,7 @@ def test_install_full_flow(tmp_path: Path) -> None:
         tf.add(src / "myproj", arcname="myproj")
     archive_bytes = archive_bytes_path.read_bytes()
 
-    build = _make_build(tmp_path, archive_bytes, "myproj/program/soffice")
+    build = _make_build(archive_bytes, "myproj/program/soffice")
     runtime_dir = tmp_path / "rt"
 
     progress_log: list[tuple[str, int, str]] = []
@@ -224,7 +224,7 @@ def test_install_cleans_up_on_cancel(tmp_path: Path) -> None:
         tf.add(src / "f", arcname="f")
     archive_bytes = archive_path.read_bytes()
 
-    build = _make_build(tmp_path, archive_bytes, "f")
+    build = _make_build(archive_bytes, "f")
     runtime_dir = tmp_path / "rt"
     cancel = threading.Event()
 
@@ -243,13 +243,11 @@ def test_install_cleans_up_on_cancel(tmp_path: Path) -> None:
         soffice_relpath="f",
     )
     with patch("urllib.request.urlopen", return_value=response):
-        with pytest.raises(DownloadCancelled):
+        with pytest.raises(DownloadCancelledError):
             rt.install(build, on_progress=progress, cancel_event=cancel)
 
     assert not (runtime_dir / "INSTALLED_VERSION").exists()
-    assert not (runtime_dir / ".download").exists() or not any(
-        (runtime_dir / ".download").iterdir()
-    )
+    assert not (runtime_dir / ".download").exists()
 
 
 def test_install_cleans_up_on_sha_mismatch(tmp_path: Path) -> None:
