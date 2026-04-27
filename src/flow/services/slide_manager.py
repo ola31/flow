@@ -1,18 +1,25 @@
 """SlideManager - PPTX 슬라이드를 이미지로 관리하는 서비스"""
 
-import time
+from __future__ import annotations
+
 import queue
+import time
 from pathlib import Path
-from PySide6.QtCore import QObject, Signal, QThread, Qt, QTimer
+
 from pptx import Presentation
-from pptx.exc import PackageNotFoundError
-from watchdog.observers import Observer
+from PySide6.QtCore import QObject, QThread, Signal
 from watchdog.events import FileSystemEventHandler
-import sys
+from watchdog.observers import Observer
+
+from flow.services.runtime import (
+    LibreOfficeRuntime,
+    get_manifest_for_resources,
+    get_runtime_dir,
+)
 from flow.services.slide_converter import (
+    NoConverterAvailableError,
     SlideConverter,
     create_slide_converter,
-    NoConverterAvailableError,
 )
 
 
@@ -189,6 +196,17 @@ class SlideManager(QObject):
 
     def __init__(self, converter: SlideConverter = None) -> None:
         super().__init__()
+        # Cleanup any partial downloads from previous interrupted run
+        try:
+            manifest = get_manifest_for_resources()
+            rt = LibreOfficeRuntime(
+                runtime_dir=get_runtime_dir(),
+                manifest_version=manifest.version,
+            )
+            rt.cleanup_partial_downloads()
+        except Exception:
+            pass  # cleanup is best-effort
+
         self._pptx_path: Path | None = None
         self._slide_count: int = 0
         self._songs: list = []
