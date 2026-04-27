@@ -101,7 +101,7 @@ class MainWindow(QMainWindow):
         # 송출 관련
         self._display_window: DisplayWindow | None = None
         self._slide_manager = SlideManager()
-        self._install_guide_shown = False
+        self._engine_dialog_shown = False
         self._slide_manager.engine_missing.connect(self._on_engine_missing)
         from flow.ui.live.live_controller import LiveController
 
@@ -302,11 +302,11 @@ class MainWindow(QMainWindow):
         """SlideManager가 PPT 변환 엔진을 못 찾았을 때 Preflight → Download 흐름 실행.
 
         플랫폼 미지원 시 설치 안내로 폴백.
-        CANCEL/CLOSE 시 _install_guide_shown을 리셋해 다음 PPT 조작 때 재시도 가능.
+        CANCEL/CLOSE 시 _engine_dialog_shown을 리셋해 다음 PPT 조작 때 재시도 가능.
         """
-        if self._install_guide_shown:
+        if self._engine_dialog_shown:
             return
-        self._install_guide_shown = True
+        self._engine_dialog_shown = True
 
         try:
             manifest = get_manifest_for_resources()
@@ -322,7 +322,7 @@ class MainWindow(QMainWindow):
                 size_mb=build.size_bytes // (1 << 20),
             )
             if choice == PreflightChoice.CANCEL:
-                self._install_guide_shown = False
+                self._engine_dialog_shown = False
                 return
             if choice == PreflightChoice.INSTALL_GUIDE:
                 flow_show_install_guide(self)
@@ -346,7 +346,7 @@ class MainWindow(QMainWindow):
 
             err_choice = flow_show_engine_error(self, error_message=err)
             if err_choice == EngineErrorChoice.CLOSE:
-                self._install_guide_shown = False
+                self._engine_dialog_shown = False
                 return
             if err_choice == EngineErrorChoice.INSTALL_GUIDE:
                 flow_show_install_guide(self)
