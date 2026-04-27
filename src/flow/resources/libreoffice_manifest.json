@@ -1,0 +1,49 @@
+{
+  "version": "25.2.5.2",
+  "source_url": "https://www.libreoffice.org/download/",
+  "license_url": "https://www.libreoffice.org/about-us/licenses/",
+  "builds": {
+    "linux-x86_64": {
+      "url": "https://download.documentfoundation.org/libreoffice/stable/25.2.5/deb/x86_64/LibreOffice_25.2.5.2_Linux_x86-64_deb.tar.gz",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size_bytes": 290000000,
+      "format": "tar_gz",
+      "soffice_relpath": "LibreOffice_25.2.5.2_Linux_x86-64_deb/program/soffice"
+    },
+    "linux-aarch64": {
+      "url": "https://download.documentfoundation.org/libreoffice/stable/25.2.5/deb/aarch64/LibreOffice_25.2.5.2_Linux_aarch64_deb.tar.gz",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size_bytes": 280000000,
+      "format": "tar_gz",
+      "soffice_relpath": "LibreOffice_25.2.5.2_Linux_aarch64_deb/program/soffice"
+    },
+    "macos-x86_64": {
+      "url": "https://download.documentfoundation.org/libreoffice/stable/25.2.5/mac/x86_64/LibreOffice_25.2.5.2_MacOS_x86-64.dmg",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size_bytes": 310000000,
+      "format": "dmg",
+      "soffice_relpath": "LibreOffice.app/Contents/MacOS/soffice"
+    },
+    "macos-aarch64": {
+      "url": "https://download.documentfoundation.org/libreoffice/stable/25.2.5/mac/aarch64/LibreOffice_25.2.5.2_MacOS_aarch64.dmg",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size_bytes": 305000000,
+      "format": "dmg",
+      "soffice_relpath": "LibreOffice.app/Contents/MacOS/soffice"
+    },
+    "windows-x86_64": {
+      "url": "https://download.documentfoundation.org/libreoffice/stable/25.2.5/win/x86_64/LibreOffice_25.2.5.2_Win_x86-64.msi",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size_bytes": 360000000,
+      "format": "msi",
+      "soffice_relpath": "program/soffice.exe"
+    },
+    "windows-aarch64": {
+      "url": "https://download.documentfoundation.org/libreoffice/stable/25.2.5/win/aarch64/LibreOffice_25.2.5.2_Win_aarch64.msi",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size_bytes": 355000000,
+      "format": "msi",
+      "soffice_relpath": "program/soffice.exe"
+    }
+  }
+}
