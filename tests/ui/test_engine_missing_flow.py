@@ -63,3 +63,23 @@ def test_download_worker_reports_failure(qapp_args, qtbot) -> None:
     worker.start()
     worker.wait(2000)
     assert finished_log == [(False, "network down")]
+
+
+def test_engine_error_choice_enum() -> None:
+    from flow.ui.dialogs import EngineErrorChoice
+
+    assert EngineErrorChoice.RETRY.value == "retry"
+    assert EngineErrorChoice.INSTALL_GUIDE.value == "install_guide"
+    assert EngineErrorChoice.CLOSE.value == "close"
+
+
+def test_engine_error_returns_close_under_pytest(qapp_args) -> None:
+    """Function callable + auto-returns CLOSE under PYTEST."""
+    from flow.ui.dialogs import EngineErrorChoice, flow_show_engine_error
+
+    os.environ["PYTEST_CURRENT_TEST"] = "test_engine_error_returns_close_under_pytest"
+    try:
+        result = flow_show_engine_error(parent=None, error_message="boom")
+        assert result == EngineErrorChoice.CLOSE
+    finally:
+        os.environ.pop("PYTEST_CURRENT_TEST", None)

@@ -832,3 +832,55 @@ def flow_run_engine_download(
     dlg.exec()
     worker.wait(5000)
     return result["ok"], result["err"]
+
+
+# ─── 다운로드 실패 다이얼로그 ─────────────────────────────────────────────
+
+
+class EngineErrorChoice(Enum):
+    RETRY = "retry"
+    INSTALL_GUIDE = "install_guide"
+    CLOSE = "close"
+
+
+def flow_show_engine_error(parent, *, error_message: str) -> EngineErrorChoice:
+    """Modal: show download error and offer retry / manual install / close."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return EngineErrorChoice.CLOSE
+
+    dlg = _FlowDialog(parent, title="다운로드 실패")
+    dlg.setMinimumWidth(480)
+
+    body = dlg.body_layout()
+
+    title_label = QLabel("LibreOffice 다운로드에 실패했어요")
+    title_label.setStyleSheet(
+        f"color: {TEXT_PRIMARY}; font-size: {FONT_HEAD}px; font-weight: {FW_SEMI};"
+    )
+    body.addWidget(title_label)
+
+    detail = QLabel(error_message or "알 수 없는 오류")
+    detail.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: {FONT_SM}px;")
+    detail.setWordWrap(True)
+    body.addWidget(detail)
+
+    btn_close = QPushButton("닫기")
+    btn_install = QPushButton("수동 설치 안내")
+    btn_retry = QPushButton("재시도")
+    btn_retry.setDefault(True)
+
+    choice = {"value": EngineErrorChoice.CLOSE}
+    btn_close.clicked.connect(
+        lambda: (choice.update(value=EngineErrorChoice.CLOSE), dlg.accept())
+    )
+    btn_install.clicked.connect(
+        lambda: (choice.update(value=EngineErrorChoice.INSTALL_GUIDE), dlg.accept())
+    )
+    btn_retry.clicked.connect(
+        lambda: (choice.update(value=EngineErrorChoice.RETRY), dlg.accept())
+    )
+
+    dlg.add_button_row([btn_close, btn_install, btn_retry])
+
+    dlg.exec()
+    return choice["value"]
