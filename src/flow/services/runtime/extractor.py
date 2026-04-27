@@ -38,7 +38,7 @@ def _extract_tar_gz(archive: Path, target_dir: Path) -> None:
                 resolved = (target_dir / member.name).resolve()
                 if not str(resolved).startswith(str(target_dir.resolve())):
                     raise ExtractionError(f"path traversal blocked: {member.name}")
-            tf.extractall(target_dir)  # noqa: S202
+            tf.extractall(target_dir)
     except tarfile.TarError as exc:
         raise ExtractionError(f"tar.gz extraction failed: {exc}") from exc
 
