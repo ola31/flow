@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+import urllib.request
 from pathlib import Path
+from typing import Callable
 
 
 def get_runtime_dir() -> Path:
@@ -47,3 +50,53 @@ class LibreOfficeRuntime:
             return None
         candidate = self._dir / self._manifest_version / self._soffice_relpath
         return candidate if candidate.exists() else None
+
+
+ProgressCallback = Callable[[int, int], None]
+
+
+class DownloadCancelledError(RuntimeError):
+    """Download was cancelled via the cancel_event."""
+
+
+# Alias for backwards compatibility and plan references
+DownloadCancelled = DownloadCancelledError
+
+
+def download_with_progress(
+    *,
+    url: str,
+    dest: Path,
+    chunk_size: int,
+    on_progress: ProgressCallback,
+    cancel_event: threading.Event,
+) -> None:
+    """Stream URL → dest, calling on_progress(received, total) each chunk.
+
+    Raises DownloadCancelled if cancel_event is set; partial file deleted.
+    """
+    if not url.startswith("https://"):
+        raise ValueError("Only HTTPS URLs allowed")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    response = urllib.request.urlopen(url)
+    total = int(response.headers.get("Content-Length", 0))
+    received = 0
+    try:
+        with open(dest, "wb") as f:
+            while True:
+                if cancel_event.is_set():
+                    raise DownloadCancelled()
+                chunk = response.read(chunk_size)
+                if not chunk:
+                    break
+                f.write(chunk)
+                received += len(chunk)
+                on_progress(received, total)
+    except DownloadCancelled:
+        if dest.exists():
+            dest.unlink()
+        raise
+    except Exception:
+        if dest.exists():
+            dest.unlink()
+        raise
