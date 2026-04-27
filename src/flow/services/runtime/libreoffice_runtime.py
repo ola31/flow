@@ -3,11 +3,15 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import sys
 import threading
 import urllib.request
 from pathlib import Path
 from typing import Callable
+
+from flow.services.runtime.extractor import extract_archive
+from flow.services.runtime.manifest import BuildEntry
 
 
 def get_runtime_dir() -> Path:
@@ -26,6 +30,7 @@ class LibreOfficeRuntime:
     """Owns the portable LibreOffice install lifecycle."""
 
     INSTALLED_VERSION_FILE = "INSTALLED_VERSION"
+    DOWNLOAD_DIR = ".download"
 
     def __init__(
         self,
@@ -52,6 +57,74 @@ class LibreOfficeRuntime:
         candidate = self._dir / self._manifest_version / self._soffice_relpath
         return candidate if candidate.exists() else None
 
+    def cleanup_partial_downloads(self) -> None:
+        """Remove any leftover .download/ from interrupted runs.
+
+        Safe to call at startup."""
+        d = self._dir / self.DOWNLOAD_DIR
+        if d.exists():
+            shutil.rmtree(d, ignore_errors=True)
+
+    def install(
+        self,
+        build: BuildEntry,
+        *,
+        on_progress: PhaseProgressCallback,
+        cancel_event: threading.Event,
+    ) -> None:
+        """Run the full install: download → verify → extract → atomic finalize."""
+        self._dir.mkdir(parents=True, exist_ok=True)
+        download_dir = self._dir / self.DOWNLOAD_DIR
+        download_dir.mkdir(exist_ok=True)
+        archive = download_dir / f"libreoffice-{self._manifest_version}.archive"
+
+        # Phase 1: download
+        def _dl_progress(received: int, total: int) -> None:
+            pct = int(received * 85 / total) if total > 0 else 0
+            on_progress(
+                "download",
+                pct,
+                f"{received // (1 << 20)} / {total // (1 << 20)} MB",
+            )
+
+        try:
+            download_with_progress(
+                url=build.url,
+                dest=archive,
+                chunk_size=1 << 16,
+                on_progress=_dl_progress,
+                cancel_event=cancel_event,
+            )
+
+            # Phase 2: verify
+            on_progress("verify", 87, "무결성 검증 중...")
+            verify_sha256(archive, build.sha256)
+
+            # Phase 3: extract into staging, then atomic rename
+            on_progress("extract", 90, "압축 해제 중...")
+            staging = download_dir / "staging"
+            if staging.exists():
+                shutil.rmtree(staging)
+            extract_archive(archive, staging, format=build.format)
+
+            final_version_dir = self._dir / self._manifest_version
+            if final_version_dir.exists():
+                shutil.rmtree(final_version_dir)
+            staging.rename(final_version_dir)
+
+            # Phase 4: atomic INSTALLED_VERSION write
+            on_progress("finalize", 99, "마무리 중...")
+            tmp = self._dir / (self.INSTALLED_VERSION_FILE + ".tmp")
+            tmp.write_text(self._manifest_version, encoding="utf-8")
+            os.replace(tmp, self._dir / self.INSTALLED_VERSION_FILE)
+
+            on_progress("done", 100, "완료")
+        finally:
+            shutil.rmtree(download_dir, ignore_errors=True)
+
+
+PhaseProgressCallback = Callable[[str, int, str], None]
+"""(phase, percent_0_100, human_message)"""
 
 ProgressCallback = Callable[[int, int], None]
 

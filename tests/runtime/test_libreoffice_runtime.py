@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import tarfile
 import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -15,6 +16,7 @@ from flow.services.runtime.libreoffice_runtime import (
     get_runtime_dir,
     verify_sha256,
 )
+from flow.services.runtime.manifest import BuildEntry
 
 
 def test_get_runtime_dir_linux(
@@ -159,3 +161,121 @@ def test_verify_sha256_mismatch_deletes_file(tmp_path: Path) -> None:
     with pytest.raises(Sha256MismatchError):
         verify_sha256(f, "0" * 64)
     assert not f.exists()
+
+
+def _make_build(tmp_path: Path, content: bytes, soffice_relpath: str) -> BuildEntry:
+    return BuildEntry(
+        url="https://example/lo.tar.gz",
+        sha256=hashlib.sha256(content).hexdigest(),
+        size_bytes=len(content),
+        format="tar_gz",
+        soffice_relpath=soffice_relpath,
+    )
+
+
+def test_install_full_flow(tmp_path: Path) -> None:
+    """Happy path: download → verify → extract → INSTALLED_VERSION written."""
+    src = tmp_path / "src"
+    src.mkdir()
+    soffice = src / "myproj" / "program" / "soffice"
+    soffice.parent.mkdir(parents=True)
+    soffice.write_text("#!/bin/sh", encoding="utf-8")
+    archive_bytes_path = tmp_path / "archive.tar.gz"
+    with tarfile.open(archive_bytes_path, "w:gz") as tf:
+        tf.add(src / "myproj", arcname="myproj")
+    archive_bytes = archive_bytes_path.read_bytes()
+
+    build = _make_build(tmp_path, archive_bytes, "myproj/program/soffice")
+    runtime_dir = tmp_path / "rt"
+
+    progress_log: list[tuple[str, int, str]] = []
+
+    def progress(phase: str, pct: int, msg: str) -> None:
+        progress_log.append((phase, pct, msg))
+
+    rt = LibreOfficeRuntime(
+        runtime_dir=runtime_dir,
+        manifest_version="9.9.9",
+        soffice_relpath="myproj/program/soffice",
+    )
+
+    response = MagicMock()
+    response.headers = {"Content-Length": str(len(archive_bytes))}
+    chunks = [archive_bytes[i : i + 1024] for i in range(0, len(archive_bytes), 1024)]
+    response.read = MagicMock(side_effect=chunks + [b""])
+
+    with patch("urllib.request.urlopen", return_value=response):
+        rt.install(build, on_progress=progress, cancel_event=threading.Event())
+
+    assert (runtime_dir / "INSTALLED_VERSION").read_text() == "9.9.9"
+    assert (runtime_dir / "9.9.9" / "myproj" / "program" / "soffice").exists()
+    assert rt.is_current()
+    assert rt.get_soffice_path() is not None
+    phases = {p for p, _, _ in progress_log}
+    assert "download" in phases and "verify" in phases and "extract" in phases
+
+
+def test_install_cleans_up_on_cancel(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "f").write_text("x" * 5000, encoding="utf-8")
+    archive_path = tmp_path / "a.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as tf:
+        tf.add(src / "f", arcname="f")
+    archive_bytes = archive_path.read_bytes()
+
+    build = _make_build(tmp_path, archive_bytes, "f")
+    runtime_dir = tmp_path / "rt"
+    cancel = threading.Event()
+
+    response = MagicMock()
+    response.headers = {"Content-Length": str(len(archive_bytes))}
+    chunks = [archive_bytes[i : i + 100] for i in range(0, len(archive_bytes), 100)]
+    response.read = MagicMock(side_effect=chunks + [b""])
+
+    def progress(phase: str, pct: int, msg: str) -> None:
+        if phase == "download" and pct >= 50:
+            cancel.set()
+
+    rt = LibreOfficeRuntime(
+        runtime_dir=runtime_dir,
+        manifest_version="1.0",
+        soffice_relpath="f",
+    )
+    with patch("urllib.request.urlopen", return_value=response):
+        with pytest.raises(DownloadCancelled):
+            rt.install(build, on_progress=progress, cancel_event=cancel)
+
+    assert not (runtime_dir / "INSTALLED_VERSION").exists()
+    assert not (runtime_dir / ".download").exists() or not any(
+        (runtime_dir / ".download").iterdir()
+    )
+
+
+def test_install_cleans_up_on_sha_mismatch(tmp_path: Path) -> None:
+    bad_build = BuildEntry(
+        url="https://example/x.tar.gz",
+        sha256="0" * 64,  # won't match
+        size_bytes=10,
+        format="tar_gz",
+        soffice_relpath="f",
+    )
+    runtime_dir = tmp_path / "rt"
+    rt = LibreOfficeRuntime(
+        runtime_dir=runtime_dir,
+        manifest_version="1.0",
+        soffice_relpath="f",
+    )
+    response = MagicMock()
+    response.headers = {"Content-Length": "5"}
+    response.read = MagicMock(side_effect=[b"abcde", b""])
+
+    with patch("urllib.request.urlopen", return_value=response):
+        with pytest.raises(Sha256MismatchError):
+            rt.install(
+                bad_build,
+                on_progress=lambda *a: None,
+                cancel_event=threading.Event(),
+            )
+
+    assert not (runtime_dir / "INSTALLED_VERSION").exists()
