@@ -674,6 +674,42 @@ def _find_bundled_onlyoffice() -> Path | None:
     return None
 
 
+class MarkdownSlideConverter(SlideConverter):
+    """Renders Flow markdown slide files to images using Qt only."""
+
+    def __init__(self) -> None:
+        self._cache: dict[Path, list] = {}
+
+    def get_engine_name(self) -> str:
+        return "Markdown"
+
+    def get_slide_count(self, md_path: Path) -> int:
+        return len(self._slides_for(md_path))
+
+    def convert_slide(self, md_path: Path, index: int, status_callback=None) -> QImage:
+        slides = self._slides_for(md_path)
+        return slides[index]
+
+    def invalidate_cache(self, md_path: Path) -> None:
+        self._cache.pop(Path(md_path).resolve(), None)
+
+    def clear_cache(self) -> None:
+        self._cache.clear()
+
+    def _slides_for(self, md_path: Path) -> list:
+        from flow.services.markdown import parse, render_all
+
+        key = Path(md_path).resolve()
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        text = key.read_text(encoding="utf-8")
+        spec = parse(text)
+        images = render_all(spec, song_dir=key.parent)
+        self._cache[key] = images
+        return images
+
+
 def create_slide_converter() -> SlideConverter:
     """OS를 먼저 판별하고, 그 안에서 PowerPoint → 동봉 LibreOffice → 시스템
     LibreOffice → 동봉 ONLYOFFICE 순으로 사용 가능한 첫 엔진을 선택해 변환기를
