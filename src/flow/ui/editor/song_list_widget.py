@@ -1508,18 +1508,11 @@ class SongListWidget(QWidget):
             )
 
     def _open_markdown_editor(self, song) -> None:
-        """markdown 곡 전용 인앱 에디터를 모달 다이얼로그로 띄움."""
-        from PySide6.QtWidgets import QDialog, QVBoxLayout
-
-        from flow.ui.editor.markdown_editor import MarkdownEditor
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"마크다운 편집 — {song.name}")
-        dlg.resize(1200, 800)
-        layout = QVBoxLayout(dlg)
-        editor = MarkdownEditor(song.markdown_path)
-        layout.addWidget(editor)
-        dlg.exec()
+        """markdown 곡 전용 인앱 에디터를 메인 윈도우 내부 화면으로 전환."""
+        if self._main_window is not None and hasattr(
+            self._main_window, "show_markdown_editor"
+        ):
+            self._main_window.show_markdown_editor(song)
 
     def _set_song_image(self, song: Song) -> None:
         import shutil

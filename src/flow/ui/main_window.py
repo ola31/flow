@@ -348,6 +348,12 @@ class MainWindow(QMainWindow):
         self._project_screen = ProjectScreen(self._slide_manager, self._config_service)
         self._stack.addWidget(self._project_screen)
 
+        from flow.ui.screens.markdown_editor_screen import MarkdownEditorScreen
+        self._markdown_editor_screen = MarkdownEditorScreen()
+        self._markdown_editor_screen.back_requested.connect(self._exit_markdown_editor)
+        self._stack.addWidget(self._markdown_editor_screen)
+        self._markdown_editor_prev_index: int = 1  # default fallback to project
+
         self._launcher = self._home_screen.launcher
         self._toolbar = self._project_screen.toolbar_container
         self._slide_preview = self._project_screen.slide_preview
@@ -435,6 +441,11 @@ class MainWindow(QMainWindow):
         self._back_to_project_action = QAction(icon_qicon("arrow_back", 18, "#a0a0a0"), "프로젝트로 돌아가기", self)
         self._back_to_project_action.triggered.connect(self._exit_song_edit_mode)
 
+        self._edit_markdown_action = QAction("마크다운 편집", self)
+        self._edit_markdown_action.triggered.connect(
+            self._on_edit_markdown_action_triggered
+        )
+
         self._settings_action = QAction(icon_qicon("settings", 18, "#a0a0a0"), "설정", self)
         self._settings_action.setToolTip("환경설정")
         self._settings_action.triggered.connect(self._show_settings)
@@ -481,6 +492,7 @@ class MainWindow(QMainWindow):
         self._btn_to_live = create_tool_btn(self._live_mode_action)
         self._btn_display = create_tool_btn(self._display_action)
         self._btn_back = create_tool_btn(self._back_to_project_action)
+        self._btn_edit_markdown = create_tool_btn(self._edit_markdown_action)
 
         self._btn_exit_live = QPushButton("라이브 종료  Esc")
         self._btn_exit_live.setFixedHeight(32)
@@ -537,6 +549,7 @@ class MainWindow(QMainWindow):
                 self._btn_save,
                 self._btn_save_as,
                 "stretch",
+                self._btn_edit_markdown,
                 self._btn_undo,
                 self._btn_redo,
             ],
@@ -567,6 +580,7 @@ class MainWindow(QMainWindow):
             self._btn_to_live,
             self._btn_display,
             self._btn_back,
+            self._btn_edit_markdown,
             self._btn_exit_live,
         ]:
             btn.hide()
@@ -892,17 +906,69 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "오류", f"마크다운 파일 생성 실패: {e}")
             return
 
-        from PySide6.QtWidgets import QDialog
+        self.show_markdown_editor(song)
 
-        from flow.ui.editor.markdown_editor import MarkdownEditor
+    def show_markdown_editor(self, song) -> None:
+        """곡의 마크다운 파일을 인앱 에디터 화면으로 띄움."""
+        if not song.markdown_path.exists():
+            QMessageBox.warning(
+                self, "오류", f"마크다운 파일이 없습니다:\n{song.markdown_path}"
+            )
+            return
+        self._markdown_editor_prev_index = self._stack.currentIndex()
+        self._markdown_editor_screen.load_song(song)
+        self._stack.setCurrentWidget(self._markdown_editor_screen)
+        self._toolbar.hide()
+        self._statusbar.hide()
+        self.setWindowTitle(f"Flow - 마크다운 편집: {song.name}")
 
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"마크다운 편집 — {song.name}")
-        dlg.resize(1200, 800)
-        layout = QVBoxLayout(dlg)
-        editor = MarkdownEditor(song.markdown_path)
-        layout.addWidget(editor)
-        dlg.exec()
+    def _on_edit_markdown_action_triggered(self) -> None:
+        """곡 편집 모드 toolbar의 '마크다운 편집' 버튼.
+
+        현재 편집 중인 곡의 slides.md를 인앱 에디터로 띄움. 없으면 starter
+        템플릿 생성해서 띄움.
+        """
+        if not self._project or not self._project.selected_songs:
+            QMessageBox.warning(self, "오류", "편집할 곡이 없습니다.")
+            return
+        song = self._project.selected_songs[0]
+        if not song.markdown_path.exists():
+            template = (
+                "---\n"
+                "main_size: 56\n"
+                "sub_size: 18\n"
+                "background: \"#000000\"\n"
+                "---\n"
+                "\n"
+                f"# {song.name}\n"
+                "\n"
+                "## 1절\n"
+                "\n"
+                "첫 슬라이드 가사\n"
+            )
+            try:
+                song.markdown_path.write_text(template, encoding="utf-8")
+            except Exception as e:
+                QMessageBox.warning(
+                    self, "오류", f"마크다운 파일 생성 실패: {e}"
+                )
+                return
+        self.show_markdown_editor(song)
+
+    def _exit_markdown_editor(self) -> None:
+        """마크다운 에디터에서 이전 화면으로 복귀."""
+        self._markdown_editor_screen.save_if_dirty()
+        # 슬라이드 리렌더 트리거 — 현재 곡이 마크다운이면 캐시 리로드
+        if self._slide_manager._pptx_path is not None:
+            p = self._slide_manager._pptx_path
+            if str(p).lower().endswith(".md"):
+                self._slide_manager._markdown_converter.invalidate_cache(p)
+                self._slide_manager.file_changed.emit()
+        self._stack.setCurrentIndex(self._markdown_editor_prev_index)
+        self._toolbar.show()
+        self._statusbar.show()
+        if self._project:
+            self.setWindowTitle(f"Flow - {self._project.name}")
 
     def _enter_song_edit_mode(self, song) -> None:
         if self._is_live:
