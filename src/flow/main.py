@@ -5,6 +5,26 @@ import signal
 import faulthandler
 
 
+def _prewarm_markdown_pipeline() -> None:
+    """첫 마크다운 곡 열기의 cold-start 비용을 splash 동안 미리 지불한다.
+
+    Qt 폰트(Pretendard) lookup, QPainter 초기화, QImage allocate,
+    markdown 파서·렌더러 import를 한 번 트리거. 실패해도 무시 — 첫
+    곡 로드가 약간 느려질 뿐 기능엔 영향 없음.
+    """
+    try:
+        from pathlib import Path
+
+        from flow.services.markdown import parse, render_all
+
+        spec = parse(
+            "---\nmain_size: 56\nsub_size: 18\n---\n\n# warmup\n\n샘플 가사\n"
+        )
+        render_all(spec, song_dir=Path("/tmp"))
+    except Exception:
+        pass
+
+
 def main() -> int:
     """애플리케이션 메인 함수"""
     # Segfault 발생 시 C-level 스택 트레이스를 stderr에 출력
@@ -106,6 +126,11 @@ def main() -> int:
 
     # [수정] 무거운 창 생성을 먼저 수행 (로고가 뜬 상태에서)
     window = MainWindow(workspace=workspace)
+
+    # [추가] 첫 곡 열기의 cold-start 비용을 splash 동안 미리 지불.
+    #   Qt 폰트/페인터/이미지 + 마크다운 파서·렌더러를 한 번 워밍업해두면
+    #   사용자가 처음 곡을 열 때 busy cursor 없이 즉각 떠움.
+    _prewarm_markdown_pipeline()
 
     # [수정] 최소 1.5초 대기를 sleep 대신 이벤트 루프를 돌리며 수행 (화면 프리징 방지)
     while time.time() - start_time < 1.5:
