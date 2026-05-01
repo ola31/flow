@@ -312,6 +312,7 @@ class MainWindow(QMainWindow):
             manifest = get_manifest_for_resources()
             build = manifest.get_build_for_current_platform()
         except (UnsupportedPlatformError, ValueError, FileNotFoundError):
+            self._engine_dialog_shown = False
             flow_show_install_guide(self)
             return
 
@@ -325,6 +326,7 @@ class MainWindow(QMainWindow):
                 self._engine_dialog_shown = False
                 return
             if choice == PreflightChoice.INSTALL_GUIDE:
+                self._engine_dialog_shown = False
                 flow_show_install_guide(self)
                 return
 
@@ -349,6 +351,7 @@ class MainWindow(QMainWindow):
                 self._engine_dialog_shown = False
                 return
             if err_choice == EngineErrorChoice.INSTALL_GUIDE:
+                self._engine_dialog_shown = False
                 flow_show_install_guide(self)
                 return
             # RETRY → loop continues
