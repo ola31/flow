@@ -857,19 +857,20 @@ class MainWindow(QMainWindow):
         """새 곡 생성 후 슬라이드 형식(마크다운/PPT) 선택 다이얼로그.
 
         마크다운 선택 시 starter 템플릿 생성 후 인앱 에디터 띄움.
-        취소 또는 PPT 선택 시 그대로 둠 (기존 PPT 가져오기 등 흐름 사용).
+        PPT 선택 시 그대로 둠 (기존 PPT 가져오기 등 흐름 사용).
         """
-        from PySide6.QtWidgets import QInputDialog
+        from flow.ui.dialogs import flow_question
 
-        choice, ok = QInputDialog.getItem(
+        use_markdown = flow_question(
             self,
-            "새 곡 형식",
-            "슬라이드를 어떤 형식으로 시작할까요?",
-            ["마크다운 (텍스트 기반)", "PowerPoint (PPT 가져오기)"],
-            0,
-            False,
+            "슬라이드 형식 선택",
+            "새 곡 슬라이드를 어떤 형식으로 시작할까요?\n\n"
+            "• 마크다운: 텍스트로 가사를 적으면 Flow가 슬라이드로 자동 변환\n"
+            "• PowerPoint: 외부 도구로 만든 .pptx 가져오기",
+            yes_text="마크다운",
+            no_text="PowerPoint",
         )
-        if not ok or not choice.startswith("마크다운"):
+        if not use_markdown:
             return
 
         template = (
