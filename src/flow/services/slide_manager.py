@@ -343,24 +343,43 @@ class SlideManager(QObject):
 
         song_data_list = []
         for s in songs:
-            if s.has_slides:
+            # markdown wins over pptx per Song.slide_source
+            source = getattr(s, "slide_source", None)
+            if source == "markdown":
+                song_data_list.append((s.name, s.markdown_path))
+            elif source == "pptx" or (source is None and s.has_slides):
                 song_data_list.append((s.name, s.abs_slides_path))
 
         if not song_data_list:
             self.load_finished.emit(0)
             return
 
-        # Dispatch by first song's extension; mixed batches are uncommon and
-        # picking the wrong worker would only bite the .md vs .pptx mismatch.
-        first_path = song_data_list[0][1]
-        worker = self._worker_for(first_path)
-        if worker is None:
+        # Split batch by file extension — markdown songs go to markdown worker,
+        # pptx songs to pptx worker. Each worker only knows how to count its
+        # own format.
+        md_batch = [
+            (n, p) for n, p in song_data_list
+            if str(p).lower().endswith(".md")
+        ]
+        pptx_batch = [
+            (n, p) for n, p in song_data_list
+            if not str(p).lower().endswith(".md")
+        ]
+
+        if pptx_batch and self._worker is None:
             self.engine_missing.emit()
             self.load_finished.emit(0)
             return
 
         self.songs_metadata_started.emit()
-        worker.add_task(PPTTask(PPTTask.LOAD_METADATA, song_data_list))
+        if md_batch:
+            self._markdown_worker.add_task(
+                PPTTask(PPTTask.LOAD_METADATA, md_batch)
+            )
+        if pptx_batch:
+            self._worker.add_task(
+                PPTTask(PPTTask.LOAD_METADATA, pptx_batch)
+            )
 
     def _on_metadata_loaded(self, results: list[tuple[str, int]]):
         if not self._songs:
