@@ -1156,6 +1156,14 @@ class SongListWidget(QWidget):
         if song and not song.has_slides:
             panel._btn_open_ppt.setToolTip("PPT 파일이 없습니다. 먼저 PPT 가져오기로 추가하세요.")
 
+        # "마크다운 편집" 버튼은 PPT 곡(slides.pptx만 있고 markdown 없음)에선
+        # 숨김 — 실수로 markdown을 만들어 PPT를 가리는 사고 방지.
+        if song is not None:
+            is_pptx_only = song.has_slides and not song.has_markdown
+            panel._btn_edit_md.setVisible(not is_pptx_only)
+        else:
+            panel._btn_edit_md.setVisible(False)
+
         self._standalone_panel = panel
         self._cards_layout.insertWidget(self._cards_layout.count() - 1, panel)
         self._count_label.setText("")
