@@ -269,6 +269,63 @@ A가 단순해서 추천.
 
 해당 폰트 없으면 `QFontDatabase.systemFont(SystemFont)`로 폴백 + 콘솔 경고.
 
+## 내장 에디터
+
+마크다운 직접 입력은 파워유저 친화적이지만 일반 사용자엔 부담. Flow 내장 에디터로 진입 장벽을 낮춤.
+
+### 구조
+
+분할 미리보기 + 신택스 하이라이트 + frontmatter 폼:
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│ [저장] [섹션 추가] [슬라이드 나누기] [Frontmatter 편집]         │  ← Toolbar
+├──────────────────────────────────────┬────────────────────────┤
+│ ─────                                │                        │
+│ main_size: 56                        │     ┌────────────┐     │
+│ main_color: "#FFFFFF"                │     │            │     │
+│ ─────                                │     │  미리보기    │     │  ← Preview
+│                                      │     │ (현재 커서   │     │   (선택된 슬라이드)
+│ # 어떤 곡                             │     │  슬라이드)   │     │
+│                                      │     │            │     │
+│ ## 1절 :: 어떤 곡 1절                  │     └────────────┘     │
+│                                      │                        │
+│ 첫 슬라이드 가사│ ← 커서                │                        │
+│ 둘째 줄                               │  □ □ □ □ ■ □ □ □ □ □     │  ← Slide thumbs
+│                                      │     (현재 슬라이드 강조)  │
+│ {main_size: 72}                      │                        │
+│ 강조 슬라이드                         │                        │
+│ > 어떤 곡 1절                         │                        │
+└──────────────────────────────────────┴────────────────────────┘
+   Text editor (with syntax highlight)    Preview pane
+```
+
+### 컴포넌트
+
+| 부분 | 구현 |
+|---|---|
+| Text editor | `QPlainTextEdit` + 커스텀 `QSyntaxHighlighter` |
+| Syntax highlight | frontmatter 블록 (`---`), 헤더 (`#`, `##`), sub override (`>`), slide override (`{...}`) 색깔로 구분 |
+| Preview pane | 현재 커서 위치 슬라이드를 큰 미리보기로 + 모든 슬라이드 썸네일 리스트 (현재 슬라이드 강조) |
+| Cursor → slide tracking | 텍스트 커서 라인 번호 → 파서가 매핑한 슬라이드 인덱스 |
+| Toolbar | 저장(Ctrl+S), 섹션 추가, 슬라이드 나누기, Frontmatter 편집 |
+| Frontmatter 편집 | 모달 폼 — 폰트/사이즈/색/배경/해상도 picker. OK 누르면 `---` 블록만 갱신 |
+| Dirty state | 저장 안 된 변경 있으면 탭 제목에 `*` 표시 |
+| 자동 리렌더 | Ctrl+S 저장 → cache invalidate → preview 자동 갱신 |
+
+### 진입 흐름
+
+- 곡 리스트에서 마크다운 곡 선택 → "편집" 버튼 → 에디터 화면 (모달 또는 별도 탭)
+- "새 곡 만들기" 시 형식 선택 (PPT vs Markdown). Markdown 선택 시 빈 템플릿(.md)으로 에디터 바로 열기
+- PPT 곡은 기존대로 외부 앱(PowerPoint/LibreOffice) 사용 — 마크다운 곡만 내장 에디터
+
+### v1 스코프 한계
+
+- WYSIWYG 직접 클릭 편집 X (텍스트 입력만)
+- Drag-and-drop 이미지 삽입 X (frontmatter 폼에서 경로 입력)
+- Undo/redo는 QPlainTextEdit 기본만 (커스텀 history X)
+- Find & Replace 대화상자 X (Ctrl+F는 v2)
+
 ## 캐시 + 파일 워처
 
 - `MarkdownSlideConverter`가 메모리 캐시 유지: `dict[Path, list[QImage]]`
@@ -309,6 +366,14 @@ A가 단순해서 추천.
 - SlideManager가 `.md` 곡을 PPT 곡과 같은 인터페이스로 다룸
 - 파일 워처: `.md` 수정 → cache invalidate → UI 리프레시
 
+### 에디터 테스트
+
+- `MarkdownEditor`: 텍스트 입력 → dirty 표시, Ctrl+S → 저장 + 리렌더 호출
+- 신택스 하이라이트: frontmatter/헤더/sub override/slide override 색깔 구분 적용
+- Frontmatter 폼: 폼 입력 → `---` 블록만 갱신 (본문 보존)
+- 커서 트래킹: 텍스트 커서 라인 변경 → 미리보기 슬라이드 인덱스 업데이트
+- 진입 흐름: 마크다운 곡 "편집" 버튼 → 에디터 띄워짐. 새 곡 형식 선택 → 빈 템플릿으로 에디터 진입
+
 ### 시각 회귀 테스트 (선택)
 
 - 알려진 입력 `.md` → 알려진 출력 PNG (픽셀 일치 검증)
@@ -318,17 +383,28 @@ A가 단순해서 추천.
 
 ### v1 포함
 
+**파서 + 렌더러 + 통합**:
 1. `src/flow/services/markdown/` 신규 패키지 (parser, renderer)
 2. `MarkdownSlideConverter` 추가 (`slide_converter.py`)
 3. SlideManager dispatch 로직 (`.md` vs `.pptx`)
 4. `Song` 도메인에 `markdown_path`, `has_markdown`, `slide_source` 추가
 5. 파일 워처가 `.md` 변경 감지
-6. Frontmatter 스키마: `main_*`, `sub_*`, `background`, `aspect`, `resolution`, `slide_inches`
+6. Frontmatter 스키마: `main_*`, `sub_*`, `background`, `resolution`, `slide_inches`
 7. 슬라이드 override (`{...}`)
 8. 섹션 sub default (`::`)
 9. 배경: 색상 + 이미지 (cover scaling)
 10. 폰트 fallback
 11. 캐시 + watcher 자동 invalidate
+
+**내장 에디터**:
+12. `MarkdownEditor` 위젯 (`src/flow/ui/editor/markdown_editor.py`)
+13. 분할 뷰: 좌 텍스트 에디터 + 우 미리보기 + 썸네일 리스트
+14. 마크다운 신택스 하이라이트
+15. Frontmatter 폼 다이얼로그
+16. 저장 시 자동 리렌더 + 미리보기 갱신
+17. 커서 위치 → 현재 슬라이드 추적
+18. 새 곡 만들기 시 PPT/Markdown 형식 선택
+19. 마크다운 곡 "편집" 버튼이 내장 에디터 띄움
 
 ### v1 제외 (향후)
 
@@ -338,7 +414,9 @@ A가 단순해서 추천.
 - 행간/자간 커스터마이징
 - 이미지 스케일링 옵션 (contain, stretch)
 - 배경 이미지 어둡게/오버레이
-- Flow 내장 마크다운 에디터 (외부 에디터 사용 권장)
+- WYSIWYG 직접 편집 (텍스트박스 클릭)
+- 드래그/드롭 이미지 삽입
+- Find & Replace
 - PPT → 마크다운 자동 변환 도구
 - 다국어 동시 표시 (한/영 병행)
 - 차트/표 렌더링
