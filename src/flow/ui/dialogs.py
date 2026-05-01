@@ -802,7 +802,11 @@ def flow_run_engine_download(
     bar.setRange(0, 100)
     body.addWidget(bar)
 
-    btn_cancel = QPushButton("취소")
+    btn_cancel = _make_button("취소")
+    btn_done = _make_button("확인", primary=True)
+    btn_done.setVisible(False)
+    btn_done.setDefault(True)
+    btn_done.setAutoDefault(True)
 
     worker = EngineDownloadWorker(install_fn=install_fn, parent=dlg)
     result = {"ok": False, "err": "cancelled"}
@@ -814,13 +818,25 @@ def flow_run_engine_download(
     def on_finished(ok: bool, err: str) -> None:
         result["ok"] = ok
         result["err"] = err
-        dlg.accept()
+        if ok:
+            # Keep the dialog open so the user explicitly acknowledges
+            # completion before the project starts loading.
+            title_label.setText("LibreOffice 준비 완료")
+            msg.setText("이제 PPT 슬라이드를 변환할 수 있어요.")
+            bar.setValue(100)
+            btn_cancel.setVisible(False)
+            btn_done.setVisible(True)
+            btn_done.setFocus()
+        else:
+            # On failure, close immediately so the error dialog can take over.
+            dlg.accept()
 
     worker.progress.connect(on_progress)
     worker.finished_with_status.connect(on_finished)
     btn_cancel.clicked.connect(worker.cancel)
+    btn_done.clicked.connect(dlg.accept)
 
-    dlg.add_button_row([btn_cancel])
+    dlg.add_button_row([btn_cancel, btn_done])
 
     worker.start()
     dlg.exec()
