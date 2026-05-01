@@ -107,7 +107,40 @@ def parse(text: str) -> SongSpec:
 
     fm = _build_frontmatter(fm_raw)
     title = _extract_title(body)
-    return SongSpec(title=title, frontmatter=fm, slides=[])
+    slides = _parse_slides(body)
+    return SongSpec(title=title, frontmatter=fm, slides=slides)
+
+
+def _parse_slides(body: str) -> list[Slide]:
+    """Split body into slide blocks separated by blank lines.
+
+    Lines starting with '#' (title or sections) are skipped — they delimit
+    sections but aren't slide content. Each remaining non-blank block of
+    consecutive lines becomes one slide.
+    """
+    slides: list[Slide] = []
+    current_lines: list[str] = []
+
+    def flush() -> None:
+        if not current_lines:
+            return
+        main = "\n".join(current_lines).rstrip()
+        if main:
+            slides.append(Slide(main=main, sub_override=None, section_sub_default=None))
+        current_lines.clear()
+
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            flush()
+            continue
+        if not stripped:
+            flush()
+            continue
+        current_lines.append(line)
+
+    flush()
+    return slides
 
 
 def _extract_title(body: str) -> str:

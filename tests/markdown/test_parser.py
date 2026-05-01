@@ -70,3 +70,33 @@ slide_inches: "garbage"
     # Invalid values fall back to defaults
     assert spec.frontmatter.main_size == 56
     assert spec.frontmatter.slide_inches == (13.333, 7.5)
+
+
+def test_two_slide_blocks() -> None:
+    spec = parse("# T\n\n첫 슬라이드\n\n둘째 슬라이드\n")
+    assert len(spec.slides) == 2
+    assert spec.slides[0].main == "첫 슬라이드"
+    assert spec.slides[1].main == "둘째 슬라이드"
+
+
+def test_multiline_main_text() -> None:
+    spec = parse("# T\n\n첫 줄\n둘째 줄\n셋째 줄\n")
+    assert len(spec.slides) == 1
+    assert spec.slides[0].main == "첫 줄\n둘째 줄\n셋째 줄"
+
+
+def test_section_header_does_not_become_slide() -> None:
+    spec = parse("# T\n\n## 1절\n\n가사\n")
+    assert len(spec.slides) == 1
+    assert spec.slides[0].main == "가사"
+
+
+def test_multiple_blank_lines_treated_as_one_separator() -> None:
+    spec = parse("# T\n\n첫\n\n\n\n둘째\n")
+    assert len(spec.slides) == 2
+
+
+def test_title_line_not_part_of_first_slide() -> None:
+    spec = parse("# 어떤 곡\n\n첫 가사\n")
+    assert len(spec.slides) == 1
+    assert spec.slides[0].main == "첫 가사"
