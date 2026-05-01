@@ -163,3 +163,8 @@ def _draw_sub_text(
         int(Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap),
         text,
     )
+
+
+def render_all(spec: SongSpec, *, song_dir: Path) -> list[QImage]:
+    """Render every slide in the spec."""
+    return [render_slide(spec, s, song_dir=song_dir) for s in spec.slides]

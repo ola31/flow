@@ -141,3 +141,22 @@ def test_pt_to_pixel_with_smaller_canvas() -> None:
     from flow.services.markdown.renderer import _pt_to_px
     px = _pt_to_px(72, slide_inches=(11.02, 6.20), resolution=(1920, 1080))
     assert px == pytest.approx(174, abs=1)
+
+
+def test_render_all_returns_one_image_per_slide(qapp, tmp_path: Path) -> None:
+    from flow.services.markdown.parser import parse
+    from flow.services.markdown.renderer import render_all
+
+    text = """\
+# T
+
+가사 1
+
+가사 2
+
+가사 3
+"""
+    spec = parse(text)
+    images = render_all(spec, song_dir=tmp_path)
+    assert len(images) == 3
+    assert all(isinstance(img, QImage) for img in images)
