@@ -19,6 +19,7 @@ dependencies = [
     "pywin32; platform_system == 'Windows'",
     "pdf2image",
     "pymupdf",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
