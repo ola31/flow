@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal, QEvent, QPoint
@@ -44,7 +43,6 @@ from flow.ui.styles import (
 from flow.domain.project import Project
 from flow.domain.score_sheet import ScoreSheet
 from flow.domain.song import Song
-from flow.services.slide_converter import _detect_bundled_libreoffice
 
 
 # ─── 상태 계산 헬퍼 ────────────────────────────────────────────────────────
@@ -74,25 +72,6 @@ def _song_status(song: Song) -> dict:
         "total_hotspots": total_hs,
         "mapped_hotspots": mapped_hs,
     }
-
-
-def _open_pptx_for_edit(pptx_path: Path, *, parent) -> bool:
-    """Try OS-shell open; fall back to bundled LibreOffice. Returns True on success."""
-    from PySide6.QtCore import QUrl
-    from PySide6.QtGui import QDesktopServices
-
-    url = QUrl.fromLocalFile(str(pptx_path))
-    if QDesktopServices.openUrl(url):
-        return True
-
-    bundled = _detect_bundled_libreoffice()
-    if bundled is not None:
-        try:
-            subprocess.Popen([str(bundled), "--impress", str(pptx_path)])
-            return True
-        except OSError:
-            return False
-    return False
 
 
 def _scan_library_song(song_dir: Path) -> dict:
@@ -1478,7 +1457,11 @@ class SongListWidget(QWidget):
                 except Exception:
                     pass
 
-        if not _open_pptx_for_edit(pptx_path, parent=self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        url = QUrl.fromLocalFile(str(pptx_path))
+        if not QDesktopServices.openUrl(url):
             QMessageBox.warning(
                 self,
                 "열기 실패",

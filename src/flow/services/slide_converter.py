@@ -14,13 +14,6 @@ from pathlib import Path
 import fitz  # PyMuPDF
 from PySide6.QtGui import QImage
 
-from flow.services.runtime import (
-    LibreOfficeRuntime,
-    UnsupportedPlatformError,
-    get_manifest_for_resources,
-    get_runtime_dir,
-)
-
 
 class NoConverterAvailableError(RuntimeError):
     """PPT 변환에 사용할 엔진을 시스템에서 찾지 못했을 때.
@@ -368,9 +361,6 @@ class WindowsSlideConverter(SlideConverter):
             pass
 
     def _find_libreoffice(self) -> str | None:
-        bundled = _detect_bundled_libreoffice()
-        if bundled is not None:
-            return str(bundled)
         common_paths = [
             r"C:\Program Files\LibreOffice\program\soffice.exe",
             r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
@@ -394,13 +384,11 @@ class LinuxSlideConverter(SlideConverter):
     def convert_slide(
         self, pptx_path: Path, index: int, status_callback=None
     ) -> QImage:
-        bundled = _detect_bundled_libreoffice()
-        soffice_cmd = str(bundled) if bundled is not None else "libreoffice"
         return _convert_with_libreoffice(
             pptx_path,
             index,
             self._cache_dir,
-            soffice_cmd,
+            "libreoffice",
             status_callback=status_callback,
         )
 
@@ -443,10 +431,6 @@ class MacOSSlideConverter(SlideConverter):
     def _find_libreoffice(self) -> str | None:
         if self._soffice_path is not None:
             return self._soffice_path or None
-        bundled = _detect_bundled_libreoffice()
-        if bundled is not None:
-            self._soffice_path = str(bundled)
-            return self._soffice_path
         candidates = [
             "/Applications/LibreOffice.app/Contents/MacOS/soffice",
             str(Path.home() / "Applications/LibreOffice.app/Contents/MacOS/soffice"),
@@ -582,21 +566,6 @@ def _detect_libreoffice() -> str | None:
     return shutil.which("soffice") or shutil.which("libreoffice")
 
 
-def _detect_bundled_libreoffice() -> Path | None:
-    """Return path to Flow's app-local LibreOffice if installed and current."""
-    try:
-        manifest = get_manifest_for_resources()
-        build = manifest.get_build_for_current_platform()
-    except (UnsupportedPlatformError, ValueError, FileNotFoundError):
-        return None
-    runtime = LibreOfficeRuntime(
-        runtime_dir=get_runtime_dir(),
-        manifest_version=manifest.version,
-        soffice_relpath=build.soffice_relpath,
-    )
-    return runtime.get_soffice_path()
-
-
 def _convert_with_libreoffice(
     pptx_path: Path, index: int, cache_dir: Path, soffice_cmd: str, status_callback=None
 ) -> QImage:
@@ -715,21 +684,20 @@ def create_slide_converter() -> SlideConverter:
     """
     has_pp = _detect_powerpoint()
     has_system_lo = _detect_libreoffice() is not None
-    has_bundled_lo = _detect_bundled_libreoffice() is not None
     bundled_oo = _find_bundled_onlyoffice()
 
     if sys.platform == "win32":
-        if has_pp or has_bundled_lo or has_system_lo:
+        if has_pp or has_system_lo:
             return WindowsSlideConverter()
         if bundled_oo is not None:
             return OnlyOfficeSlideConverter(bundled_oo)
     elif sys.platform == "darwin":
-        if has_pp or has_bundled_lo or has_system_lo:
+        if has_pp or has_system_lo:
             return MacOSSlideConverter()
         if bundled_oo is not None:
             return OnlyOfficeSlideConverter(bundled_oo)
     else:  # linux 및 기타
-        if has_bundled_lo or has_system_lo:
+        if has_system_lo:
             return LinuxSlideConverter()
         if bundled_oo is not None:
             return OnlyOfficeSlideConverter(bundled_oo)

@@ -11,11 +11,6 @@ from PySide6.QtCore import QObject, QThread, Signal
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from flow.services.runtime import (
-    LibreOfficeRuntime,
-    get_manifest_for_resources,
-    get_runtime_dir,
-)
 from flow.services.slide_converter import (
     NoConverterAvailableError,
     SlideConverter,
@@ -196,17 +191,6 @@ class SlideManager(QObject):
 
     def __init__(self, converter: SlideConverter = None) -> None:
         super().__init__()
-        # Cleanup any partial downloads from previous interrupted run
-        try:
-            manifest = get_manifest_for_resources()
-            rt = LibreOfficeRuntime(
-                runtime_dir=get_runtime_dir(),
-                manifest_version=manifest.version,
-            )
-            rt.cleanup_partial_downloads()
-        except Exception:
-            pass  # cleanup is best-effort
-
         self._pptx_path: Path | None = None
         self._slide_count: int = 0
         self._songs: list = []
@@ -233,22 +217,6 @@ class SlideManager(QObject):
     def is_engine_available(self) -> bool:
         """PPT 변환 엔진이 사용 가능한지."""
         return self._converter is not None
-
-    def rebuild_engine(self) -> None:
-        """런타임 설치 후 엔진을 재감지한다.
-
-        create_slide_converter()를 재호출해 변환기를 갱신하고,
-        worker가 없었다면 새로 생성·시작한다.
-        """
-        try:
-            self._converter = create_slide_converter()
-        except NoConverterAvailableError:
-            self._converter = None
-            return
-        if self._worker is None:
-            self._worker = SlideWorker(self._converter)
-            self._connect_worker(self._worker)
-            self._worker.start()
 
     def stop_workers(self):
         if self._worker is not None:
