@@ -160,6 +160,20 @@ def main() -> int:
     #   사용자가 처음 곡을 열 때 busy cursor 없이 즉각 떠움.
     _prewarm_markdown_pipeline()
 
+    # [추가] ProjectScreen 위젯 트리 사전 realize — 첫 곡/프로젝트 열기 때
+    # QSplitter / Canvas / 패널들이 처음으로 layout+paint되면 컴포지터가
+    # "새 view 로딩"으로 인식해 busy cursor를 잡는 현상 완화.
+    try:
+        project_screen = window._project_screen
+        project_screen.ensurePolished()
+        project_screen.adjustSize()
+        # 자식 위젯도 polish (canvas, slide_preview, song_list 등)
+        for child in project_screen.findChildren(object):
+            if hasattr(child, "ensurePolished"):
+                child.ensurePolished()
+    except Exception:
+        pass
+
     # [수정] 최소 1.5초 대기를 sleep 대신 이벤트 루프를 돌리며 수행 (화면 프리징 방지)
     while time.time() - start_time < 1.5:
         app.processEvents()
