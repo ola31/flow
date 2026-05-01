@@ -400,18 +400,24 @@ class SlideManager(QObject):
         return self._slide_count
 
     def get_slide_image(self, index: int, status_callback=None):
-        if not self._converter:
-            return None
-
         if self._total_slide_count > 0:
             try:
                 song_name, local_index = self.global_to_local(index)
                 return self.get_song_slide_image(
                     song_name, local_index, status_callback=status_callback
                 )
-            except:
+            except Exception:
                 return None
 
+        # 단일 파일 모드 — _pptx_path 확장자에 따라 컨버터 선택
+        if not self._pptx_path:
+            return None
+        if str(self._pptx_path).lower().endswith(".md"):
+            return self._markdown_converter.convert_slide(
+                self._pptx_path, index, status_callback=status_callback
+            )
+        if self._converter is None:
+            return None
         return self._converter.convert_slide(
             self._pptx_path, index, status_callback=status_callback
         )
@@ -420,11 +426,20 @@ class SlideManager(QObject):
         self, song_name: str, local_index: int, status_callback=None
     ):
         song = next((s for s in self._songs if s.name == song_name), None)
-        if not song or not song.has_slides:
+        if song is None:
             return None
-        return self._converter.convert_slide(
-            song.abs_slides_path, local_index, status_callback=status_callback
-        )
+        source = getattr(song, "slide_source", None)
+        if source == "markdown":
+            return self._markdown_converter.convert_slide(
+                song.markdown_path, local_index, status_callback=status_callback
+            )
+        if source == "pptx" or (source is None and song.has_slides):
+            if self._converter is None:
+                return None
+            return self._converter.convert_slide(
+                song.abs_slides_path, local_index, status_callback=status_callback
+            )
+        return None
 
     def start_watching(self, path: str | Path = None):
         if path:
@@ -491,7 +506,12 @@ class SlideManager(QObject):
     def _recalculate_offsets(self) -> None:
         offset = 0
         for song in self._songs:
-            if song.has_slides:
+            source = getattr(song, "slide_source", None)
+            has_source = (
+                source in ("markdown", "pptx")
+                or (source is None and song.has_slides)
+            )
+            if has_source:
                 self._slide_offsets[song.name] = offset
                 offset += song.get_slide_count()
         self._total_slide_count = offset
