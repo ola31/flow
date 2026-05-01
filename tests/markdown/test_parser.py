@@ -155,3 +155,37 @@ def test_section_without_double_colon_clears_default() -> None:
     spec = parse(text)
     assert spec.slides[0].section_sub_default == "어떤 곡 1절"
     assert spec.slides[1].section_sub_default is None
+
+
+def test_slide_override_first_line_parsed() -> None:
+    text = "# T\n\n{main_size: 72, main_color: \"#FFD700\"}\n강조 슬라이드\n"
+    spec = parse(text)
+    assert len(spec.slides) == 1
+    assert spec.slides[0].main == "강조 슬라이드"
+    assert spec.slides[0].overrides == {
+        "main_size": 72,
+        "main_color": "#FFD700",
+    }
+
+
+def test_slide_override_must_be_first_line() -> None:
+    text = "# T\n\n첫 줄\n{main_size: 72}\n둘째 줄\n"
+    spec = parse(text)
+    assert spec.slides[0].overrides == {}
+    assert "{main_size: 72}" in spec.slides[0].main
+
+
+def test_slide_override_invalid_yaml_ignored(caplog: pytest.LogCaptureFixture) -> None:
+    text = "# T\n\n{not valid yaml\n가사\n"
+    spec = parse(text)
+    assert spec.slides[0].overrides == {}
+    # Should still parse rest of slide normally
+    assert "가사" in spec.slides[0].main
+
+
+def test_slide_override_with_sub() -> None:
+    text = "# T\n\n{main_size: 72}\n강조\n> custom sub\n"
+    spec = parse(text)
+    assert spec.slides[0].overrides == {"main_size": 72}
+    assert spec.slides[0].main == "강조"
+    assert spec.slides[0].sub_override == "custom sub"

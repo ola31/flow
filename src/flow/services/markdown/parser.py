@@ -40,6 +40,23 @@ class SongSpec:
 
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+_OVERRIDE_RE = re.compile(r"\A\{(.+)\}\s*\Z")
+
+
+def _parse_overrides(line: str) -> dict[str, Any] | None:
+    """Parse `{key: val, ...}` line. Return dict on success, None otherwise."""
+    m = _OVERRIDE_RE.match(line.strip())
+    if not m:
+        return None
+    inner = "{" + m.group(1) + "}"
+    try:
+        result = yaml.safe_load(inner)
+    except yaml.YAMLError as exc:
+        logger.warning("slide override parse error: %s", exc)
+        return None
+    if not isinstance(result, dict):
+        return None
+    return result
 
 
 def _parse_inches(s: Any, default: tuple[float, float]) -> tuple[float, float]:
@@ -114,7 +131,8 @@ def parse(text: str) -> SongSpec:
 def _parse_slides(body: str) -> list[Slide]:
     """Split body into slide blocks.
 
-    Tracks section sub default (:: syntax) and per-slide sub override (> syntax).
+    Tracks section sub default (:: syntax), per-slide sub override (> syntax),
+    and per-slide attribute overrides ({key: val} on the first line).
     """
     slides: list[Slide] = []
     current_lines: list[str] = []
@@ -124,16 +142,25 @@ def _parse_slides(body: str) -> list[Slide]:
         nonlocal current_lines
         if not current_lines:
             return
+        # First line may be {key: val} override
+        overrides: dict[str, Any] = {}
+        if current_lines:
+            parsed = _parse_overrides(current_lines[0])
+            if parsed is not None:
+                overrides = parsed
+                current_lines = current_lines[1:]
+        # Last non-empty line may be > sub override
         sub_override: str | None = None
-        if current_lines[-1].lstrip().startswith("> "):
+        if current_lines and current_lines[-1].lstrip().startswith("> "):
             sub_override = current_lines[-1].lstrip()[2:].strip()
             current_lines = current_lines[:-1]
         main = "\n".join(current_lines).rstrip()
-        if main or sub_override:
+        if main or sub_override or overrides:
             slides.append(Slide(
                 main=main,
                 sub_override=sub_override,
                 section_sub_default=current_section_default,
+                overrides=overrides,
             ))
         current_lines = []
 
