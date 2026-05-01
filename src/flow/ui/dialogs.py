@@ -677,7 +677,7 @@ def flow_show_engine_preflight(
     body = dlg.body_layout()
 
     title_label = QLabel(
-        f"PPT 슬라이드를 열려면 LibreOffice {manifest_version}이 필요해요"
+        "PPT 슬라이드를 열려면 PowerPoint 또는 LibreOffice가 필요해요"
     )
     title_label.setStyleSheet(
         f"color: {TEXT_PRIMARY}; font-size: {FONT_HEAD}px; font-weight: {FW_SEMI};"
@@ -686,8 +686,8 @@ def flow_show_engine_preflight(
     body.addWidget(title_label)
 
     body_label = QLabel(
-        f"Flow가 자동으로 다운로드해서 앱 폴더 안에 보관할 수 있어요 (~{size_mb}MB).\n"
-        "시스템에는 설치되지 않아요."
+        f"원하시면 Flow가 LibreOffice {manifest_version}을 자동으로 받아 줄 수 있어요 "
+        f"(~{size_mb}MB). 시스템에는 설치되지 않고, 앱 폴더 안에만 보관해요."
     )
     body_label.setWordWrap(True)
     body_label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: {FONT_MD}px;")
