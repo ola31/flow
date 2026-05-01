@@ -1376,6 +1376,38 @@ class SongListWidget(QWidget):
             self.refresh_list()
             if self._main_window:
                 self._main_window._mark_dirty()
+
+            # 슬라이드 형식 선택 (마크다운 / PPT)
+            choice, ok_choice = QInputDialog.getItem(
+                self,
+                "새 곡 형식",
+                "어떤 형식으로 시작할까요?",
+                ["마크다운 (텍스트)", "PowerPoint (PPT)"],
+                0,
+                False,
+            )
+            if not ok_choice:
+                # 사용자 취소 — 폴더는 이미 생성됨, 그대로 둠
+                # (PPT 가져오기 등으로 이후 진행 가능)
+                return
+
+            if choice.startswith("마크다운"):
+                template = (
+                    "---\n"
+                    "main_size: 56\n"
+                    "sub_size: 18\n"
+                    "background: \"#000000\"\n"
+                    "---\n"
+                    "\n"
+                    f"# {song.name}\n"
+                    "\n"
+                    "## 1절\n"
+                    "\n"
+                    "첫 슬라이드 가사\n"
+                )
+                song.markdown_path.write_text(template, encoding="utf-8")
+                self._open_markdown_editor(song)
+            # else: PPT — 사용자가 외부 도구로 .pptx 생성 또는 'PPT 가져오기' 사용
         except Exception as e:
             QMessageBox.warning(self, "오류", f"곡 생성 실패: {e}")
 
