@@ -765,6 +765,7 @@ class _StandalonePanel(QWidget):
 
     sheet_selected = Signal(object)     # ScoreSheet
     add_sheet_requested = Signal()
+    edit_markdown_requested = Signal()
     import_ppt_requested = Signal()
     open_ppt_requested = Signal()
 
@@ -803,6 +804,17 @@ class _StandalonePanel(QWidget):
         )
         self._btn_open_ppt.clicked.connect(self.open_ppt_requested.emit)
         layout.addWidget(self._btn_open_ppt)
+
+        # 마크다운 편집 — 인앱 에디터로 slides.md 편집
+        self._btn_edit_md = QPushButton("마크다운 편집")
+        self._btn_edit_md.setFixedHeight(34)
+        self._btn_edit_md.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_edit_md.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_edit_md.setToolTip(
+            "이 곡의 slides.md를 인앱 에디터로 편집합니다 (없으면 생성)"
+        )
+        self._btn_edit_md.clicked.connect(self.edit_markdown_requested.emit)
+        layout.addWidget(self._btn_edit_md)
 
         # PPT 가져오기 — 글로벌 ghost 스타일 사용
         self._btn_ppt = QPushButton("PPT 가져오기")
@@ -1135,6 +1147,7 @@ class SongListWidget(QWidget):
         panel.add_sheet_requested.connect(self._on_add_sheet_clicked)
         panel.import_ppt_requested.connect(self._on_import_ppt_clicked)
         panel.open_ppt_requested.connect(self._on_open_ppt_clicked)
+        panel.edit_markdown_requested.connect(self._on_edit_markdown_clicked)
 
         # PPT 파일이 존재하는 경우에만 "PPT 편집 열기" 버튼 활성화
         panel._btn_open_ppt.setEnabled(
@@ -1439,6 +1452,40 @@ class SongListWidget(QWidget):
     def _on_import_ppt_clicked(self) -> None:
         if self._project and self._project.selected_songs:
             self._import_song_ppt(self._project.selected_songs[0])
+
+    def _on_edit_markdown_clicked(self) -> None:
+        """단독 곡 편집 모드: 이 곡의 slides.md를 인앱 에디터로 편집.
+
+        파일이 없으면 starter 템플릿을 생성한 뒤 띄움.
+        """
+        if not self._project or not self._project.selected_songs:
+            return
+        song = self._project.selected_songs[0]
+
+        if not song.markdown_path.exists():
+            template = (
+                "---\n"
+                "main_size: 56\n"
+                "sub_size: 18\n"
+                "background: \"#000000\"\n"
+                "---\n"
+                "\n"
+                f"# {song.name}\n"
+                "\n"
+                "## 1절\n"
+                "\n"
+                "첫 슬라이드 가사\n"
+            )
+            try:
+                song.markdown_path.write_text(template, encoding="utf-8")
+            except Exception as e:
+                from flow.ui.dialogs import flow_warning
+                flow_warning(
+                    self, "오류", f"마크다운 파일 생성 실패:\n{e}"
+                )
+                return
+
+        self._open_markdown_editor(song)
 
     def _on_open_ppt_clicked(self) -> None:
         """단독 곡 편집 모드: 이 곡의 slides.pptx를 OS 기본 프로그램으로 열기.
