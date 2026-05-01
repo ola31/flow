@@ -12,6 +12,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from flow.services.slide_converter import (
+    MarkdownSlideConverter,
     NoConverterAvailableError,
     SlideConverter,
     create_slide_converter,
@@ -118,11 +119,23 @@ class SlideWorker(QThread):
             finally:
                 self._task_queue.task_done()
 
+    def _count_slides(self, path: Path) -> int:
+        """Counts slides using the converter for .md, python-pptx for .pptx.
+
+        Only the MarkdownSlideConverter exposes get_slide_count; the .md
+        branch is therefore only reached when this worker holds one.
+        """
+        if str(path).lower().endswith(".md"):
+            converter = self._converter
+            count = converter.get_slide_count(path)  # type: ignore[attr-defined]
+            return int(count)
+        prs = Presentation(str(path))
+        return len(prs.slides)
+
     def _handle_single_load(self, path: Path):
         self.status.emit("PPT 파일 읽기 중...")
         try:
-            prs = Presentation(str(path))
-            slide_count = len(prs.slides)
+            slide_count = self._count_slides(path)
             engine_info = self._converter.get_engine_name()
 
             if slide_count > 0:
@@ -147,9 +160,8 @@ class SlideWorker(QThread):
                 return
             count = 0
             try:
-                prs = Presentation(str(abs_p))
-                count = len(prs.slides)
-            except:
+                count = self._count_slides(abs_p)
+            except Exception:
                 pass
             results.append((name, count))
 
@@ -211,6 +223,12 @@ class SlideManager(QObject):
         else:
             self._worker = None
 
+        # Markdown converter is always available — no external deps
+        self._markdown_converter = MarkdownSlideConverter()
+        self._markdown_worker = SlideWorker(self._markdown_converter)
+        self._connect_worker(self._markdown_worker)
+        self._markdown_worker.start()
+
         # 외부 PowerPoint 편집 중 파일 watcher 일시 중지 플래그
         self._watch_paused: bool = False
 
@@ -219,8 +237,9 @@ class SlideManager(QObject):
         return self._converter is not None
 
     def stop_workers(self):
-        if self._worker is not None:
-            self._worker.abort_current_task()
+        for worker in (self._worker, self._markdown_worker):
+            if worker is not None:
+                worker.abort_current_task()
 
     def is_watch_paused(self) -> bool:
         return self._watch_paused
@@ -285,6 +304,12 @@ class SlideManager(QObject):
         self._connect_worker(self._worker)
         self._worker.start()
 
+    def _worker_for(self, path: Path) -> SlideWorker | None:
+        """Return the worker matching the file's extension."""
+        if str(path).lower().endswith(".md"):
+            return self._markdown_worker
+        return self._worker
+
     def load_pptx(self, path: str | Path):
         p = Path(path).resolve() if path and str(path).strip() else None
         if not p or not p.is_file():
@@ -293,14 +318,15 @@ class SlideManager(QObject):
             self.load_finished.emit(0)
             return
 
-        if self._converter is None:
+        worker = self._worker_for(p)
+        if worker is None:
             self.engine_missing.emit()
             self.load_finished.emit(0)
             return
 
         self._pptx_path = p
         self.load_started.emit()
-        self._worker.add_task(PPTTask(PPTTask.LOAD_SINGLE, p))
+        worker.add_task(PPTTask(PPTTask.LOAD_SINGLE, p))
 
     def _on_single_load_finished(self, count: int):
         self._slide_count = count
@@ -324,13 +350,17 @@ class SlideManager(QObject):
             self.load_finished.emit(0)
             return
 
-        if self._converter is None:
+        # Dispatch by first song's extension; mixed batches are uncommon and
+        # picking the wrong worker would only bite the .md vs .pptx mismatch.
+        first_path = song_data_list[0][1]
+        worker = self._worker_for(first_path)
+        if worker is None:
             self.engine_missing.emit()
             self.load_finished.emit(0)
             return
 
         self.songs_metadata_started.emit()
-        self._worker.add_task(PPTTask(PPTTask.LOAD_METADATA, song_data_list))
+        worker.add_task(PPTTask(PPTTask.LOAD_METADATA, song_data_list))
 
     def _on_metadata_loaded(self, results: list[tuple[str, int]]):
         if not self._songs:
@@ -401,8 +431,9 @@ class SlideManager(QObject):
 
     def shutdown(self):
         self.stop_watching()
-        if self._worker is not None:
-            self._worker.stop()
+        for worker in (self._worker, self._markdown_worker):
+            if worker is not None:
+                worker.stop()
         for w in self._old_workers:
             if w.isRunning():
                 w.stop()
@@ -434,14 +465,18 @@ class SlideManager(QObject):
         self._total_slide_count = offset
 
     def reload_song(self, song):
-        if song.has_slides and self._converter is None:
-            self.engine_missing.emit()
-            return
+        if song.has_slides:
+            worker = self._worker_for(song.abs_slides_path)
+            if worker is None:
+                self.engine_missing.emit()
+                return
+        else:
+            worker = None
         if self._songs:
             if song.has_slides:
                 self._pending_reload_song = song
                 self.load_started.emit()
-                self._worker.add_task(
+                worker.add_task(
                     PPTTask(PPTTask.LOAD_SINGLE, song.abs_slides_path)
                 )
             else:
@@ -450,7 +485,7 @@ class SlideManager(QObject):
                 self.load_finished.emit(self._total_slide_count)
         elif song.has_slides:
             self.load_started.emit()
-            self._worker.add_task(PPTTask(PPTTask.LOAD_SINGLE, song.abs_slides_path))
+            worker.add_task(PPTTask(PPTTask.LOAD_SINGLE, song.abs_slides_path))
 
     def reload_all_songs(self):
         if self._converter is None:
