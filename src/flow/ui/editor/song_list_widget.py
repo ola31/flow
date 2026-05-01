@@ -1417,10 +1417,18 @@ class SongListWidget(QWidget):
         파워포인트가 튕기거나 저장에 실패할 수 있음. 대응:
           1) 진행 중인 슬라이드 변환 작업 중단 (stop_workers)
           2) 편집 워크플로우 안내 다이얼로그 (Cancel 가능)
+
+        markdown 곡인 경우 OS 셸 대신 인앱 MarkdownEditor를 띄움.
         """
         if not self._project or not self._project.selected_songs:
             return
         song = self._project.selected_songs[0]
+
+        # markdown 곡: 인앱 에디터로 분기
+        if getattr(song, "slide_source", "pptx") == "markdown":
+            self._open_markdown_editor(song)
+            return
+
         pptx_path = song.abs_slides_path
         from flow.ui.dialogs import flow_warning, flow_question
         if not pptx_path.exists():
@@ -1467,6 +1475,20 @@ class SongListWidget(QWidget):
                 "열기 실패",
                 f"PPT 파일을 여는 데 실패했습니다:\n{pptx_path}",
             )
+
+    def _open_markdown_editor(self, song) -> None:
+        """markdown 곡 전용 인앱 에디터를 모달 다이얼로그로 띄움."""
+        from PySide6.QtWidgets import QDialog, QVBoxLayout
+
+        from flow.ui.editor.markdown_editor import MarkdownEditor
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"마크다운 편집 — {song.name}")
+        dlg.resize(1200, 800)
+        layout = QVBoxLayout(dlg)
+        editor = MarkdownEditor(song.markdown_path)
+        layout.addWidget(editor)
+        dlg.exec()
 
     def _set_song_image(self, song: Song) -> None:
         import shutil
