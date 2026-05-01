@@ -552,7 +552,7 @@ def flow_input_text(
 
 # ─── 설치 안내 다이얼로그 ───────────────────────────────────────────────────
 
-_LIBREOFFICE_URL = "https://www.libreoffice.org/download/download/"
+_LIBREOFFICE_URL = "https://www.libreoffice.org/download/"
 
 _INSTALL_GUIDE_BY_OS: dict[str, dict[str, str]] = {
     "win32": {
