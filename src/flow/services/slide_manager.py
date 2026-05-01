@@ -419,9 +419,22 @@ class SlideManager(QObject):
         self.stop_watching()
         self._pptx_path = self._pptx_path.resolve()
         self._observer = Observer()
-        handler = SlideUpdateHandler(self._pptx_path, self.file_changed.emit)
+        handler = SlideUpdateHandler(self._pptx_path, self._on_watch_event)
         self._observer.schedule(handler, str(self._pptx_path.parent), recursive=False)
         self._observer.start()
+
+    def _on_watch_event(self) -> None:
+        """Watcher callback. Invalidates markdown cache before emitting.
+
+        For .md files, the in-memory render cache must be cleared before any
+        listener responds to ``file_changed`` so a re-render reads fresh
+        content from disk.
+        """
+        if self._pptx_path is not None and str(self._pptx_path).lower().endswith(
+            ".md"
+        ):
+            self._markdown_converter.invalidate_cache(self._pptx_path)
+        self.file_changed.emit()
 
     def stop_watching(self):
         if self._observer:
