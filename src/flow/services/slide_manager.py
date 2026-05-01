@@ -497,32 +497,49 @@ class SlideManager(QObject):
         self._total_slide_count = offset
 
     def reload_song(self, song):
-        if song.has_slides:
-            worker = self._worker_for(song.abs_slides_path)
-            if worker is None:
-                self.engine_missing.emit()
-                return
+        # markdown 우선, 없으면 PPT, 둘 다 없으면 0장 처리
+        source = getattr(song, "slide_source", None)
+        if source == "markdown":
+            target_path = song.markdown_path
+        elif source == "pptx" or (source is None and song.has_slides):
+            target_path = song.abs_slides_path
         else:
-            worker = None
-        if self._songs:
-            if song.has_slides:
-                self._pending_reload_song = song
-                self.load_started.emit()
-                worker.add_task(
-                    PPTTask(PPTTask.LOAD_SINGLE, song.abs_slides_path)
-                )
-            else:
+            target_path = None
+
+        if target_path is None:
+            if self._songs:
                 song.set_slide_count(0)
                 self._recalculate_offsets()
                 self.load_finished.emit(self._total_slide_count)
-        elif song.has_slides:
-            self.load_started.emit()
-            worker.add_task(PPTTask(PPTTask.LOAD_SINGLE, song.abs_slides_path))
+            return
 
-    def reload_all_songs(self):
-        if self._converter is None:
+        worker = self._worker_for(target_path)
+        if worker is None:
             self.engine_missing.emit()
             return
+
+        # markdown converter 캐시는 source 변경 가능성에 대비해 invalidate
+        if source == "markdown":
+            self._markdown_converter.invalidate_cache(target_path)
+
         if self._songs:
+            self._pending_reload_song = song
+        self.load_started.emit()
+        worker.add_task(PPTTask(PPTTask.LOAD_SINGLE, target_path))
+
+    def reload_all_songs(self):
+        if not self._songs:
+            return
+        # 곡 중에 PPT가 하나라도 있으면 PPT 엔진 필요
+        has_pptx = any(
+            getattr(s, "slide_source", None) == "pptx" or
+            (getattr(s, "slide_source", None) is None and s.has_slides)
+            for s in self._songs
+        )
+        if has_pptx and self._converter is None:
+            self.engine_missing.emit()
+            return
+        if self._converter is not None:
             self._converter.clear_cache()
-            self.load_songs(self._songs)
+        self._markdown_converter.clear_cache()
+        self.load_songs(self._songs)
