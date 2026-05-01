@@ -40,6 +40,18 @@ def _extract_tar_gz(archive: Path, target_dir: Path) -> None:
     except tarfile.TarError as exc:
         raise ExtractionError(f"tar.gz extraction failed: {exc}") from exc
 
+    # If the archive wrapped everything in a single top-level directory,
+    # strip that wrapper so callers don't need to know its exact name.
+    # LibreOffice tarballs use a build-version-suffixed name (e.g.
+    # LibreOffice_26.2.2.2_Linux_x86-64_deb/) that doesn't match the
+    # marketing version we pin in the manifest.
+    entries = list(target_dir.iterdir())
+    if len(entries) == 1 and entries[0].is_dir():
+        wrapper = entries[0]
+        for child in wrapper.iterdir():
+            shutil.move(str(child), str(target_dir / child.name))
+        wrapper.rmdir()
+
 
 def _extract_dmg(archive: Path, target_dir: Path) -> None:
     """Mount .dmg, copy LibreOffice.app into target_dir, unmount."""

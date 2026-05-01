@@ -189,7 +189,10 @@ def test_install_full_flow(tmp_path: Path) -> None:
         tf.add(src / "myproj", arcname="myproj")
     archive_bytes = archive_bytes_path.read_bytes()
 
-    build = _make_build(archive_bytes, "myproj/program/soffice")
+    # soffice_relpath is relative to the post-strip layout — the wrapping
+    # 'myproj/' dir is stripped during extraction, so the binary ends up
+    # at program/soffice (not myproj/program/soffice).
+    build = _make_build(archive_bytes, "program/soffice")
     runtime_dir = tmp_path / "rt"
 
     progress_log: list[tuple[str, int, str]] = []
@@ -200,7 +203,7 @@ def test_install_full_flow(tmp_path: Path) -> None:
     rt = LibreOfficeRuntime(
         runtime_dir=runtime_dir,
         manifest_version="9.9.9",
-        soffice_relpath="myproj/program/soffice",
+        soffice_relpath="program/soffice",
     )
 
     response = MagicMock()
@@ -212,7 +215,7 @@ def test_install_full_flow(tmp_path: Path) -> None:
         rt.install(build, on_progress=progress, cancel_event=threading.Event())
 
     assert (runtime_dir / "INSTALLED_VERSION").read_text() == "9.9.9"
-    assert (runtime_dir / "9.9.9" / "myproj" / "program" / "soffice").exists()
+    assert (runtime_dir / "9.9.9" / "program" / "soffice").exists()
     assert rt.is_current()
     assert rt.get_soffice_path() is not None
     phases = {p for p, _, _ in progress_log}

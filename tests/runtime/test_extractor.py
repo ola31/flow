@@ -26,15 +26,34 @@ def _make_tar_gz(tmp_path: Path, files: dict[str, str]) -> Path:
     return archive
 
 
-def test_extract_tar_gz(tmp_path: Path) -> None:
+def test_extract_tar_gz_strips_single_top_dir(tmp_path: Path) -> None:
+    """A single wrapping directory inside the tar is stripped after extract.
+
+    LibreOffice tarballs wrap everything in a build-version-suffixed dir
+    (e.g. LibreOffice_26.2.2.2_Linux_x86-64_deb/) that doesn't match the
+    marketing version we pin, so callers should see the contents directly.
+    """
     archive = _make_tar_gz(tmp_path, {
         "myproj/program/soffice": "#!/bin/sh\n",
         "myproj/README": "hello",
     })
     target = tmp_path / "out"
     extract_archive(archive, target, format="tar_gz")
-    assert (target / "myproj/program/soffice").exists()
-    assert (target / "myproj/README").read_text() == "hello"
+    assert (target / "program/soffice").exists()
+    assert (target / "README").read_text() == "hello"
+    assert not (target / "myproj").exists()
+
+
+def test_extract_tar_gz_keeps_multiple_top_entries(tmp_path: Path) -> None:
+    """When the archive doesn't have a single wrapping dir, leave layout as-is."""
+    archive = _make_tar_gz(tmp_path, {
+        "program/soffice": "#!/bin/sh\n",
+        "README": "hello",
+    })
+    target = tmp_path / "out"
+    extract_archive(archive, target, format="tar_gz")
+    assert (target / "program/soffice").exists()
+    assert (target / "README").read_text() == "hello"
 
 
 def test_extract_corrupted_tar_gz_raises(tmp_path: Path) -> None:

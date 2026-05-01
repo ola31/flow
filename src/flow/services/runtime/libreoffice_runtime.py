@@ -182,12 +182,22 @@ class LibreOfficeRuntime:
                     shutil.rmtree(final_version_dir)
                 staging.rename(final_version_dir)
 
+                # Sanity check: the soffice binary must exist where the
+                # manifest says it does. Catches manifest/extractor mismatches
+                # before INSTALLED_VERSION gets written and locks in a broken
+                # install that quietly returns None from get_soffice_path().
+                soffice = final_version_dir / build.soffice_relpath
+                if not soffice.exists():
+                    shutil.rmtree(final_version_dir, ignore_errors=True)
+                    raise RuntimeError(
+                        f"install layout mismatch: expected soffice at "
+                        f"{build.soffice_relpath} but not found in extracted tree"
+                    )
+
                 # Ensure soffice is executable on Linux/macOS
                 if sys.platform != "win32":
-                    soffice = final_version_dir / build.soffice_relpath
-                    if soffice.exists():
-                        st = soffice.stat()
-                        soffice.chmod(st.st_mode | 0o111)
+                    st = soffice.stat()
+                    soffice.chmod(st.st_mode | 0o111)
 
                 # Phase 4: atomic INSTALLED_VERSION write
                 on_progress("finalize", 99, "마무리 중...")

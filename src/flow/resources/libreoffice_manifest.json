@@ -8,14 +8,14 @@
       "sha256": "aa2815afe97e45dc02e446c43e24232f1d78941aee1081c95d871e05d74062e8",
       "size_bytes": 216796400,
       "format": "tar_gz",
-      "soffice_relpath": "LibreOffice_26.2.2_Linux_x86-64_deb/program/soffice"
+      "soffice_relpath": "program/soffice"
     },
     "linux-aarch64": {
       "url": "https://download.documentfoundation.org/libreoffice/stable/26.2.2/deb/aarch64/LibreOffice_26.2.2_Linux_aarch64_deb.tar.gz",
       "sha256": "748403f78d6147c2af2a049f9cf913e553b191dd0a8cfea47f5cb12c1c221a2c",
       "size_bytes": 205212793,
       "format": "tar_gz",
-      "soffice_relpath": "LibreOffice_26.2.2_Linux_aarch64_deb/program/soffice"
+      "soffice_relpath": "program/soffice"
     },
     "macos-x86_64": {
       "url": "https://download.documentfoundation.org/libreoffice/stable/26.2.2/mac/x86_64/LibreOffice_26.2.2_MacOS_x86-64.dmg",
