@@ -112,27 +112,43 @@ def parse(text: str) -> SongSpec:
 
 
 def _parse_slides(body: str) -> list[Slide]:
-    """Split body into slide blocks separated by blank lines.
+    """Split body into slide blocks.
 
-    Lines starting with '#' (title or sections) are skipped — they delimit
-    sections but aren't slide content. Each remaining non-blank block of
-    consecutive lines becomes one slide.
+    Tracks section sub default (:: syntax) and per-slide sub override (> syntax).
     """
     slides: list[Slide] = []
     current_lines: list[str] = []
+    current_section_default: str | None = None
 
     def flush() -> None:
+        nonlocal current_lines
         if not current_lines:
             return
+        sub_override: str | None = None
+        if current_lines[-1].lstrip().startswith("> "):
+            sub_override = current_lines[-1].lstrip()[2:].strip()
+            current_lines = current_lines[:-1]
         main = "\n".join(current_lines).rstrip()
-        if main:
-            slides.append(Slide(main=main, sub_override=None, section_sub_default=None))
-        current_lines.clear()
+        if main or sub_override:
+            slides.append(Slide(
+                main=main,
+                sub_override=sub_override,
+                section_sub_default=current_section_default,
+            ))
+        current_lines = []
 
     for line in body.splitlines():
         stripped = line.strip()
-        if stripped.startswith("#"):
+        if stripped.startswith("# ") and not stripped.startswith("## "):
             flush()
+            continue
+        if stripped.startswith("## "):
+            flush()
+            section_text = stripped[3:].strip()
+            if "::" in section_text:
+                current_section_default = section_text.split("::", 1)[1].strip()
+            else:
+                current_section_default = None
             continue
         if not stripped:
             flush()

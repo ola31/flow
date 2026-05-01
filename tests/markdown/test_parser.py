@@ -100,3 +100,58 @@ def test_title_line_not_part_of_first_slide() -> None:
     spec = parse("# 어떤 곡\n\n첫 가사\n")
     assert len(spec.slides) == 1
     assert spec.slides[0].main == "첫 가사"
+
+
+def test_sub_override_attached_to_slide() -> None:
+    text = "# T\n\n첫 슬라이드\n둘째 줄\n> sub for slide\n"
+    spec = parse(text)
+    assert len(spec.slides) == 1
+    assert spec.slides[0].main == "첫 슬라이드\n둘째 줄"
+    assert spec.slides[0].sub_override == "sub for slide"
+
+
+def test_sub_override_only_when_last_line() -> None:
+    """A `>` line in the middle of a slide is just main text, not sub override."""
+    text = "# T\n\n첫 줄\n> middle quote\n셋째 줄\n"
+    spec = parse(text)
+    assert len(spec.slides) == 1
+    assert spec.slides[0].main == "첫 줄\n> middle quote\n셋째 줄"
+    assert spec.slides[0].sub_override is None
+
+
+def test_section_sub_default_applies_to_following_slides() -> None:
+    text = """\
+# T
+
+## 1절 :: 어떤 곡 1절
+
+첫 슬라이드
+
+다음 슬라이드
+
+## 후렴
+
+후렴 슬라이드
+"""
+    spec = parse(text)
+    assert len(spec.slides) == 3
+    assert spec.slides[0].section_sub_default == "어떤 곡 1절"
+    assert spec.slides[1].section_sub_default == "어떤 곡 1절"
+    assert spec.slides[2].section_sub_default is None  # ## 후렴 has no ::
+
+
+def test_section_without_double_colon_clears_default() -> None:
+    text = """\
+# T
+
+## 1절 :: 어떤 곡 1절
+
+첫
+
+## 후렴
+
+둘째
+"""
+    spec = parse(text)
+    assert spec.slides[0].section_sub_default == "어떤 곡 1절"
+    assert spec.slides[1].section_sub_default is None
