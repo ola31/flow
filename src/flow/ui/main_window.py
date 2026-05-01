@@ -804,6 +804,8 @@ class MainWindow(QMainWindow):
                     f"새 곡이 프로젝트에 추가되었습니다: {name}", 3000
                 )
 
+                self._prompt_song_format(new_song)
+
             except Exception as e:
                 QMessageBox.critical(self, "오류", f"곡을 생성할 수 없습니다:\n{e}")
 
@@ -837,15 +839,69 @@ class MainWindow(QMainWindow):
                 self._show_editor()
                 self._statusbar.showMessage(f"새 곡이 생성되었습니다: {name}")
 
-                QMessageBox.information(
-                    self,
-                    "새 곡 편집 시작",
-                    f"'{name}' 곡이 생성되었습니다.\n\n"
-                    "1. 왼쪽 하단의 '+ 시트(이미지) 추가' 버튼으로 악보 이미지를 등록하세요.\n"
-                    "2. 'PPT 가져오기' 버튼으로 슬라이드 파일을 등록하면 매핑을 시작할 수 있습니다.",
-                )
+                # 슬라이드 형식 선택 (standalone 모드에서도 동일하게)
+                if self._project.selected_songs:
+                    self._prompt_song_format(self._project.selected_songs[0])
+                else:
+                    QMessageBox.information(
+                        self,
+                        "새 곡 편집 시작",
+                        f"'{name}' 곡이 생성되었습니다.\n\n"
+                        "1. 왼쪽 하단의 '+ 시트(이미지) 추가' 버튼으로 악보 이미지를 등록하세요.\n"
+                        "2. 'PPT 가져오기' 버튼으로 슬라이드 파일을 등록하면 매핑을 시작할 수 있습니다.",
+                    )
             except Exception as e:
                 QMessageBox.critical(self, "오류", f"곡을 생성할 수 없습니다:\n{e}")
+
+    def _prompt_song_format(self, song) -> None:
+        """새 곡 생성 후 슬라이드 형식(마크다운/PPT) 선택 다이얼로그.
+
+        마크다운 선택 시 starter 템플릿 생성 후 인앱 에디터 띄움.
+        취소 또는 PPT 선택 시 그대로 둠 (기존 PPT 가져오기 등 흐름 사용).
+        """
+        from PySide6.QtWidgets import QInputDialog
+
+        choice, ok = QInputDialog.getItem(
+            self,
+            "새 곡 형식",
+            "슬라이드를 어떤 형식으로 시작할까요?",
+            ["마크다운 (텍스트 기반)", "PowerPoint (PPT 가져오기)"],
+            0,
+            False,
+        )
+        if not ok or not choice.startswith("마크다운"):
+            return
+
+        template = (
+            "---\n"
+            "main_size: 56\n"
+            "sub_size: 18\n"
+            "background: \"#000000\"\n"
+            "---\n"
+            "\n"
+            f"# {song.name}\n"
+            "\n"
+            "## 1절\n"
+            "\n"
+            "첫 슬라이드 가사\n"
+        )
+        try:
+            song.markdown_path.write_text(template, encoding="utf-8")
+        except Exception as e:
+            QMessageBox.warning(self, "오류", f"마크다운 파일 생성 실패: {e}")
+            return
+
+        from PySide6.QtWidgets import QDialog
+
+        from flow.ui.editor.markdown_editor import MarkdownEditor
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"마크다운 편집 — {song.name}")
+        dlg.resize(1200, 800)
+        layout = QVBoxLayout(dlg)
+        editor = MarkdownEditor(song.markdown_path)
+        layout.addWidget(editor)
+        dlg.exec()
 
     def _enter_song_edit_mode(self, song) -> None:
         if self._is_live:
