@@ -191,3 +191,52 @@ def _extract_title(body: str) -> str:
         if line.startswith("# ") and not line.startswith("## "):
             return line[2:].strip()
     return ""
+
+
+@dataclass(frozen=True)
+class ResolvedAttrs:
+    """Final attributes for a slide after cascading frontmatter + overrides."""
+
+    main_font: str
+    main_size: int
+    main_color: str
+    sub_font: str
+    sub_size: int
+    sub_color: str
+    background: str
+    sub_text: str  # already-resolved sub text (override > section default > title)
+
+
+def resolve_attrs(spec: SongSpec, slide: Slide) -> ResolvedAttrs:
+    """Cascade slide overrides over frontmatter; resolve sub_text by priority."""
+    fm = spec.frontmatter
+    o = slide.overrides
+
+    def get_str(key: str, default: str) -> str:
+        v = o.get(key)
+        return v if isinstance(v, str) else default
+
+    def get_int(key: str, default: int) -> int:
+        try:
+            v = o.get(key)
+            return int(v) if v is not None else default
+        except (TypeError, ValueError):
+            return default
+
+    if slide.sub_override is not None:
+        sub_text = slide.sub_override
+    elif slide.section_sub_default is not None:
+        sub_text = slide.section_sub_default
+    else:
+        sub_text = spec.title
+
+    return ResolvedAttrs(
+        main_font=get_str("main_font", fm.main_font),
+        main_size=get_int("main_size", fm.main_size),
+        main_color=get_str("main_color", fm.main_color),
+        sub_font=get_str("sub_font", fm.sub_font),
+        sub_size=get_int("sub_size", fm.sub_size),
+        sub_color=get_str("sub_color", fm.sub_color),
+        background=get_str("background", fm.background),
+        sub_text=sub_text,
+    )

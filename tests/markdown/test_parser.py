@@ -189,3 +189,60 @@ def test_slide_override_with_sub() -> None:
     assert spec.slides[0].overrides == {"main_size": 72}
     assert spec.slides[0].main == "강조"
     assert spec.slides[0].sub_override == "custom sub"
+
+
+from flow.services.markdown.parser import resolve_attrs  # noqa: E402
+
+
+def test_resolve_uses_frontmatter_when_no_overrides() -> None:
+    spec = parse("# T\n\n가사\n")
+    attrs = resolve_attrs(spec, spec.slides[0])
+    assert attrs.main_font == spec.frontmatter.main_font
+    assert attrs.main_size == spec.frontmatter.main_size
+    assert attrs.main_color == spec.frontmatter.main_color
+    assert attrs.background == spec.frontmatter.background
+    assert attrs.sub_text == "T"  # falls back to title
+
+
+def test_resolve_slide_override_wins() -> None:
+    text = "# T\n\n{main_size: 72, main_color: \"#FFD700\"}\n강조\n"
+    spec = parse(text)
+    attrs = resolve_attrs(spec, spec.slides[0])
+    assert attrs.main_size == 72
+    assert attrs.main_color == "#FFD700"
+    # sub_size/font fall through to frontmatter
+    assert attrs.sub_size == spec.frontmatter.sub_size
+
+
+def test_resolve_sub_text_priority() -> None:
+    text = """\
+# 곡 제목
+
+## 1절 :: 곡 제목 1절
+
+기본
+> 직접 적은 sub
+
+기본만
+"""
+    spec = parse(text)
+    # First slide has > override
+    attrs0 = resolve_attrs(spec, spec.slides[0])
+    assert attrs0.sub_text == "직접 적은 sub"
+    # Second slide uses section default
+    attrs1 = resolve_attrs(spec, spec.slides[1])
+    assert attrs1.sub_text == "곡 제목 1절"
+
+
+def test_resolve_sub_text_falls_back_to_title() -> None:
+    text = "# 곡 제목\n\n가사\n"
+    spec = parse(text)
+    attrs = resolve_attrs(spec, spec.slides[0])
+    assert attrs.sub_text == "곡 제목"
+
+
+def test_resolve_sub_text_empty_when_no_title() -> None:
+    text = "가사\n"
+    spec = parse(text)
+    attrs = resolve_attrs(spec, spec.slides[0])
+    assert attrs.sub_text == ""
