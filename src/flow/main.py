@@ -6,21 +6,42 @@ import faulthandler
 
 
 def _prewarm_markdown_pipeline() -> None:
-    """첫 마크다운 곡 열기의 cold-start 비용을 splash 동안 미리 지불한다.
+    """첫 곡 열기의 cold-start 비용을 splash 동안 미리 지불한다.
 
-    Qt 폰트(Pretendard) lookup, QPainter 초기화, QImage allocate,
-    markdown 파서·렌더러 import를 한 번 트리거. 실패해도 무시 — 첫
-    곡 로드가 약간 느려질 뿐 기능엔 영향 없음.
+    Qt 폰트(Pretendard) lookup, QPainter 초기화, QImage allocate, QPixmap
+    변환, markdown 파서·렌더러 import, 그리고 SlideWorker QThread 첫
+    시작을 모두 트리거. 실패해도 무시 — 첫 곡 로드가 약간 느려질 뿐
+    기능엔 영향 없음.
     """
     try:
         from pathlib import Path
 
+        from PySide6.QtGui import QImage, QPixmap
+
         from flow.services.markdown import parse, render_all
 
+        # 마크다운 파서 + Qt 폰트/페인터 워밍
         spec = parse(
             "---\nmain_size: 56\nsub_size: 18\n---\n\n# warmup\n\n샘플 가사\n"
         )
-        render_all(spec, song_dir=Path("/tmp"))
+        images = render_all(spec, song_dir=Path("/tmp"))
+
+        # 디스플레이 path 워밍 — QImage→QPixmap 변환은
+        # 슬라이드 미리보기 썸네일에서 매번 호출됨
+        if images:
+            QPixmap.fromImage(images[0])
+
+        # 이미지 로더 워밍 — 악보 시트가 보통 jpg/png. 더미 1px 이미지로
+        # 디코더 path 트리거.
+        dummy = QImage(1, 1, QImage.Format.Format_RGB32)
+        dummy.fill(0xFF000000)
+        QPixmap.fromImage(dummy)
+
+        # SlideWorker QThread 워밍 — SlideManager 인스턴스를 만들고 즉시
+        # 정리. 첫 워커 스레드 spawn / 시그널 wiring을 splash 동안 처리.
+        from flow.services.slide_manager import SlideManager
+        sm_warmup = SlideManager()
+        sm_warmup.shutdown()
     except Exception:
         pass
 
