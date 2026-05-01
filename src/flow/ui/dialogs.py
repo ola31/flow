@@ -691,7 +691,7 @@ def flow_show_engine_preflight(
     body.addWidget(body_label)
 
     license_note = QLabel(
-        "LibreOffice는 The Document Foundation의 자유 소프트웨어 (MPL 2.0)입니다.<br>"
+        "LibreOffice는 The Document Foundation의 오픈소스 소프트웨어 (MPL 2.0)입니다.<br>"
         "<a href=\"https://www.libreoffice.org/about-us/licenses/\" "
         f"style=\"color: {TEXT_SECONDARY};\">라이선스 보기</a>"
     )
