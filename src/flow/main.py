@@ -61,6 +61,13 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Flow")
     app.setApplicationVersion("0.1.0")
+    # Wayland/X11 컴포지터에 desktop entry 식별자 등록 — startup-notification
+    # 타임아웃 동안 busy cursor가 길게 남는 현상을 줄여준다.
+    try:
+        from PySide6.QtGui import QGuiApplication
+        QGuiApplication.setDesktopFileName("flow")
+    except Exception:
+        pass
 
     # Pretendard Variable 폰트 등록 — 한글+영문 통합 가변 폰트
     from flow.ui.styles import ensure_fonts_loaded
@@ -159,6 +166,10 @@ def main() -> int:
         time.sleep(0.01)
 
     window.show()
+    # 컴포지터에 윈도우 활성 신호 — Wayland startup-notification cursor가
+    # 빨리 사라지도록 도움.
+    window.activateWindow()
+    window.raise_()
 
     # [추가] 로딩 화면 종료
     if splash:
