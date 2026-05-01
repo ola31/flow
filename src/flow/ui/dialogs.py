@@ -668,9 +668,6 @@ def flow_show_engine_preflight(
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return PreflightChoice.DOWNLOAD  # auto-accept in tests
 
-    from PySide6.QtCore import QUrl
-    from PySide6.QtGui import QDesktopServices
-
     dlg = _FlowDialog(parent, title="PPT 변환 엔진 필요")
     dlg.setMinimumWidth(480)
 
@@ -694,20 +691,17 @@ def flow_show_engine_preflight(
     body.addWidget(body_label)
 
     license_note = QLabel(
-        "LibreOffice는 The Document Foundation의 자유 소프트웨어 (MPL 2.0)입니다."
+        "LibreOffice는 The Document Foundation의 자유 소프트웨어 (MPL 2.0)입니다.<br>"
+        "<a href=\"https://www.libreoffice.org/about-us/licenses/\" "
+        f"style=\"color: {TEXT_SECONDARY};\">라이선스 보기</a>"
     )
     license_note.setStyleSheet(
         f"color: {TEXT_TERTIARY}; font-size: {FONT_XS}px;"
     )
     license_note.setWordWrap(True)
+    license_note.setTextFormat(Qt.TextFormat.RichText)
+    license_note.setOpenExternalLinks(True)
     body.addWidget(license_note)
-
-    btn_license = QPushButton("라이선스 보기")
-    btn_license.clicked.connect(
-        lambda: QDesktopServices.openUrl(
-            QUrl("https://www.libreoffice.org/about-us/licenses/")
-        )
-    )
 
     btn_cancel = _make_button("취소")
     btn_install = _make_button("수동 설치 안내")
@@ -726,7 +720,7 @@ def flow_show_engine_preflight(
         lambda: (choice.update(value=PreflightChoice.DOWNLOAD), dlg.accept())
     )
 
-    dlg.add_button_row([btn_license, btn_cancel, btn_install, btn_download])
+    dlg.add_button_row([btn_cancel, btn_install, btn_download])
 
     dlg.exec()
     return choice["value"]
