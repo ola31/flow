@@ -76,6 +76,24 @@ class Song:
         """악보 폴더가 존재하는지 확인 (절대 경로 기준)"""
         return self.abs_sheets_dir.exists()
 
+    @property
+    def markdown_path(self) -> Path:
+        """slides.md absolute path."""
+        return self._resolve_abs(self.folder / "slides.md")
+
+    @property
+    def has_markdown(self) -> bool:
+        return self.markdown_path.exists()
+
+    @property
+    def slide_source(self) -> str:
+        """One of: 'markdown', 'pptx', 'none'. markdown wins if both exist."""
+        if self.has_markdown:
+            return "markdown"
+        if self.has_slides:
+            return "pptx"
+        return "none"
+
     def get_slide_count(self) -> int:
         """이 곡의 슬라이드 개수 반환"""
         return self._slide_count
