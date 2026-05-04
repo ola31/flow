@@ -84,6 +84,7 @@ class MainWindow(QMainWindow):
         repo_base = workspace.projects_dir if workspace else (Path.home() / "flow_projects")
         self._repo = ProjectRepository(repo_base)
         self._config_service = ConfigService()
+        self._sync_output_resolution()
 
         # 송출 관련
         self._display_window: DisplayWindow | None = None
@@ -298,6 +299,28 @@ class MainWindow(QMainWindow):
     def _show_launcher(self):
         self.show_home()
 
+    def _show_library_screen(self) -> None:
+        """ActivityBar의 라이브러리 버튼 → 곡 라이브러리 페이지."""
+        if self._workspace is None:
+            self.show_home()
+            return
+        self._library_screen.set_workspace(self._workspace)
+        self._stack.setCurrentWidget(self._library_screen)
+        self._toolbar.hide()
+        self._statusbar.hide()
+        self.setWindowTitle("Flow - 라이브러리")
+
+    def _show_projects_screen(self) -> None:
+        """ActivityBar의 프로젝트 버튼 → 프로젝트 페이지."""
+        if self._workspace is None:
+            self.show_home()
+            return
+        self._projects_screen.set_workspace(self._workspace)
+        self._stack.setCurrentWidget(self._projects_screen)
+        self._toolbar.hide()
+        self._statusbar.hide()
+        self.setWindowTitle("Flow - 프로젝트")
+
     def show_project(self) -> None:
         self._stack.setCurrentIndex(1)
         self._toolbar.show()
@@ -336,6 +359,8 @@ class MainWindow(QMainWindow):
         self._activity_bar = ActivityBar()
         self._activity_bar.home_requested.connect(self._close_current_project)
         self._activity_bar.settings_requested.connect(self._show_settings)
+        self._activity_bar.library_requested.connect(self._show_library_screen)
+        self._activity_bar.projects_requested.connect(self._show_projects_screen)
         central_layout.addWidget(self._activity_bar)
 
         self._stack = QStackedWidget()
@@ -353,6 +378,23 @@ class MainWindow(QMainWindow):
         self._markdown_editor_screen.back_requested.connect(self._exit_markdown_editor)
         self._stack.addWidget(self._markdown_editor_screen)
         self._markdown_editor_prev_index: int = 1  # default fallback to project
+
+        # Library / Projects browser screens
+        from flow.ui.screens.library_screen import LibraryScreen
+        from flow.ui.screens.projects_screen import ProjectsScreen
+        self._library_screen = LibraryScreen()
+        self._library_screen.song_selected.connect(self._open_song_by_path)
+        self._library_screen.new_song_requested.connect(
+            lambda: self._launcher.new_song_requested.emit()
+        )
+        self._stack.addWidget(self._library_screen)
+
+        self._projects_screen = ProjectsScreen()
+        self._projects_screen.project_selected.connect(self._open_project_by_path)
+        self._projects_screen.new_project_requested.connect(
+            lambda: self._launcher.new_project_requested.emit()
+        )
+        self._stack.addWidget(self._projects_screen)
 
         self._launcher = self._home_screen.launcher
         self._toolbar = self._project_screen.toolbar_container
@@ -1353,7 +1395,21 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             # 설정 변경 시 버튼 갱신
             self._update_verse_buttons()
+            self._sync_output_resolution()
             self._statusbar.showMessage("설정이 저장되었습니다.", 2000)
+
+    def _sync_output_resolution(self) -> None:
+        """Push the configured output resolution into the converter + md renderer.
+
+        Both modules cache target size in module globals so PPT- and
+        markdown-sourced slides stay in sync without per-call plumbing.
+        """
+        from flow.services import slide_converter
+        from flow.services.markdown import parser as md_parser
+
+        size = self._config_service.get_output_resolution()
+        slide_converter.set_target_size(size)
+        md_parser.set_default_resolution(size)
 
     def _on_verse_changed(self, verse_index: int) -> None:
         if not self._project:

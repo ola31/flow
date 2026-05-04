@@ -19,6 +19,7 @@ class ConfigService:
             "window_state": "",
             "display_screen_name": "",  # 송출 모니터 식별 (QScreen.name)
             "display_windowed_mode": False,  # 송출을 윈도우 모드로
+            "output_resolution": [1920, 1080],  # 송출/렌더 출력 해상도 [W, H]
         }
         self.load()
 
@@ -211,6 +212,22 @@ class ConfigService:
     def set_display_windowed_mode(self, windowed: bool) -> None:
         self.load()
         self._config["display_windowed_mode"] = bool(windowed)
+        self.save()
+
+    # ==== 출력 해상도 ====
+
+    def get_output_resolution(self) -> tuple[int, int]:
+        """송출/렌더 출력 해상도 (W, H). 기본 1920×1080."""
+        self.load()
+        v = self._config.get("output_resolution", [1920, 1080])
+        try:
+            return (int(v[0]), int(v[1]))
+        except (TypeError, ValueError, IndexError):
+            return (1920, 1080)
+
+    def set_output_resolution(self, width: int, height: int) -> None:
+        self.load()
+        self._config["output_resolution"] = [int(width), int(height)]
         self.save()
 
     def get_max_verses(self) -> int:

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
@@ -21,6 +21,7 @@ from flow.services.markdown import parse, render_all, render_slide
 from flow.ui.editor.markdown_frontmatter_dialog import (
     FrontmatterDialog,
     apply_frontmatter_to_text,
+    extract_raw_frontmatter,
 )
 from flow.ui.editor.markdown_highlighter import MarkdownHighlighter
 
@@ -39,7 +40,7 @@ class MarkdownEditor(QWidget):
         toolbar = QToolBar()
         save_btn = QPushButton("저장 (Ctrl+S)")
         section_btn = QPushButton("섹션 추가")
-        slide_btn = QPushButton("슬라이드 나누기")
+        slide_btn = QPushButton("슬라이드 추가")
         fm_btn = QPushButton("Frontmatter 편집")
         toolbar.addWidget(save_btn)
         toolbar.addWidget(section_btn)
@@ -79,15 +80,25 @@ class MarkdownEditor(QWidget):
         # Wire
         save_btn.clicked.connect(self.save)
         section_btn.clicked.connect(self._insert_section)
-        slide_btn.clicked.connect(self._insert_slide_break)
+        slide_btn.clicked.connect(self._insert_slide)
         fm_btn.clicked.connect(self._open_frontmatter_dialog)
         self._text_edit.cursorPositionChanged.connect(self._on_cursor_moved)
+        self._thumbs.currentRowChanged.connect(self._on_thumb_selected)
 
         # Ctrl+S shortcut
         save_sc = QShortcut(QKeySequence(Qt.Modifier.CTRL | Qt.Key.Key_S), self)
         save_sc.activated.connect(self.save)
 
-        self._render_preview()
+        # Defer first render until after layout has settled — otherwise the
+        # preview_label is still at minimumSize and the main preview comes out
+        # too small until the user clicks the editor.
+        QTimer.singleShot(0, self._render_preview)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if self._thumbs.count() > 0:
+            idx = max(0, self._thumbs.currentRow())
+            self._render_main_preview(idx)
 
     # Public API
     def text(self) -> str:
@@ -110,7 +121,12 @@ class MarkdownEditor(QWidget):
         line_num = self._text_edit.textCursor().blockNumber()
         idx = self._slide_index_at_line(line_num)
         if 0 <= idx < self._thumbs.count():
+            # setCurrentRow triggers currentRowChanged → _on_thumb_selected,
+            # which handles the preview render.
             self._thumbs.setCurrentRow(idx)
+
+    def _on_thumb_selected(self, idx: int) -> None:
+        if 0 <= idx < self._thumbs.count():
             self._render_main_preview(idx)
 
     def _slide_index_at_line(self, line: int) -> int:
@@ -161,25 +177,49 @@ class MarkdownEditor(QWidget):
         if idx < 0 or idx >= len(spec.slides):
             return
         img = render_slide(spec, spec.slides[idx], song_dir=self._md_path.parent)
+        # HiDPI: render at device pixel density so the preview stays as crisp
+        # as the live output (which goes to the display at native resolution).
+        dpr = self._preview_label.devicePixelRatioF() or 1.0
+        label_w = self._preview_label.width()
+        label_h = self._preview_label.height()
         pix = QPixmap.fromImage(img).scaled(
-            self._preview_label.width(), self._preview_label.height(),
+            int(label_w * dpr), int(label_h * dpr),
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
-        self._preview_label.setPixmap(pix)
+        pix.setDevicePixelRatio(dpr)
+        # 검정 배경일 때 슬라이드 경계가 안 보이는 문제 보완 — 1px 흰색 outline.
+        # 알파 60으로 매우 옅게: 어두운 배경에선 살짝 보이고 밝은 배경에선 거의 안 보임.
+        bordered = QPixmap(pix.size())
+        bordered.setDevicePixelRatio(dpr)
+        bordered.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(bordered)
+        painter.drawPixmap(0, 0, pix)
+        painter.setPen(QColor(255, 255, 255, 60))
+        # Painter coordinates are logical (Qt scales internally by dpr) — use
+        # logical-pixel size, NOT device pixels (pix.width()) which would draw
+        # off-canvas on HiDPI.
+        logical_w = pix.width() / dpr
+        logical_h = pix.height() / dpr
+        painter.drawRect(0, 0, int(logical_w) - 1, int(logical_h) - 1)
+        painter.end()
+        self._preview_label.setPixmap(bordered)
 
     def _insert_section(self) -> None:
         cursor = self._text_edit.textCursor()
         cursor.insertText("\n## 새 섹션\n\n")
 
-    def _insert_slide_break(self) -> None:
+    def _insert_slide(self) -> None:
         cursor = self._text_edit.textCursor()
-        cursor.insertText("\n\n")
+        cursor.insertText(
+            "\n\n주 가사 첫 줄\n주 가사 둘째 줄\n> 보조 텍스트\n\n"
+        )
 
     def _open_frontmatter_dialog(self) -> None:
-        spec = parse(self.text())
-        dlg = FrontmatterDialog(spec.frontmatter, parent=self)
+        text = self.text()
+        raw = extract_raw_frontmatter(text)
+        dlg = FrontmatterDialog(original_raw=raw, parent=self)
         if dlg.exec() == FrontmatterDialog.DialogCode.Accepted:
-            new_fm = dlg.result_frontmatter()
-            new_text = apply_frontmatter_to_text(self.text(), new_fm)
+            new_raw = dlg.result_raw()
+            new_text = apply_frontmatter_to_text(self.text(), new_raw)
             self._text_edit.setPlainText(new_text)

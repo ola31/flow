@@ -3,14 +3,35 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QRect, Qt
-from PySide6.QtGui import QColor, QFont, QImage, QPainter
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontMetricsF,
+    QImage,
+    QPainter,
+    QTextBlockFormat,
+    QTextCharFormat,
+    QTextCursor,
+    QTextDocument,
+)
 
 from flow.services.markdown.parser import ResolvedAttrs, Slide, SongSpec, resolve_attrs
 
 logger = logging.getLogger(__name__)
+
+_APP_ASSET_PREFIX = "@app/"
+
+
+def _app_assets_dir() -> Path:
+    """Resolve the bundled assets dir (handles PyInstaller frozen + dev mode)."""
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS) / "assets"  # type: ignore[attr-defined]
+    # repo root: src/flow/services/markdown/renderer.py → parents[3] is repo root
+    return Path(__file__).resolve().parents[4] / "assets"
 
 
 def _pt_to_px(
@@ -31,8 +52,7 @@ def _pt_to_px(
 
 
 # Layout constants (proportions of slide canvas)
-_MAIN_TOP = 0.363
-_MAIN_HEIGHT = 0.296   # 36.3% → 65.9%
+# Main text is centered around slide midpoint (50%) — height computed dynamically.
 _SUB_TOP = 0.897
 _SUB_HEIGHT = 0.083    # 89.7% → 98.0%
 _SUB_LEFT = 0.27
@@ -45,9 +65,10 @@ def render_slide(spec: SongSpec, slide: Slide, *, song_dir: Path) -> QImage:
     img = QImage(width, height, QImage.Format.Format_RGB32)
 
     attrs = resolve_attrs(spec, slide)
+    background = _effective_background(spec, slide, attrs)
     painter = QPainter(img)
     try:
-        _draw_background(painter, img, attrs.background, song_dir)
+        _draw_background(painter, img, background, song_dir)
         _draw_main_text(painter, img, slide.main, attrs, spec.frontmatter)
         _draw_sub_text(painter, img, attrs.sub_text, attrs, spec.frontmatter)
     finally:
@@ -55,16 +76,30 @@ def render_slide(spec: SongSpec, slide: Slide, *, song_dir: Path) -> QImage:
     return img
 
 
+def _effective_background(spec: SongSpec, slide: Slide, attrs: ResolvedAttrs) -> str:
+    """Pick background. Slide override wins; else 3+ line slides use background_3plus."""
+    if "background" in slide.overrides:
+        return attrs.background
+    n_lines = len(slide.main.split("\n")) if slide.main else 0
+    fm = spec.frontmatter
+    if n_lines >= fm.multiline_threshold and fm.background_3plus:
+        return fm.background_3plus
+    return attrs.background
+
+
 def _draw_background(
     painter: QPainter, target: QImage, background: str, song_dir: Path
 ) -> None:
-    """Background can be a hex color or an image path (relative to song_dir)."""
+    """Background can be a hex color, app asset (`@app/<name>`), or image path."""
     if _is_color(background):
         painter.fillRect(target.rect(), QColor(background))
         return
 
-    bg_path = Path(background)
-    img_path = bg_path if bg_path.is_absolute() else (song_dir / background)
+    if background.startswith(_APP_ASSET_PREFIX):
+        img_path = _app_assets_dir() / background[len(_APP_ASSET_PREFIX):]
+    else:
+        bg_path = Path(background)
+        img_path = bg_path if bg_path.is_absolute() else (song_dir / background)
     if not img_path.exists():
         logger.warning("background image not found: %s", img_path)
         painter.fillRect(target.rect(), QColor("#000000"))
@@ -112,27 +147,71 @@ def _draw_main_text(
     attrs: ResolvedAttrs,
     fm,
 ) -> None:
+    """Draw main text via QTextDocument so we can control line + paragraph spacing.
+
+    Each newline becomes a separate paragraph. Spacing between paragraphs adds
+    `fm.para_spacing` pt; line height inside a paragraph is `fm.line_spacing`× the
+    font's natural height. Vertical placement is either centered around mid-slide
+    or anchored to `fm.text_bottom_pct` of slide height (PPT-style bottom anchor).
+    """
     if not text:
         return
     w, h = target.width(), target.height()
-    box = QRect(
-        0,
-        int(h * _MAIN_TOP),
-        w,
-        int(h * _MAIN_HEIGHT),
-    )
     px = _pt_to_px(
         attrs.main_size, slide_inches=fm.slide_inches, resolution=fm.resolution
     )
+    para_px = _pt_to_px(
+        fm.para_spacing, slide_inches=fm.slide_inches, resolution=fm.resolution
+    )
+    lines = text.split("\n")
+    if len(lines) >= fm.multiline_threshold:
+        line_spacing = fm.line_spacing_3plus
+        text_bottom_pct = fm.text_bottom_pct_3plus
+    else:
+        line_spacing = fm.line_spacing
+        text_bottom_pct = fm.text_bottom_pct
     font = QFont(attrs.main_font)
     font.setPixelSize(max(1, int(px)))
-    painter.setFont(font)
-    painter.setPen(QColor(attrs.main_color))
-    painter.drawText(
-        box,
-        int(Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap),
-        text,
-    )
+
+    doc = QTextDocument()
+    doc.setDefaultFont(font)
+    doc.setTextWidth(w)
+    doc.setDocumentMargin(0)
+
+    cf = QTextCharFormat()
+    cf.setForeground(QColor(attrs.main_color))
+
+    cursor = QTextCursor(doc)
+    for i, line in enumerate(lines):
+        bf = QTextBlockFormat()
+        bf.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        bf.setLineHeight(
+            line_spacing * 100,
+            int(QTextBlockFormat.LineHeightTypes.ProportionalHeight.value),
+        )
+        if i > 0:
+            bf.setTopMargin(para_px)
+            cursor.insertBlock(bf)
+        else:
+            cursor.setBlockFormat(bf)
+        cursor.setCharFormat(cf)
+        cursor.insertText(line)
+
+    doc_h = doc.size().height()
+    # Qt ProportionalHeight splits extra leading above/below each line, so the
+    # first line carries only HALF the (line_spacing - 1) leading at its top.
+    # Subtract that from doc_h before bottom-anchoring to match PPT's behavior.
+    natural_lh = QFontMetricsF(font).height()
+    first_line_leading = natural_lh * max(0.0, line_spacing - 1.0) * 0.7
+    if fm.text_anchor == "bottom":
+        y = h * text_bottom_pct - doc_h + first_line_leading
+    else:
+        y = (h - doc_h) / 2 + first_line_leading / 2
+
+    painter.save()
+    painter.translate(0, y)
+    doc.drawContents(painter)
+    painter.restore()
 
 
 def _draw_sub_text(

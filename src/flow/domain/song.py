@@ -50,6 +50,11 @@ class Song:
         return p.resolve()
 
     @property
+    def abs_folder(self) -> Path:
+        """곡 폴더의 절대 경로"""
+        return self._resolve_abs(self.folder)
+
+    @property
     def abs_slides_path(self) -> Path:
         """슬라이드 파일의 절대 경로"""
         p = self.slides_path or (self.folder / "slides.pptx")

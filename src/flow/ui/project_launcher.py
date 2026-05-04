@@ -44,12 +44,18 @@ def _song_status(song_path: str) -> tuple[str, str, str]:
         for f in d.iterdir()
     )
     has_ppt = (p / "slides.pptx").exists()
+    has_md = (p / "slides.md").exists()
+    has_slides = has_ppt or has_md
 
-    if has_sheet and has_ppt:
+    if has_sheet and has_slides:
+        if has_md and not has_ppt:
+            return "마크다운", "악보 · 마크다운 슬라이드 준비완료", GREEN
         return "준비완료", "악보 · PPT 준비완료", GREEN
     if has_sheet:
-        return "PPT 없음", "PPT 없음", AMBER
-    if has_ppt:
+        return "슬라이드 없음", "슬라이드 없음 (PPT/마크다운 모두 없음)", AMBER
+    if has_slides:
+        if has_md and not has_ppt:
+            return "악보 없음", "악보 없음 (마크다운 곡)", AMBER
         return "악보 없음", "악보 없음", AMBER
     return "미설정", "아직 설정 안 됨", TEXT_TERTIARY
 
@@ -582,8 +588,12 @@ class ProjectLauncher(QWidget):
             self.song_selected.emit(path)
 
     def _on_open_song_clicked(self) -> None:
+        # 워크스페이스가 있으면 library 폴더에서 시작 — 사용자가 흔히 거기서 고름.
+        start_dir = ""
+        if self._workspace is not None:
+            start_dir = str(self._workspace.library_dir)
         folder = QFileDialog.getExistingDirectory(
-            self, "곡 폴더 선택", "", QFileDialog.Option.ShowDirsOnly
+            self, "곡 폴더 선택", start_dir, QFileDialog.Option.ShowDirsOnly
         )
         if not folder:
             return

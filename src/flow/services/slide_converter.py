@@ -63,6 +63,23 @@ def _get_project_root() -> Path:
 
 _GLOBAL_CONVERT_LOCK = threading.Lock()
 
+# Target output resolution for PDF→PNG conversion.
+# Synced to ConfigService.get_output_resolution() via set_target_size() at app
+# startup so PPT- and markdown-sourced slides share the same target.
+_target_size: tuple[int, int] = (1920, 1080)
+
+
+def set_target_size(size: tuple[int, int]) -> None:
+    """Set target output resolution for converted slide images."""
+    global _target_size
+    _target_size = (int(size[0]), int(size[1]))
+
+# Target output resolution for converted slide images. Matches the markdown
+# renderer's default `Frontmatter.resolution` so PPT- and markdown-sourced
+# slides are visually interchangeable downstream.
+_TARGET_WIDTH = 1920
+_TARGET_HEIGHT = 1080
+
 
 def _trim_pdf_edge_artifacts(png_path: Path, max_trim: int = 3) -> None:
     """PDF→PNG 변환 시 페이지 경계로 생기는 1~2px 흰 줄을 잘라낸다.
@@ -128,14 +145,20 @@ def _convert_pdf_to_images(
                 if page_count == 0:
                     return False
 
+                target_w, target_h = _target_size
                 for i in range(page_count):
                     if status_callback:
                         status_callback(f"이미지 추출 중 ({i + 1}/{page_count})...")
 
                     page = doc.load_page(i)
 
+                    rect = page.rect  # in points (1/72 inch)
+                    sx = target_w / rect.width if rect.width > 0 else 2.0
+                    sy = target_h / rect.height if rect.height > 0 else 2.0
                     pix = page.get_pixmap(
-                        matrix=fitz.Matrix(2.0, 2.0), colorspace=fitz.csRGB, alpha=False
+                        matrix=fitz.Matrix(sx, sy),
+                        colorspace=fitz.csRGB,
+                        alpha=False,
                     )
 
                     target = cache_dir / f"slide_{i}.png"
@@ -170,7 +193,7 @@ class OnlyOfficeSlideConverter(SlideConverter):
             return None
         mtime = pptx_path.stat().st_mtime
         pptx_hash = hashlib.md5(
-            f"oo_v1_{str(pptx_path.resolve())}_{mtime}".encode()
+            f"oo_v1_{str(pptx_path.resolve())}_{mtime}_{_target_size[0]}x{_target_size[1]}".encode()
         ).hexdigest()
         return self._cache_dir / pptx_hash
 
@@ -191,7 +214,7 @@ class OnlyOfficeSlideConverter(SlideConverter):
             return QImage(1280, 720, QImage.Format.Format_RGB32)
         mtime = pptx_path.stat().st_mtime
         pptx_hash = hashlib.md5(
-            f"oo_v1_{str(pptx_path.resolve())}_{mtime}".encode()
+            f"oo_v1_{str(pptx_path.resolve())}_{mtime}_{_target_size[0]}x{_target_size[1]}".encode()
         ).hexdigest()
         pptx_cache_dir = self._cache_dir / pptx_hash
 
@@ -295,7 +318,7 @@ class WindowsSlideConverter(SlideConverter):
             return QImage(1280, 720, QImage.Format.Format_RGB32)
         mtime = pptx_path.stat().st_mtime
         pptx_hash = hashlib.md5(
-            f"win_v2_{str(pptx_path.resolve())}_{mtime}".encode()
+            f"win_v2_{str(pptx_path.resolve())}_{mtime}_{_target_size[0]}x{_target_size[1]}".encode()
         ).hexdigest()
         pptx_cache_dir = self._cache_dir / pptx_hash
 
@@ -461,7 +484,7 @@ class MacOSSlideConverter(SlideConverter):
 
         mtime = pptx_path.stat().st_mtime
         pptx_hash = hashlib.md5(
-            f"mac_v1_{str(pptx_path.resolve())}_{mtime}".encode()
+            f"mac_v1_{str(pptx_path.resolve())}_{mtime}_{_target_size[0]}x{_target_size[1]}".encode()
         ).hexdigest()
         pptx_cache_dir = self._cache_dir / pptx_hash
 
@@ -579,7 +602,7 @@ def _convert_with_libreoffice(
 
     mtime = pptx_path.stat().st_mtime
     pptx_hash = hashlib.md5(
-        f"lo_v10_{str(pptx_path.resolve())}_{mtime}".encode()
+        f"lo_v10_{str(pptx_path.resolve())}_{mtime}_{_target_size[0]}x{_target_size[1]}".encode()
     ).hexdigest()
     pptx_cache_dir = cache_dir / pptx_hash
 

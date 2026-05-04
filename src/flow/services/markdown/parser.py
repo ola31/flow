@@ -13,15 +13,23 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Frontmatter:
-    main_font: str = "Pretendard Variable"
-    main_size: int = 56
-    main_color: str = "#FFFFFF"
-    sub_font: str = "Pretendard Variable"
-    sub_size: int = 18
-    sub_color: str = "#CCCCCC"
-    background: str = "#000000"
-    slide_inches: tuple[float, float] = (13.333, 7.5)
+    main_font: str = "Pretendard Medium"
+    main_size: int = 38
+    main_color: str = "#F0F0F0"
+    sub_font: str = "Pretendard Light"
+    sub_size: int = 20
+    sub_color: str = "#F0F0F0"
+    background: str = "@app/default_bg.jpg"
+    background_3plus: str = "@app/default_bg_3plus.jpg"  # auto-applied for 3+ line slides
+    slide_inches: tuple[float, float] = (11.024, 6.201)  # 28 × 15.75 cm (16:9)
     resolution: tuple[int, int] = (1920, 1080)
+    line_spacing: float = 1.3              # multiplier (1–2 line slides)
+    para_spacing: float = 10.0             # pt — extra space before each paragraph
+    text_anchor: str = "bottom"            # "center" | "bottom"
+    text_bottom_pct: float = 0.659         # baseline fraction (anchor=bottom, 1–2 line)
+    line_spacing_3plus: float = 1.5        # multiplier (3+ line slides — PPT 2_기본값)
+    text_bottom_pct_3plus: float = 0.736   # baseline fraction (3+ line slides)
+    multiline_threshold: int = 3           # line count that triggers _3plus values
 
 
 @dataclass(frozen=True)
@@ -41,6 +49,17 @@ class SongSpec:
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _OVERRIDE_RE = re.compile(r"\A\{(.+)\}\s*\Z")
+
+# Effective default resolution when frontmatter omits it.
+# Synced to ConfigService.get_output_resolution() via set_default_resolution()
+# at app startup so PPT- and markdown-sourced slides share the same target.
+_default_resolution: tuple[int, int] = (1920, 1080)
+
+
+def set_default_resolution(resolution: tuple[int, int]) -> None:
+    """Override the default resolution used when frontmatter omits `resolution`."""
+    global _default_resolution
+    _default_resolution = (int(resolution[0]), int(resolution[1]))
 
 
 def _parse_overrides(line: str) -> dict[str, Any] | None:
@@ -84,14 +103,21 @@ def _parse_int(v: Any, default: int) -> int:
         return default
 
 
+def _parse_float(v: Any, default: float) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
 def _parse_str(v: Any, default: str) -> str:
     return v if isinstance(v, str) else default
 
 
 def _build_frontmatter(raw: dict[str, Any] | None) -> Frontmatter:
     if not raw:
-        return Frontmatter()
-    d = Frontmatter()
+        return Frontmatter(resolution=_default_resolution)
+    d = Frontmatter(resolution=_default_resolution)
     return Frontmatter(
         main_font=_parse_str(raw.get("main_font"), d.main_font),
         main_size=_parse_int(raw.get("main_size"), d.main_size),
@@ -100,8 +126,22 @@ def _build_frontmatter(raw: dict[str, Any] | None) -> Frontmatter:
         sub_size=_parse_int(raw.get("sub_size"), d.sub_size),
         sub_color=_parse_str(raw.get("sub_color"), d.sub_color),
         background=_parse_str(raw.get("background"), d.background),
+        background_3plus=_parse_str(raw.get("background_3plus"), d.background_3plus),
         slide_inches=_parse_inches(raw.get("slide_inches"), d.slide_inches),
         resolution=_parse_resolution(raw.get("resolution"), d.resolution),
+        line_spacing=_parse_float(raw.get("line_spacing"), d.line_spacing),
+        para_spacing=_parse_float(raw.get("para_spacing"), d.para_spacing),
+        text_anchor=_parse_str(raw.get("text_anchor"), d.text_anchor),
+        text_bottom_pct=_parse_float(raw.get("text_bottom_pct"), d.text_bottom_pct),
+        line_spacing_3plus=_parse_float(
+            raw.get("line_spacing_3plus"), d.line_spacing_3plus
+        ),
+        text_bottom_pct_3plus=_parse_float(
+            raw.get("text_bottom_pct_3plus"), d.text_bottom_pct_3plus
+        ),
+        multiline_threshold=_parse_int(
+            raw.get("multiline_threshold"), d.multiline_threshold
+        ),
     )
 
 

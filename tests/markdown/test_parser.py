@@ -44,14 +44,14 @@ resolution: "1920x1080"
 def test_frontmatter_defaults_when_missing() -> None:
     spec = parse("# T\n\n가사\n")
     fm = spec.frontmatter
-    assert fm.main_font == "Pretendard Variable"
-    assert fm.main_size == 56
-    assert fm.main_color == "#FFFFFF"
-    assert fm.sub_font == "Pretendard Variable"
-    assert fm.sub_size == 18
-    assert fm.sub_color == "#CCCCCC"
-    assert fm.background == "#000000"
-    assert fm.slide_inches == (13.333, 7.5)
+    assert fm.main_font == "Pretendard Medium"
+    assert fm.main_size == 38
+    assert fm.main_color == "#F0F0F0"
+    assert fm.sub_font == "Pretendard Light"
+    assert fm.sub_size == 20
+    assert fm.sub_color == "#F0F0F0"
+    assert fm.background == "@app/default_bg.jpg"
+    assert fm.slide_inches == (11.024, 6.201)
     assert fm.resolution == (1920, 1080)
 
 
@@ -68,8 +68,8 @@ slide_inches: "garbage"
 """
     spec = parse(text)
     # Invalid values fall back to defaults
-    assert spec.frontmatter.main_size == 56
-    assert spec.frontmatter.slide_inches == (13.333, 7.5)
+    assert spec.frontmatter.main_size == 38
+    assert spec.frontmatter.slide_inches == (11.024, 6.201)
 
 
 def test_two_slide_blocks() -> None:

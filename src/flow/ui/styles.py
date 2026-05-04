@@ -156,6 +156,16 @@ GLOBAL_STYLESHEET = f"""
         font-weight: {FW_REGULAR};
     }}
 
+    /* 툴팁 — 어두운 테마 매칭. 기본은 검정 박스라 디자인을 깨뜨림. */
+    QToolTip {{
+        background-color: {BG_ELEVATED};
+        color: {TEXT_PRIMARY};
+        border: 1px solid {BORDER_STANDARD_RGBA};
+        border-radius: {RADIUS_SM}px;
+        padding: 4px 8px;
+        font-size: {FONT_SM}px;
+    }}
+
     QSplitter::handle {{ background-color: {BG_SURFACE}; }}
     QSplitter::handle:horizontal {{ width: 1px; }}
     QSplitter::handle:vertical {{ height: 1px; }}

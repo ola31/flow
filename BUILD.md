@@ -134,3 +134,16 @@ pyinstaller Flow.spec --noconfirm
 1. **로딩 화면 미출력**: `assets/splash.png` 파일이 있는지 확인하세요.
 2. **실행 속도**: `--onedir` 방식은 처음 실행 시 압축 해제가 없어 매우 빠릅니다.
 3. **보안 소프트웨어**: 빌드된 exe가 백신에 의해 차단될 수 있으므로, 인스톨러로 배포하고 디지털 서명을 하는 것이 좋습니다.
+
+---
+
+## TODO: 리눅스 배포
+
+리눅스용 패키지(.deb / .rpm / AppImage / Flatpak)를 만들 때 다음을 함께 포함해야 한다:
+
+- **`flow.desktop` 파일** — `/usr/share/applications/`에 설치
+  - `StartupNotify=true`, `StartupWMClass=flow` 필수
+  - `main.py`의 `setDesktopFileName("flow")`와 매칭되어야 GNOME/KDE 컴포지터가 앱 launch 시 띄우는 busy cursor를 즉시 클리어함
+  - 없으면 첫 실행 시 마우스 커서가 spinner로 ~20–30초 떠 있음 (Wayland startup-notification timeout)
+- **PNG/SVG 아이콘** — `.ico`는 리눅스 표준이 아님. `assets/icon.ico`를 PNG로도 export 필요
+- 데스크탑 환경 메뉴/도크 검색 가능해짐

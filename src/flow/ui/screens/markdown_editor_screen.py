@@ -17,13 +17,12 @@ from flow.ui.styles import (
     BG_DEEP,
     BG_SURFACE,
     BORDER_SUBTLE_RGBA,
-    FONT_LG,
-    FW_SEMI,
     SP_LG,
     SP_MD,
     SP_SM,
     TEXT_PRIMARY,
     TEXT_SECONDARY,
+    TEXT_TERTIARY,
 )
 
 
@@ -68,10 +67,10 @@ class MarkdownEditorScreen(QWidget):
         self._btn_back.clicked.connect(self.back_requested.emit)
         h.addWidget(self._btn_back)
 
-        self._title_label = QLabel("마크다운 편집")
+        # 곡 이름만 작게 표시 — "마크다운 편집"은 자명하므로 생략.
+        self._title_label = QLabel("")
         self._title_label.setStyleSheet(
-            f"color: {TEXT_PRIMARY}; "
-            f"font-size: {FONT_LG}px; font-weight: {FW_SEMI};"
+            f"color: {TEXT_TERTIARY}; font-size: 12px;"
         )
         h.addWidget(self._title_label)
         h.addStretch()
@@ -89,7 +88,7 @@ class MarkdownEditorScreen(QWidget):
         """Replace the current editor with a new one for the given song."""
         self._md_path = song.markdown_path
         self._song_name = song.name
-        self._title_label.setText(f"마크다운 편집 — {song.name}")
+        self._title_label.setText(song.name)
 
         # Tear down previous editor
         if self._editor is not None:

@@ -53,10 +53,16 @@ def _song_status(song: Song) -> dict:
     has_sheets = any(bool(s.image_path) for s in song.score_sheets)
 
     has_ppt = False
+    has_md = False
     if song.project_dir and song.folder:
-        has_ppt = (song.project_dir / song.folder / "slides.pptx").exists()
-    elif hasattr(song, "has_slides"):
-        has_ppt = song.has_slides
+        song_dir = song.project_dir / song.folder
+        has_ppt = (song_dir / "slides.pptx").exists()
+        has_md = (song_dir / "slides.md").exists()
+    else:
+        if hasattr(song, "has_slides"):
+            has_ppt = song.has_slides
+        if hasattr(song, "has_markdown"):
+            has_md = song.has_markdown
 
     total_hs = sum(len(s.hotspots) for s in song.score_sheets)
     mapped_hs = sum(
@@ -69,6 +75,7 @@ def _song_status(song: Song) -> dict:
     return {
         "has_sheets": has_sheets,
         "has_ppt": has_ppt,
+        "has_md": has_md,
         "total_hotspots": total_hs,
         "mapped_hotspots": mapped_hs,
     }
@@ -89,8 +96,9 @@ def _scan_library_song(song_dir: Path) -> dict:
             )
     result["sheet_count"] = sheet_count
 
-    # PPT 확인
+    # PPT / 마크다운 확인
     result["has_ppt"] = (song_dir / "slides.pptx").exists()
+    result["has_md"] = (song_dir / "slides.md").exists()
 
     # song.json에서 핫스팟 수 확인
     total_hs, mapped_hs = 0, 0
@@ -167,12 +175,15 @@ class _LibrarySongCard(QFrame):
             s_lbl.setStyleSheet(_dim)
         status_row.addWidget(s_lbl)
 
-        # PPT
+        # 슬라이드 (PPT / 마크다운 / 없음)
         if info["has_ppt"]:
             p_lbl = QLabel("PPT")
             p_lbl.setStyleSheet(_ok)
+        elif info.get("has_md"):
+            p_lbl = QLabel("마크다운")
+            p_lbl.setStyleSheet(_ok)
         else:
-            p_lbl = QLabel("PPT 없음")
+            p_lbl = QLabel("슬라이드 없음")
             p_lbl.setStyleSheet(_dim)
         status_row.addWidget(p_lbl)
 
@@ -632,8 +643,12 @@ class _SongCard(QFrame):
 
         _set(self._lbl_sheets, "악보" if st["has_sheets"] else "악보 없음",
              GREEN if st["has_sheets"] else AMBER)
-        _set(self._lbl_ppt, "PPT" if st["has_ppt"] else "PPT 없음",
-             GREEN if st["has_ppt"] else AMBER)
+        if st["has_ppt"]:
+            _set(self._lbl_ppt, "PPT", GREEN)
+        elif st.get("has_md"):
+            _set(self._lbl_ppt, "마크다운", GREEN)
+        else:
+            _set(self._lbl_ppt, "슬라이드 없음", AMBER)
 
         total = st["total_hotspots"]
         mapped = st["mapped_hotspots"]
@@ -766,8 +781,8 @@ class _StandalonePanel(QWidget):
     sheet_selected = Signal(object)     # ScoreSheet
     add_sheet_requested = Signal()
     edit_markdown_requested = Signal()
-    import_ppt_requested = Signal()
     open_ppt_requested = Signal()
+    open_folder_requested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -794,11 +809,30 @@ class _StandalonePanel(QWidget):
 
         layout.addStretch()
 
-        # PPT 편집 열기 — 글로벌 ghost 스타일 사용
-        self._btn_open_ppt = QPushButton("PPT 편집 열기")
+        # 페이지 카드(P1, P2…)와 동작 버튼 그룹 시각적 분리
+        divider = QFrame()
+        divider.setFrameShape(QFrame.Shape.HLine)
+        divider.setFixedHeight(1)
+        divider.setStyleSheet(
+            f"background: {BORDER_SUBTLE_RGBA}; border: none;"
+        )
+        layout.addWidget(divider)
+        layout.addSpacing(SP_SM)
+
+        from flow.ui.icons import icon_qicon
+        from PySide6.QtCore import QSize
+        _icon_size = QSize(16, 16)
+        # 텍스트 길이가 달라도 아이콘 위치를 통일하기 위한 좌측 정렬 + 일정 padding.
+        _icon_btn_qss = "QPushButton { text-align: left; padding-left: 14px; }"
+
+        # PPT 편집 — 글로벌 ghost 스타일 사용
+        self._btn_open_ppt = QPushButton("PPT 편집")
+        self._btn_open_ppt.setIcon(icon_qicon("slideshow", size=16, color=TEXT_PRIMARY))
+        self._btn_open_ppt.setIconSize(_icon_size)
         self._btn_open_ppt.setFixedHeight(34)
         self._btn_open_ppt.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_open_ppt.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_open_ppt.setStyleSheet(_icon_btn_qss)
         self._btn_open_ppt.setToolTip(
             "이 곡의 slides.pptx를 기본 프로그램(PowerPoint 등)으로 엽니다"
         )
@@ -807,22 +841,33 @@ class _StandalonePanel(QWidget):
 
         # 마크다운 편집 — 인앱 에디터로 slides.md 편집
         self._btn_edit_md = QPushButton("마크다운 편집")
+        self._btn_edit_md.setIcon(icon_qicon("edit_note", size=16, color=TEXT_PRIMARY))
+        self._btn_edit_md.setIconSize(_icon_size)
         self._btn_edit_md.setFixedHeight(34)
         self._btn_edit_md.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_edit_md.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_edit_md.setStyleSheet(_icon_btn_qss)
         self._btn_edit_md.setToolTip(
             "이 곡의 slides.md를 인앱 에디터로 편집합니다 (없으면 생성)"
         )
         self._btn_edit_md.clicked.connect(self.edit_markdown_requested.emit)
         layout.addWidget(self._btn_edit_md)
 
-        # PPT 가져오기 — 글로벌 ghost 스타일 사용
-        self._btn_ppt = QPushButton("PPT 가져오기")
-        self._btn_ppt.setFixedHeight(34)
-        self._btn_ppt.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_ppt.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_ppt.clicked.connect(self.import_ppt_requested.emit)
-        layout.addWidget(self._btn_ppt)
+        # 곡 폴더 열기 — OS 파일 관리자
+        self._btn_open_folder = QPushButton("곡 폴더 열기")
+        self._btn_open_folder.setIcon(
+            icon_qicon("folder_open", size=16, color=TEXT_PRIMARY)
+        )
+        self._btn_open_folder.setIconSize(_icon_size)
+        self._btn_open_folder.setFixedHeight(34)
+        self._btn_open_folder.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_open_folder.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_open_folder.setStyleSheet(_icon_btn_qss)
+        self._btn_open_folder.setToolTip(
+            "이 곡의 폴더를 OS 파일 관리자에서 엽니다"
+        )
+        self._btn_open_folder.clicked.connect(self.open_folder_requested.emit)
+        layout.addWidget(self._btn_open_folder)
 
         # 악보 이미지 추가 버튼 — 패널 내 Primary CTA
         self._btn_add = QPushButton("＋  악보 이미지 추가")
@@ -832,6 +877,17 @@ class _StandalonePanel(QWidget):
         self._btn_add.setProperty("variant", "primary")
         self._btn_add.clicked.connect(self.add_sheet_requested.emit)
         layout.addWidget(self._btn_add)
+
+        # 곡 폴더 경로 표시 (가장 하단, tertiary 텍스트)
+        self._path_label = QLabel("")
+        self._path_label.setStyleSheet(
+            f"color: {TEXT_TERTIARY}; font-size: 10px; padding-top: 6px;"
+        )
+        self._path_label.setWordWrap(True)
+        self._path_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        layout.addWidget(self._path_label)
 
     def set_song(self, song: Song | None, current_sheet_id: str | None = None) -> None:
         self._song = song
@@ -851,9 +907,14 @@ class _StandalonePanel(QWidget):
 
         if not self._song:
             self._song_name.setText("—")
+            self._path_label.setText("")
             return
 
         self._song_name.setText(self._song.name)
+        try:
+            self._path_label.setText(str(self._song.abs_folder))
+        except Exception:
+            self._path_label.setText("")
         valid_sheets = [s for s in self._song.score_sheets if s.image_path]
 
         for i, sheet in enumerate(valid_sheets):
@@ -1145,24 +1206,27 @@ class SongListWidget(QWidget):
         panel.set_song(song, current_id)
         panel.sheet_selected.connect(self._on_sheet_selected_direct)
         panel.add_sheet_requested.connect(self._on_add_sheet_clicked)
-        panel.import_ppt_requested.connect(self._on_import_ppt_clicked)
         panel.open_ppt_requested.connect(self._on_open_ppt_clicked)
         panel.edit_markdown_requested.connect(self._on_edit_markdown_clicked)
+        panel.open_folder_requested.connect(self._on_open_folder_clicked)
 
-        # PPT 파일이 존재하는 경우에만 "PPT 편집 열기" 버튼 활성화
-        panel._btn_open_ppt.setEnabled(
-            bool(song and song.has_slides)
-        )
-        if song and not song.has_slides:
-            panel._btn_open_ppt.setToolTip("PPT 파일이 없습니다. 먼저 PPT 가져오기로 추가하세요.")
-
-        # "마크다운 편집" 버튼은 PPT 곡(slides.pptx만 있고 markdown 없음)에선
-        # 숨김 — 실수로 markdown을 만들어 PPT를 가리는 사고 방지.
+        # PPT/마크다운 상호 배타: 곡 폴더에 실제로 있는 형식만 활성화.
+        # 한쪽이 있는 곡에 다른 형식 버튼을 누르면 새 파일이 생성되며 기존
+        # 형식을 덮어쓰는 사고가 일어날 수 있어 둘 다 disabled로 명시한다.
         if song is not None:
-            is_pptx_only = song.has_slides and not song.has_markdown
-            panel._btn_edit_md.setVisible(not is_pptx_only)
+            panel._btn_open_ppt.setEnabled(song.has_slides)
+            if not song.has_slides:
+                panel._btn_open_ppt.setToolTip(
+                    "이 곡은 PPT가 없습니다 (마크다운 곡)."
+                )
+            panel._btn_edit_md.setEnabled(not (song.has_slides and not song.has_markdown))
+            if song.has_slides and not song.has_markdown:
+                panel._btn_edit_md.setToolTip(
+                    "이 곡은 PPT 슬라이드를 사용합니다. 마크다운으로 전환하려면 PPT를 먼저 제거하세요."
+                )
         else:
-            panel._btn_edit_md.setVisible(False)
+            panel._btn_open_ppt.setEnabled(False)
+            panel._btn_edit_md.setEnabled(False)
 
         self._standalone_panel = panel
         self._cards_layout.insertWidget(self._cards_layout.count() - 1, panel)
@@ -1457,10 +1521,6 @@ class SongListWidget(QWidget):
         if self._project and self._project.selected_songs:
             self._set_song_image(self._project.selected_songs[0])
 
-    def _on_import_ppt_clicked(self) -> None:
-        if self._project and self._project.selected_songs:
-            self._import_song_ppt(self._project.selected_songs[0])
-
     def _on_edit_markdown_clicked(self) -> None:
         """단독 곡 편집 모드: 이 곡의 slides.md를 인앱 에디터로 편집.
 
@@ -1495,6 +1555,26 @@ class SongListWidget(QWidget):
 
         self._open_markdown_editor(song)
 
+    def _on_open_folder_clicked(self) -> None:
+        """단독 곡 편집 모드: 이 곡의 폴더를 OS 파일 관리자에서 열기."""
+        if not self._project or not self._project.selected_songs:
+            return
+        song = self._project.selected_songs[0]
+        folder = song.abs_folder
+        if not folder.exists():
+            from flow.ui.dialogs import flow_warning
+            flow_warning(self, "폴더 없음", f"곡 폴더가 존재하지 않습니다:\n{folder}")
+            return
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))):
+            from flow.ui.dialogs import flow_warning
+            flow_warning(
+                self,
+                "열기 실패",
+                f"폴더를 여는 데 실패했습니다:\n{folder}",
+            )
+
     def _on_open_ppt_clicked(self) -> None:
         """단독 곡 편집 모드: 이 곡의 slides.pptx를 OS 기본 프로그램으로 열기.
 
@@ -1503,17 +1583,10 @@ class SongListWidget(QWidget):
         파워포인트가 튕기거나 저장에 실패할 수 있음. 대응:
           1) 진행 중인 슬라이드 변환 작업 중단 (stop_workers)
           2) 편집 워크플로우 안내 다이얼로그 (Cancel 가능)
-
-        markdown 곡인 경우 OS 셸 대신 인앱 MarkdownEditor를 띄움.
         """
         if not self._project or not self._project.selected_songs:
             return
         song = self._project.selected_songs[0]
-
-        # markdown 곡: 인앱 에디터로 분기
-        if getattr(song, "slide_source", "pptx") == "markdown":
-            self._open_markdown_editor(song)
-            return
 
         pptx_path = song.abs_slides_path
         from flow.ui.dialogs import flow_warning, flow_question
@@ -1522,7 +1595,7 @@ class SongListWidget(QWidget):
                 self,
                 "PPT 없음",
                 f"이 곡에 연결된 PPT 파일이 없습니다.\n"
-                f"먼저 'PPT 가져오기'로 추가하세요.\n\n{pptx_path}",
+                f"'곡 폴더 열기'로 폴더를 연 뒤 slides.pptx를 추가하세요.\n\n{pptx_path}",
             )
             return
 
@@ -1617,33 +1690,6 @@ class SongListWidget(QWidget):
         self.select_sheet_by_id(new_sheet.id)
         if self._main_window:
             self._main_window._mark_dirty()
-
-    def _import_song_ppt(self, song: Song) -> None:
-        import shutil
-
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "PPT 파일 선택", "", "PowerPoint 파일 (*.pptx)"
-        )
-        if not file_path:
-            return
-
-        dest = song.abs_slides_path
-        if dest.exists():
-            reply = QMessageBox.question(
-                self, "덮어쓰기",
-                "이미 PPT 파일이 있습니다. 덮어쓰시겠습니까?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                return
-
-        try:
-            shutil.copy2(file_path, dest)
-            self.song_reload_requested.emit(song)
-            self.refresh_list()
-            QMessageBox.information(self, "완료", "PPT 파일을 성공적으로 가져왔습니다.")
-        except Exception as e:
-            QMessageBox.critical(self, "오류", f"파일 가져오기 실패: {e}")
 
     # ── 드롭 (외부 파일/폴더) ────────────────────────────────────────────
 

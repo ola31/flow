@@ -35,6 +35,8 @@ class ActivityBar(QFrame):
     """
 
     home_requested = Signal()
+    library_requested = Signal()
+    projects_requested = Signal()
     settings_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -56,6 +58,14 @@ class ActivityBar(QFrame):
         self._btn_home = self._make_button("home", "홈으로 이동")
         self._btn_home.clicked.connect(self.home_requested.emit)
         layout.addWidget(self._btn_home)
+
+        self._btn_projects = self._make_button("view_list", "프로젝트")
+        self._btn_projects.clicked.connect(self.projects_requested.emit)
+        layout.addWidget(self._btn_projects)
+
+        self._btn_library = self._make_button("library_music", "곡 라이브러리")
+        self._btn_library.clicked.connect(self.library_requested.emit)
+        layout.addWidget(self._btn_library)
 
         layout.addStretch()
 
