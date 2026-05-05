@@ -44,11 +44,13 @@ resolution: "1920x1080"
 def test_frontmatter_defaults_when_missing() -> None:
     spec = parse("# T\n\n가사\n")
     fm = spec.frontmatter
-    assert fm.main_font == "Pretendard Medium"
+    assert fm.main_font == "Pretendard Variable"
     assert fm.main_size == 38
+    assert fm.main_weight == 500
     assert fm.main_color == "#F0F0F0"
-    assert fm.sub_font == "Pretendard Light"
+    assert fm.sub_font == "Pretendard Variable"
     assert fm.sub_size == 20
+    assert fm.sub_weight == 300
     assert fm.sub_color == "#F0F0F0"
     assert fm.background == "@app/default_bg.jpg"
     assert fm.slide_inches == (11.024, 6.201)

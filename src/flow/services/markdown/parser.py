@@ -13,11 +13,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Frontmatter:
-    main_font: str = "Pretendard Medium"
+    # Font family: variable 폰트의 family name. weight axis 는 main_weight 로 제어.
+    main_font: str = "Pretendard Variable"
     main_size: int = 38
+    main_weight: int = 500              # 500 = Medium
     main_color: str = "#F0F0F0"
-    sub_font: str = "Pretendard Light"
+    sub_font: str = "Pretendard Variable"
     sub_size: int = 20
+    sub_weight: int = 300               # 300 = Light
     sub_color: str = "#F0F0F0"
     background: str = "@app/default_bg.jpg"
     background_3plus: str = "@app/default_bg_3plus.jpg"  # auto-applied for 3+ line slides
@@ -121,9 +124,11 @@ def _build_frontmatter(raw: dict[str, Any] | None) -> Frontmatter:
     return Frontmatter(
         main_font=_parse_str(raw.get("main_font"), d.main_font),
         main_size=_parse_int(raw.get("main_size"), d.main_size),
+        main_weight=_parse_int(raw.get("main_weight"), d.main_weight),
         main_color=_parse_str(raw.get("main_color"), d.main_color),
         sub_font=_parse_str(raw.get("sub_font"), d.sub_font),
         sub_size=_parse_int(raw.get("sub_size"), d.sub_size),
+        sub_weight=_parse_int(raw.get("sub_weight"), d.sub_weight),
         sub_color=_parse_str(raw.get("sub_color"), d.sub_color),
         background=_parse_str(raw.get("background"), d.background),
         background_3plus=_parse_str(raw.get("background_3plus"), d.background_3plus),
@@ -239,9 +244,11 @@ class ResolvedAttrs:
 
     main_font: str
     main_size: int
+    main_weight: int
     main_color: str
     sub_font: str
     sub_size: int
+    sub_weight: int
     sub_color: str
     background: str
     sub_text: str  # already-resolved sub text (override > section default > title)
@@ -273,9 +280,11 @@ def resolve_attrs(spec: SongSpec, slide: Slide) -> ResolvedAttrs:
     return ResolvedAttrs(
         main_font=get_str("main_font", fm.main_font),
         main_size=get_int("main_size", fm.main_size),
+        main_weight=get_int("main_weight", fm.main_weight),
         main_color=get_str("main_color", fm.main_color),
         sub_font=get_str("sub_font", fm.sub_font),
         sub_size=get_int("sub_size", fm.sub_size),
+        sub_weight=get_int("sub_weight", fm.sub_weight),
         sub_color=get_str("sub_color", fm.sub_color),
         background=get_str("background", fm.background),
         sub_text=sub_text,

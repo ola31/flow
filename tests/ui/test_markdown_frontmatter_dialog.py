@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from flow.ui.editor.markdown_frontmatter_dialog import (
+    FontPicker,
     FrontmatterDialog,
     SlideSizePicker,
     apply_frontmatter_to_text,
@@ -82,3 +83,39 @@ def test_dialog_writes_slide_size_when_originally_present(qtbot) -> None:
     qtbot.addWidget(dlg)
     out = dlg.result_raw()
     assert out["slide_inches"] == "11.024x6.201"
+
+
+def test_font_picker_selects_preset(qtbot) -> None:
+    fp = FontPicker()
+    qtbot.addWidget(fp)
+    fp.set_value("Pretendard Medium")
+    assert fp.value() == "Pretendard Medium"
+
+
+def test_font_picker_accepts_custom_value(qtbot) -> None:
+    fp = FontPicker()
+    qtbot.addWidget(fp)
+    fp.set_value("Noto Sans KR")
+    assert fp.value() == "Noto Sans KR"
+
+
+def test_font_picker_empty_when_unset(qtbot) -> None:
+    fp = FontPicker()
+    qtbot.addWidget(fp)
+    fp.set_value(None)
+    assert fp.value() == ""
+
+
+def test_dialog_writes_font_when_originally_present(qtbot) -> None:
+    dlg = FrontmatterDialog(original_raw={"main_font": "Pretendard Bold"})
+    qtbot.addWidget(dlg)
+    out = dlg.result_raw()
+    assert out["main_font"] == "Pretendard Bold"
+
+
+def test_dialog_skips_font_when_empty(qtbot) -> None:
+    dlg = FrontmatterDialog(original_raw={})
+    qtbot.addWidget(dlg)
+    out = dlg.result_raw()
+    assert "main_font" not in out
+    assert "sub_font" not in out

@@ -5,7 +5,10 @@ a = Analysis(
     ['src/flow/main.py'],
     pathex=[],
     binaries=[],
-    datas=[('assets', 'assets')],
+    datas=[
+        ('assets', 'assets'),
+        ('src/flow/resources', 'flow/resources'),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

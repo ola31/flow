@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QLabel,
@@ -23,6 +23,7 @@ from flow.ui.editor.markdown_frontmatter_dialog import (
     apply_frontmatter_to_text,
     extract_raw_frontmatter,
 )
+from flow.ui.editor.markdown_help_dialog import MarkdownHelpDialog
 from flow.ui.editor.markdown_highlighter import MarkdownHighlighter
 
 
@@ -42,10 +43,12 @@ class MarkdownEditor(QWidget):
         section_btn = QPushButton("섹션 추가")
         slide_btn = QPushButton("슬라이드 추가")
         fm_btn = QPushButton("Frontmatter 편집")
+        help_btn = QPushButton("도움말")
         toolbar.addWidget(save_btn)
         toolbar.addWidget(section_btn)
         toolbar.addWidget(slide_btn)
         toolbar.addWidget(fm_btn)
+        toolbar.addWidget(help_btn)
 
         # Text editor (left)
         self._text_edit = QPlainTextEdit()
@@ -58,7 +61,8 @@ class MarkdownEditor(QWidget):
         self._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._thumbs = QListWidget()
         self._thumbs.setFlow(QListWidget.Flow.LeftToRight)
-        self._thumbs.setFixedHeight(80)
+        self._thumbs.setIconSize(QSize(167, 93))
+        self._thumbs.setFixedHeight(120)
 
         right = QWidget()
         right_layout = QVBoxLayout(right)
@@ -82,6 +86,7 @@ class MarkdownEditor(QWidget):
         section_btn.clicked.connect(self._insert_section)
         slide_btn.clicked.connect(self._insert_slide)
         fm_btn.clicked.connect(self._open_frontmatter_dialog)
+        help_btn.clicked.connect(self._open_help_dialog)
         self._text_edit.cursorPositionChanged.connect(self._on_cursor_moved)
         self._thumbs.currentRowChanged.connect(self._on_thumb_selected)
 
@@ -163,7 +168,7 @@ class MarkdownEditor(QWidget):
         for i, img in enumerate(images):
             item = QListWidgetItem(f"{i + 1}")
             pix = QPixmap.fromImage(img).scaled(
-                100, 56, Qt.AspectRatioMode.KeepAspectRatio,
+                167, 93, Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
             item.setIcon(QIcon(pix))
@@ -180,8 +185,10 @@ class MarkdownEditor(QWidget):
         # HiDPI: render at device pixel density so the preview stays as crisp
         # as the live output (which goes to the display at native resolution).
         dpr = self._preview_label.devicePixelRatioF() or 1.0
-        label_w = self._preview_label.width()
-        label_h = self._preview_label.height()
+        # 슬라이드가 메인 영역을 꽉 채우지 않도록 가장자리 여백을 둔다.
+        pad = 24
+        label_w = max(1, self._preview_label.width() - 2 * pad)
+        label_h = max(1, self._preview_label.height() - 2 * pad)
         pix = QPixmap.fromImage(img).scaled(
             int(label_w * dpr), int(label_h * dpr),
             Qt.AspectRatioMode.KeepAspectRatio,
@@ -223,3 +230,6 @@ class MarkdownEditor(QWidget):
             new_raw = dlg.result_raw()
             new_text = apply_frontmatter_to_text(self.text(), new_raw)
             self._text_edit.setPlainText(new_text)
+
+    def _open_help_dialog(self) -> None:
+        MarkdownHelpDialog(parent=self).exec()

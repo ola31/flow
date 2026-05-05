@@ -143,6 +143,20 @@ def test_pt_to_pixel_with_smaller_canvas() -> None:
     assert px == pytest.approx(174, abs=1)
 
 
+def test_resolve_font_maps_static_pretendard_to_variable() -> None:
+    from flow.services.markdown.renderer import resolve_font
+    assert resolve_font("Pretendard Medium", 400) == ("Pretendard Variable", 500)
+    assert resolve_font("Pretendard Light", 700) == ("Pretendard Variable", 300)
+    assert resolve_font("Pretendard Bold", 100) == ("Pretendard Variable", 700)
+    assert resolve_font("Pretendard", 500) == ("Pretendard Variable", 400)
+
+
+def test_resolve_font_passes_through_other_fonts() -> None:
+    from flow.services.markdown.renderer import resolve_font
+    assert resolve_font("Noto Sans KR", 500) == ("Noto Sans KR", 500)
+    assert resolve_font("Pretendard Variable", 500) == ("Pretendard Variable", 500)
+
+
 def test_render_all_returns_one_image_per_slide(qapp, tmp_path: Path) -> None:
     from flow.services.markdown.parser import parse
     from flow.services.markdown.renderer import render_all

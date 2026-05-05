@@ -25,6 +25,34 @@ logger = logging.getLogger(__name__)
 
 _APP_ASSET_PREFIX = "@app/"
 
+# Pretendard static family name → variable font 의 weight 값.
+# 사용자가 `Pretendard Medium` 같은 익숙한 이름을 쓰면 시스템에 그 static
+# 폰트가 없어도 번들된 PretendardVariable.ttf 의 해당 weight 로 자동 매핑된다.
+_PRETENDARD_WEIGHT_MAP: dict[str, int] = {
+    "Pretendard Thin": 100,
+    "Pretendard ExtraLight": 200,
+    "Pretendard Light": 300,
+    "Pretendard": 400,
+    "Pretendard Regular": 400,
+    "Pretendard Medium": 500,
+    "Pretendard SemiBold": 600,
+    "Pretendard Bold": 700,
+    "Pretendard ExtraBold": 800,
+    "Pretendard Black": 900,
+}
+
+
+def resolve_font(name: str, weight: int) -> tuple[str, int]:
+    """Map static Pretendard names to ('Pretendard Variable', implied weight).
+
+    For non-Pretendard fonts, return inputs unchanged. The implied weight from
+    the static name takes precedence over `weight` since the user's intent is
+    expressed by the family name.
+    """
+    if name in _PRETENDARD_WEIGHT_MAP:
+        return ("Pretendard Variable", _PRETENDARD_WEIGHT_MAP[name])
+    return (name, weight)
+
 
 def _app_assets_dir() -> Path:
     """Resolve the bundled assets dir (handles PyInstaller frozen + dev mode)."""
@@ -170,8 +198,12 @@ def _draw_main_text(
     else:
         line_spacing = fm.line_spacing
         text_bottom_pct = fm.text_bottom_pct
-    font = QFont(attrs.main_font)
+    family, eff_weight = resolve_font(attrs.main_font, attrs.main_weight)
+    font = QFont(family)
     font.setPixelSize(max(1, int(px)))
+    # Variable 폰트의 weight axis 를 명시 — "Pretendard Variable" + weight=500 →
+    # Pretendard Medium 모양으로 렌더링됨. static font name 의존을 제거.
+    font.setWeight(QFont.Weight(eff_weight))
 
     doc = QTextDocument()
     doc.setDefaultFont(font)
@@ -233,8 +265,10 @@ def _draw_sub_text(
     px = _pt_to_px(
         attrs.sub_size, slide_inches=fm.slide_inches, resolution=fm.resolution
     )
-    font = QFont(attrs.sub_font)
+    family, eff_weight = resolve_font(attrs.sub_font, attrs.sub_weight)
+    font = QFont(family)
     font.setPixelSize(max(1, int(px)))
+    font.setWeight(QFont.Weight(eff_weight))
     painter.setFont(font)
     painter.setPen(QColor(attrs.sub_color))
     painter.drawText(
