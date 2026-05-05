@@ -236,14 +236,18 @@ class OnlyOfficeSlideConverter(SlideConverter):
             # 폰트 경로 설정 (무거운 시스템 전체 스캔 대신 assets/fonts만 지정)
             root = _get_project_root()
             app_fonts = root / "assets" / "fonts"
+            # Python 3.11 호환: backslash 가 들어간 .replace() 는 f-string {} 안에
+            # 못 들어가므로 모든 경로 정규화를 위로 끌어올린다.
             fonts_dir = str(app_fonts.resolve()).replace("\\", "/")
             tmp_dir = str(pptx_cache_dir.resolve()).replace("\\", "/")
+            pptx_uri = str(pptx_path.resolve()).replace("\\", "/")
+            pdf_uri = str(pdf_path.resolve()).replace("\\", "/")
 
             script_content = f"""
             builder.SetTmpFolder("{tmp_dir}");
             builder.AddFontsDir("{fonts_dir}");
-            builder.OpenFile("{str(pptx_path.resolve()).replace("\\", "/")}");
-            builder.SaveFile("pdf", "{str(pdf_path.resolve()).replace("\\", "/")}");
+            builder.OpenFile("{pptx_uri}");
+            builder.SaveFile("pdf", "{pdf_uri}");
             builder.CloseFile();
             """
             script_path.write_text(script_content, encoding="utf-8")
