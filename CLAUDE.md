@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Companion docs to read
 
-- `AGENT.md` (한국어) and `AGENTS.md` (English) are the living project guide — design system, domain knowledge, anti-patterns. Keep them in sync when the architecture changes.
+- `AGENTS.md` is the living project guide — design system, domain knowledge, anti-patterns. Keep it in sync when the architecture changes.
 - `ROADMAP.md` — the upcoming library/projects workspace split (곡 해석 우선순위: `projects/{name}/songs/{곡}` → `library/{곡}`). `src/flow/domain/workspace.py` already exists as scaffolding for this.
 - `BUILD.md` — PyInstaller packaging (uses `Flow.spec`, `--onedir` with splash).
 
