@@ -1,149 +1,101 @@
-# Flow 애플리케이션 빌드 가이드
+# Flow 빌드 & 릴리스 가이드
 
-이 문서는 Flow 애플리케이션을 Windows 실행 파일(.exe)로 빌드하는 방법을 설명합니다.
-빌드된 exe 파일은 터미널 창 없이 바로 실행됩니다.
+## 한눈에 보기
 
-## 사전 요구사항
+```
+__init__.py 의 __version__ 수정 → git commit → git tag v0.X.Y → git push --tags
+                                                                    │
+                                                                    ▼
+                            GitHub Actions 가 Win/Mac/Linux 모두 자동 빌드
+                                                                    │
+                                                                    ▼
+                       Release v0.X.Y 페이지에 인스톨러·포터블·AppImage 첨부
+```
 
-- Python 3.10 이상
-- 가상환경 활성화 상태
+## 릴리스 절차 (정상 경로)
 
-## 빌드 도구 설치
+1. `src/flow/__init__.py` 의 `__version__` 을 다음 버전으로 올림 (예: `"0.1.0"` → `"0.2.0"`).
+   - `pyproject.toml` 은 hatchling dynamic version 으로 자동 동기화됨 — 손대지 않음.
+2. 변경 커밋 후 태그 push:
+   ```bash
+   git commit -am "release v0.2.0"
+   git tag v0.2.0
+   git push origin main --tags
+   ```
+3. GitHub Actions (`.github/workflows/release.yml`) 가 트리거됨 — 약 8~15분 소요.
+4. 끝나면 `Releases` 탭에 새 릴리스가 만들어지고 다음 파일들이 첨부됨:
 
-> ⚠️ **중요**: 반드시 가상환경(`.venv`)을 활성화한 상태에서 PyInstaller를 설치하세요!  
-> 시스템 Python에 설치하면 가상환경의 패키지들을 찾지 못합니다.
+| 플랫폼 | 파일 | 사용법 |
+|---|---|---|
+| Windows | `Flow-Setup-{ver}.exe` | 더블클릭 → 마법사로 설치 (Program Files 등록, 시작 메뉴, 제어판 삭제 가능) |
+| Windows | `Flow-portable-{ver}.zip` | 압축 해제 → `Flow.exe` 실행. 설치/레지스트리 사용 안 함 |
+| macOS (Apple Silicon) | `Flow-macOS-{ver}.zip` | 압축 해제 → `Flow.app` 더블클릭. **첫 실행은 우클릭 → 열기** (미서명) |
+| Linux (x86_64) | `Flow-{ver}-x86_64.AppImage` | `chmod +x` 후 실행. 어느 배포판에서나 동작 |
+
+## 미리 알아둘 점
+
+- **macOS 코드 서명/노타리제이션 없음** — Apple Developer ID ($99/년) 가 없는 상태라 사용자가 처음 열 때 "확인되지 않은 개발자" 경고가 뜨고, 우클릭→열기로 한 번 승인해야 함. 정식 배포 전에 노타리제이션 추가 권장.
+- **macOS는 Apple Silicon (arm64) 만 빌드** — Intel Mac 에서는 실행되지 않음. 필요해지면 워크플로우 matrix 에 `macos-13` 추가.
+- **Linux 는 ubuntu-22.04 빌드** — glibc 2.35+ 환경에서 동작. 더 오래된 배포판이 필요하면 ubuntu-20.04 로 낮추거나 별도 매트릭스 추가.
+
+## 로컬 빌드 (테스트용)
+
+CI 와 동일한 흐름을 로컬에서 돌려 검증할 수 있습니다.
+
+### Windows
 
 ```powershell
-# 가상환경 활성화
 .venv\Scripts\activate
-
-# PyInstaller 설치 (가상환경 내에서)
 pip install pyinstaller
-```
-
-## 빌드 방법
-
-### 기본 빌드 (단일 폴더)
-
-```powershell
-pyinstaller --name Flow --windowed --noconfirm src/flow/main.py
-```
-
-### 단일 exe 파일로 빌드
-
-```powershell
-pyinstaller --name Flow --windowed --onefile --noconfirm src/flow/main.py
-```
-
-### 옵션 설명
-
-| 옵션 | 설명 |
-|------|------|
-| `--name Flow` | 출력 파일 이름을 "Flow"로 지정 |
-| `--windowed` | 터미널 창 없이 GUI 모드로 실행 (중요!) |
-| `--onefile` | 모든 파일을 하나의 exe로 패키징 |
-| `--noconfirm` | 기존 빌드 폴더 덮어쓰기 |
-
-## 빌드 결과물
-
-빌드 완료 후 다음 위치에 파일이 생성됩니다:
-
-- **단일 폴더 빌드**: `dist/Flow/Flow.exe`
-- **단일 파일 빌드**: `dist/Flow.exe`
-
-## 아이콘 추가 (선택사항)
-
-아이콘 파일(.ico)이 있다면 다음과 같이 추가할 수 있습니다:
-
-```powershell
-pyinstaller --name Flow --windowed --onefile --icon=assets/icon.ico --noconfirm src/flow/main.py
-```
-
-## 리소스 파일 포함
-
-`assets` 폴더의 리소스를 포함해야 한다면:
-
-```powershell
-pyinstaller --name Flow --windowed --onefile --add-data "assets;assets" --noconfirm src/flow/main.py
-```
-
-## 문제 해결
-
-### 1. 모듈을 찾을 수 없음 오류
-
-숨겨진 임포트가 있다면 `--hidden-import` 옵션을 사용합니다:
-
-```powershell
-pyinstaller --name Flow --windowed --onefile --hidden-import PySide6.QtWidgets --noconfirm src/flow/main.py
-```
-
-### 2. DLL 누락 오류
-
-`bin` 폴더에 외부 바이너리가 있다면 함께 포함합니다:
-
-```powershell
-pyinstaller --name Flow --windowed --onefile --add-binary "bin/*;bin" --noconfirm src/flow/main.py
-```
-
-### 3. pdf2image 관련 오류
-
-`pdf2image`는 Poppler를 필요로 합니다. `bin` 폴더에 Poppler가 있다면:
-
-```powershell
-pyinstaller --name Flow --windowed --onefile --add-binary "bin/poppler/*;bin/poppler" --noconfirm src/flow/main.py
-```
-
-## 권장 빌드 명령어 (전체)
-
-```powershell
-pyinstaller --name Flow --windowed --onefile --add-data "assets;assets" --add-binary "bin;bin" --noconfirm src/flow/main.py
-```
-
-## 권장 빌드 방법 (추천)
-
-우리는 실행 속도 최적화를 위해 **`.spec` 파일을 이용한 폴더 방식(`--onedir`)** 빌드를 권장합니다. 로딩 화면(Splash Screen)과 리소스 파일이 이 설정에 포함되어 있습니다.
-
-```powershell
-# 1. 가상환경 활성화
-.venv\Scripts\activate
-
-# 2. spec 파일을 이용한 빌드
 pyinstaller Flow.spec --noconfirm
+# 결과: dist\Flow\Flow.exe
 ```
 
-### 빌드 결과물
-빌드 완료 후 `dist/Flow/` 폴더가 생성됩니다. 그 안의 `Flow.exe`가 실행 파일이며, 이 폴더 전체가 프로그램의 '내용물'입니다.
+인스톨러까지 만들려면 [Inno Setup](https://jrsoftware.org/isinfo.php) 설치 후:
 
----
+```powershell
+iscc /DAppVersion=0.1.0 /DSourceDir=..\dist\Flow /DOutputDir=..\dist installer\Flow.iss
+# 결과: dist\Flow-Setup-0.1.0.exe
+```
 
-## 인스톨러(Installer) 제작 및 배포
+### macOS
 
-폴더 통째로 사용자에게 주는 대신, 하나의 깔끔한 **설치 파일(`Setup.exe`)**로 만들고 싶다면 외부 도구를 사용하세요.
+```bash
+source .venv/bin/activate
+pip install pyinstaller
+pyinstaller Flow.spec --noconfirm
+# 결과: dist/Flow.app
+open dist/Flow.app
+```
 
-### 1. Inno Setup (권장)
-- 가장 널리 쓰이는 무료 설치 프로그램 제작 도구입니다.
-- `dist/Flow/` 폴더를 소스로 지정하여 설치 경로(`Program Files`)와 바로가기를 생성하는 스크립트를 작성할 수 있습니다.
-- 설치 후 **삭제(Uninstall)** 및 **업데이트(Update)**가 제어판을 통해 관리됩니다.
+### Linux
 
-### 2. 업데이트 전략
-- 새로운 버전을 인스톨러로 배포하면, 기존 설치 경로의 파일들을 자동으로 교체합니다.
-- 사용자 설정은 홈 디렉토리(`.flow/`)에 남으므로 안전합니다.
+```bash
+source .venv/bin/activate
+pip install pyinstaller
+pyinstaller Flow.spec --noconfirm
+# 결과: dist/Flow/Flow
 
-## 문제 해결 및 주의사항
+# AppImage 만들려면:
+wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+chmod +x appimagetool
+# (이후 .github/workflows/release.yml 의 "Build AppImage" 단계 참고)
+```
 
-1. **로딩 화면 미출력**: `assets/splash.png` 파일이 있는지 확인하세요.
-2. **실행 속도**: `--onedir` 방식은 처음 실행 시 압축 해제가 없어 매우 빠릅니다.
-3. **보안 소프트웨어**: 빌드된 exe가 백신에 의해 차단될 수 있으므로, 인스톨러로 배포하고 디지털 서명을 하는 것이 좋습니다.
+## 파일 구조
 
----
+| 파일 | 목적 |
+|---|---|
+| `Flow.spec` | PyInstaller 설정 (Win/Mac/Linux 공통, OS 별 자동 분기) |
+| `installer/Flow.iss` | Inno Setup 스크립트 — Windows Setup.exe 생성 |
+| `assets/icon.ico` / `.png` / `.icns` | OS 별 아이콘 |
+| `assets/flow.desktop` | Linux 데스크톱 진입점 (AppImage 안에 포함됨) |
+| `.github/workflows/release.yml` | 태그 push → 자동 빌드/릴리스 워크플로우 |
 
-## TODO: 리눅스 배포
+## 향후 개선 후보
 
-리눅스용 패키지(.deb / .rpm / AppImage / Flatpak)를 만들 때 다음을 함께 포함해야 한다:
-
-- **`flow.desktop` 파일** — `/usr/share/applications/`에 설치
-  - `StartupNotify=true`, `StartupWMClass=flow` 필수
-  - `main.py`의 `setDesktopFileName("flow")`와 매칭되어야 GNOME/KDE 컴포지터가 앱 launch 시 띄우는 busy cursor를 즉시 클리어함
-  - 없으면 첫 실행 시 마우스 커서가 spinner로 ~20–30초 떠 있음 (Wayland startup-notification timeout)
-- **PNG/SVG 아이콘** — `.ico`는 리눅스 표준이 아님. `assets/icon.ico`를 PNG로도 export 필요
-- 데스크탑 환경 메뉴/도크 검색 가능해짐
+1. **Windows 코드 서명** — EV/OV 인증서 ($100~300/년). SmartScreen 경고 제거.
+2. **macOS 노타리제이션** — Apple Developer Program ($99/년) + GitHub Secrets 등록. 우클릭→열기 단계 제거.
+3. **macOS Intel 빌드** — `macos-13` 러너를 matrix 에 추가.
+4. **자동 업데이트** — Sparkle (macOS) / 자체 다운로드 체크 등.
+5. **Linux 추가 포맷** — Flatpak, .deb, Snap 등 (배포 채널 늘어날 때).
