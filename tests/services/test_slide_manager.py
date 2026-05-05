@@ -17,7 +17,9 @@ def mock_converter():
 def manager(mock_converter):
     mgr = SlideManager(converter=mock_converter)
     yield mgr
-    mgr._worker.stop()
+    # Tear down everything (worker + markdown worker + file watcher) so that
+    # an asserting test never leaks a QThread/Observer → SIGABRT during exit.
+    mgr.shutdown()
 
 
 class TestSlideManager:
@@ -56,29 +58,23 @@ class TestSlideManager:
         with pytest.raises(ValueError, match="Song not found"):
             manager.local_to_global("nonexistent", 0)
 
-    def test_file_watcher_notifies_on_change(self, tmp_path, manager):
+    def test_file_watcher_notifies_on_change(self, tmp_path, manager, qtbot):
         pptx_file = tmp_path / "test.pptx"
         pptx_file.write_text("initial content")
 
-        change_detected = False
-
-        def on_change():
-            nonlocal change_detected
-            change_detected = True
-
-        manager.file_changed.connect(on_change)
-
         manager.start_watching(pptx_file)
-        pptx_file.write_text("updated content")
-
+        # Give the watchdog Observer thread a moment to register the inotify
+        # watch before we modify the file. Without this the modification can
+        # race ahead of the watcher and the event is lost on slower runners.
         import time
+        time.sleep(0.5)
 
-        for _ in range(20):
-            if change_detected:
-                break
-            time.sleep(0.1)
+        # qtbot.waitSignal pumps the Qt event loop while waiting, which is
+        # required because file_changed is emitted from the watchdog thread
+        # and arrives via QueuedConnection.
+        with qtbot.waitSignal(manager.file_changed, timeout=4000):
+            pptx_file.write_text("updated content")
 
-        assert change_detected
         manager.stop_watching()
 
 
