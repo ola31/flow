@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+env:
+  # 2026-06-02 이후 Node 20 actions 가 강제 종료되므로 미리 Node 24 사용.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test:
     name: Tests
