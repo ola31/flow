@@ -182,12 +182,12 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           body: |
-            ## 다운로드
+            ## Downloads
 
-            | 플랫폼 | 파일 |
+            | Platform | File |
             |---|---|
-            | Windows (인스톨러) | `Flow-Setup-*.exe` |
-            | Windows (포터블) | `Flow-portable-*.zip` |
-            | macOS (Apple Silicon) | `Flow-macOS-*.zip` — 첫 실행 시 우클릭→열기 |
+            | Windows (installer) | `Flow-Setup-*.exe` |
+            | Windows (portable) | `Flow-portable-*.zip` |
+            | macOS (Apple Silicon) | `Flow-macOS-*.zip` — right-click → Open on first launch |
             | Linux x86_64 (Intel/AMD) | `Flow-*-x86_64.AppImage` |
             | Linux ARM64 (Asahi, RPi, Graviton) | `Flow-*-aarch64.AppImage` |
