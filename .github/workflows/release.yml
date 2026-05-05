@@ -23,8 +23,10 @@ jobs:
             artifact-name: windows
           - os: macos-latest
             artifact-name: macos
-          - os: ubuntu-22.04   # glibc 호환성을 위해 24.04 대신 22.04 사용
-            artifact-name: linux
+          - os: ubuntu-22.04          # glibc 호환성을 위해 24.04 대신 22.04 사용
+            artifact-name: linux-x64
+          - os: ubuntu-22.04-arm      # ARM64 Linux (Asahi, Raspberry Pi, Graviton)
+            artifact-name: linux-arm64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -97,15 +99,17 @@ jobs:
           cd dist
           zip -qr "Flow-macOS-${{ steps.version.outputs.version }}.zip" Flow.app
 
-      # ─── Linux: AppImage ───────────────────────────────────────────────────
+      # ─── Linux: AppImage (x86_64 + arm64) ──────────────────────────────────
       - name: Build AppImage (Linux)
         if: runner.os == 'Linux'
         run: |
           set -euxo pipefail
           VER="${{ steps.version.outputs.version }}"
+          ARCH=$(uname -m)   # x86_64 또는 aarch64
 
-          # appimagetool 다운로드 + 압축 해제 (FUSE 없는 환경 대비)
-          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          # appimagetool 다운로드 — 아키텍처 별 바이너리. FUSE 없는 환경 대비
+          # 압축 해제 후 그 안의 AppRun 으로 실행.
+          wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage" -O appimagetool
           chmod +x appimagetool
           ./appimagetool --appimage-extract
 
@@ -129,8 +133,8 @@ jobs:
           EOF
           chmod +x "$APPDIR/AppRun"
 
-          ARCH=x86_64 ./squashfs-root/AppRun \
-            "$APPDIR" "dist/Flow-${VER}-x86_64.AppImage"
+          ARCH=$ARCH ./squashfs-root/AppRun \
+            "$APPDIR" "dist/Flow-${VER}-${ARCH}.AppImage"
 
       # ─── Upload artifacts (per OS) ─────────────────────────────────────────
       - name: Upload Windows artifacts
@@ -185,4 +189,5 @@ jobs:
             | Windows (인스톨러) | `Flow-Setup-*.exe` |
             | Windows (포터블) | `Flow-portable-*.zip` |
             | macOS (Apple Silicon) | `Flow-macOS-*.zip` — 첫 실행 시 우클릭→열기 |
-            | Linux (x86_64) | `Flow-*-x86_64.AppImage` |
+            | Linux x86_64 (Intel/AMD) | `Flow-*-x86_64.AppImage` |
+            | Linux ARM64 (Asahi, RPi, Graviton) | `Flow-*-aarch64.AppImage` |
