@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flow"
-version = "0.0.3"
+dynamic = ["version"]
 description = "슬라이드 송출 시스템 - 시트 기반 직관적 UI"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,6 +19,7 @@ dependencies = [
     "pywin32; platform_system == 'Windows'",
     "pdf2image",
     "pymupdf",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -29,10 +30,14 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
+    "fonttools>=4.0",       # icon-subset cmap regression test
 ]
 
 [project.scripts]
 flow = "flow.main:main"
+
+[tool.hatch.version]
+path = "src/flow/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/flow"]

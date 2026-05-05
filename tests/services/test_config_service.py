@@ -10,7 +10,12 @@ def config_service(tmp_path):
     # 테스트를 위해 경로 재설정
     service._config_dir = tmp_path / ".flow"
     service._config_file = service._config_dir / "config.json"
-    service._config = {"recent_projects": []}
+    service._config = {
+        "recent_projects": [],
+        "recent_songs": [],
+        "recent_workspaces": [],
+        "current_workspace": "",
+    }
     return service
 
 class TestConfigServicePathNormalization:
@@ -79,6 +84,62 @@ class TestConfigServiceRecentProjects:
         assert len(config_service.get_recent_projects()) == 10
         # 가장 최근인 p14가 맨 앞
         assert config_service.get_recent_projects()[0] == (tmp_path / "p14.json").as_posix()
+
+class TestConfigServiceWorkspaces:
+    """워크스페이스 목록 관리 테스트"""
+
+    def test_add_recent_workspace(self, config_service, tmp_path):
+        ws1 = tmp_path / "ws1"
+        ws1.mkdir()
+        config_service.add_recent_workspace(str(ws1))
+
+        recent = config_service.get_recent_workspaces()
+        assert len(recent) == 1
+        assert recent[0] == ws1.as_posix()
+
+    def test_add_workspace_sets_current(self, config_service, tmp_path):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        config_service.add_recent_workspace(str(ws))
+
+        assert config_service.get_current_workspace() == ws.as_posix()
+
+    def test_non_existent_workspace_rejected(self, config_service):
+        config_service.add_recent_workspace("/no/such/path")
+        assert len(config_service.get_recent_workspaces()) == 0
+        assert config_service.get_current_workspace() == ""
+
+    def test_workspace_order_preserved(self, config_service, tmp_path):
+        ws1 = tmp_path / "ws1"
+        ws2 = tmp_path / "ws2"
+        ws1.mkdir()
+        ws2.mkdir()
+
+        config_service.add_recent_workspace(str(ws1))
+        config_service.add_recent_workspace(str(ws2))
+
+        recent = config_service.get_recent_workspaces()
+        assert recent[0] == ws2.as_posix()
+        assert recent[1] == ws1.as_posix()
+
+    def test_remove_workspace(self, config_service, tmp_path):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        config_service.add_recent_workspace(str(ws))
+
+        config_service.remove_recent_workspace(ws.as_posix())
+        assert len(config_service.get_recent_workspaces()) == 0
+
+    def test_get_current_workspace_returns_empty_if_deleted(
+        self, config_service, tmp_path
+    ):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        config_service.add_recent_workspace(str(ws))
+
+        ws.rmdir()  # 폴더 삭제
+        assert config_service.get_current_workspace() == ""
+
 
 class TestConfigServicePersistence:
     """데이터 영구 저장 테스트"""

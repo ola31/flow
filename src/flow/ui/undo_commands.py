@@ -2,8 +2,16 @@ from PySide6.QtGui import QUndoCommand
 from flow.domain.score_sheet import ScoreSheet
 from flow.domain.hotspot import Hotspot
 
+
 class AddHotspotCommand(QUndoCommand):
-    def __init__(self, score_sheet: ScoreSheet, hotspot: Hotspot, index: int | None = None, undo_cb=None, redo_cb=None):
+    def __init__(
+        self,
+        score_sheet: ScoreSheet,
+        hotspot: Hotspot,
+        index: int | None = None,
+        undo_cb=None,
+        redo_cb=None,
+    ):
         super().__init__(f"핫스팟 추가")
         self.score_sheet = score_sheet
         self.hotspot = hotspot
@@ -13,14 +21,19 @@ class AddHotspotCommand(QUndoCommand):
 
     def undo(self):
         self.score_sheet.remove_hotspot(self.hotspot.id)
-        if self.undo_cb: self.undo_cb()
+        if self.undo_cb:
+            self.undo_cb()
 
     def redo(self):
         self.score_sheet.add_hotspot(self.hotspot, self.index)
-        if self.redo_cb: self.redo_cb()
+        if self.redo_cb:
+            self.redo_cb()
+
 
 class RemoveHotspotCommand(QUndoCommand):
-    def __init__(self, score_sheet: ScoreSheet, hotspot: Hotspot, undo_cb=None, redo_cb=None):
+    def __init__(
+        self, score_sheet: ScoreSheet, hotspot: Hotspot, undo_cb=None, redo_cb=None
+    ):
         super().__init__(f"핫스팟 삭제")
         self.score_sheet = score_sheet
         self.hotspot = hotspot
@@ -30,14 +43,23 @@ class RemoveHotspotCommand(QUndoCommand):
 
     def undo(self):
         self.score_sheet.add_hotspot(self.hotspot, self.old_order)
-        if self.undo_cb: self.undo_cb()
+        if self.undo_cb:
+            self.undo_cb()
 
     def redo(self):
         self.score_sheet.remove_hotspot(self.hotspot.id)
-        if self.redo_cb: self.redo_cb()
+        if self.redo_cb:
+            self.redo_cb()
+
 
 class MoveHotspotCommand(QUndoCommand):
-    def __init__(self, hotspot: Hotspot, old_pos: tuple[int, int], new_pos: tuple[int, int], update_cb):
+    def __init__(
+        self,
+        hotspot: Hotspot,
+        old_pos: tuple[int, int],
+        new_pos: tuple[int, int],
+        update_cb,
+    ):
         super().__init__(f"핫스팟 이동")
         self.hotspot = hotspot
         self.old_pos = old_pos
@@ -52,8 +74,16 @@ class MoveHotspotCommand(QUndoCommand):
         self.hotspot.x, self.hotspot.y = self.new_pos
         self.update_cb()
 
+
 class MapSlideCommand(QUndoCommand):
-    def __init__(self, hotspot: Hotspot, verse_index: int, old_slide: int, new_slide: int, update_cb):
+    def __init__(
+        self,
+        hotspot: Hotspot,
+        verse_index: int,
+        old_slide: int,
+        new_slide: int,
+        update_cb,
+    ):
         v_name = "후렴" if verse_index == 5 else f"{verse_index + 1}절"
         super().__init__(f"슬라이드 매핑 변경 ({v_name})")
         self.hotspot = hotspot
@@ -73,15 +103,16 @@ class MapSlideCommand(QUndoCommand):
 
 class UnlinkAllSlidesCommand(QUndoCommand):
     """특정 슬라이드가 매핑된 모든 핫스팟 레이어에서 해당 슬라이드를 일괄 해제"""
+
     def __init__(self, project, slide_index: int, update_cb):
         super().__init__(f"슬라이드 #{slide_index + 1} 매핑 일괄 해제")
         self.project = project
         self.slide_index = slide_index
         self.update_cb = update_cb
-        self.affected_items = [] # (hotspot_obj, verse_index)
-        
+        self.affected_items = []  # (hotspot_obj, verse_index)
+
         # 변경 전 상태 스캔
-        for sheet in self.project.score_sheets:
+        for sheet in self.project.all_score_sheets:
             for hotspot in sheet.hotspots:
                 # slide_mappings 검사
                 for v_idx_str, s_idx in list(hotspot.slide_mappings.items()):
@@ -96,10 +127,12 @@ class UnlinkAllSlidesCommand(QUndoCommand):
         """매핑 복구"""
         for hotspot, v_idx in self.affected_items:
             hotspot.set_slide_index(self.slide_index, v_idx)
-        if self.update_cb: self.update_cb()
+        if self.update_cb:
+            self.update_cb()
 
     def redo(self):
         """매핑 해제"""
         for hotspot, v_idx in self.affected_items:
             hotspot.set_slide_index(-1, v_idx)
-        if self.update_cb: self.update_cb()
+        if self.update_cb:
+            self.update_cb()

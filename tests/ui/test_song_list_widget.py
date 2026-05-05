@@ -5,104 +5,109 @@ TDD: UI 위젯 통합 테스트
 """
 
 import pytest
+from pathlib import Path
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication
 
 from flow.domain.project import Project
 from flow.domain.score_sheet import ScoreSheet
+from flow.domain.song import Song
 from flow.ui.editor.song_list_widget import SongListWidget
 
 
 @pytest.fixture
-def app():
-    """QApplication 픽스처"""
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    yield app
-
-
-@pytest.fixture
-def song_list(app):
+def song_list(qtbot):
     """SongListWidget 픽스처"""
     widget = SongListWidget()
+    qtbot.addWidget(widget)
     return widget
+
+
+def _make_song(name: str, sheet_names: list[str]) -> Song:
+    """테스트용 Song 생성 (시트마다 image_path 포함)"""
+    sheets = [ScoreSheet(name=sn, image_path=f"{sn}.png") for sn in sheet_names]
+    return Song(name=name, folder=Path(f"songs/{name}"), score_sheets=sheets)
 
 
 class TestSongListWidgetBasic:
     """기본 기능 테스트"""
-    
+
     def test_empty_project(self, song_list):
         """빈 프로젝트로 시작"""
         project = Project(name="테스트")
         song_list.set_project(project)
-        
-        assert song_list._list.count() == 0
-    
+
+        # 카드 뷰에서는 _cards 리스트로 확인
+        assert len(song_list._cards) == 0
+
     def test_project_with_songs(self, song_list):
         """곡이 있는 프로젝트"""
         project = Project(name="테스트")
-        project.add_score_sheet(ScoreSheet(name="곡1"))
-        project.add_score_sheet(ScoreSheet(name="곡2"))
-        
+        project.selected_songs = [
+            _make_song("곡1", ["시트1"]),
+            _make_song("곡2", ["시트2"]),
+        ]
+
         song_list.set_project(project)
-        
-        assert song_list._list.count() == 2
+
+        assert len(song_list._cards) == 2
 
 
 class TestSongListWidgetSelection:
     """선택 동작 테스트 - 무한 재귀 버그 방지"""
-    
+
     def test_select_song_no_recursion(self, song_list):
         """곡 선택 시 무한 재귀가 발생하지 않아야 함"""
         project = Project(name="테스트")
-        project.add_score_sheet(ScoreSheet(name="곡1"))
-        project.add_score_sheet(ScoreSheet(name="곡2"))
-        project.add_score_sheet(ScoreSheet(name="곡3"))
-        
+        project.selected_songs = [
+            _make_song("곡1", ["시트1"]),
+            _make_song("곡2", ["시트2"]),
+            _make_song("곡3", ["시트3"]),
+        ]
+
         song_list.set_project(project)
-        
+
         # 이 동작이 RecursionError 없이 완료되어야 함
-        song_list._list.setCurrentRow(0)
-        song_list._list.setCurrentRow(1)
-        song_list._list.setCurrentRow(2)
-        song_list._list.setCurrentRow(0)
-        
+        song_list.set_current_index(0)
+        song_list.set_current_index(1)
+        song_list.set_current_index(2)
+        song_list.set_current_index(0)
+
         # 현재 인덱스 확인
-        assert song_list._list.currentRow() == 0
-    
+        assert project.current_sheet_index == 0
+
     def test_rapid_selection_changes(self, song_list):
         """빠른 선택 변경도 문제없어야 함"""
         project = Project(name="테스트")
-        for i in range(10):
-            project.add_score_sheet(ScoreSheet(name=f"곡{i+1}"))
-        
+        project.selected_songs = [
+            _make_song(f"곡{i + 1}", [f"시트{i + 1}"]) for i in range(10)
+        ]
+
         song_list.set_project(project)
-        
+
         # 빠르게 여러 번 선택 변경
         for _ in range(5):
             for i in range(10):
-                song_list._list.setCurrentRow(i)
-        
+                song_list.set_current_index(i)
+
         assert True  # RecursionError 없이 도달하면 성공
 
 
 class TestSongListWidgetSignals:
     """시그널 발생 테스트"""
-    
+
     def test_song_selected_signal_emitted(self, song_list, qtbot):
-        """곡 선택 시 시그널 발생"""
+        """카드 클릭으로 곡 선택 시 시그널 발생"""
         project = Project(name="테스트")
-        sheet1 = ScoreSheet(name="테스트곡1")
-        sheet2 = ScoreSheet(name="테스트곡2")
-        project.add_score_sheet(sheet1)
-        project.add_score_sheet(sheet2)
-        
+        sheet1 = ScoreSheet(name="테스트곡1", image_path="sheet1.png")
+        sheet2 = ScoreSheet(name="테스트곡2", image_path="sheet2.png")
+        song1 = Song(name="곡1", folder=Path("songs/곡1"), score_sheets=[sheet1])
+        song2 = Song(name="곡2", folder=Path("songs/곡2"), score_sheets=[sheet2])
+        project.selected_songs = [song1, song2]
+
         song_list.set_project(project)
-        
-        # 두 번째 곡으로 변경 시 시그널 발생 확인
-        # (set_project에서 blockSignals 사용하므로 첫 선택 후 변경 시 테스트)
+
+        # 카드 클릭을 시뮬레이션 — _on_sheet_selected_direct 직접 호출
         with qtbot.waitSignal(song_list.song_selected, timeout=1000) as blocker:
-            song_list._list.setCurrentRow(1)
-        
+            song_list._on_sheet_selected_direct(sheet2)
+
         assert blocker.args[0].name == "테스트곡2"

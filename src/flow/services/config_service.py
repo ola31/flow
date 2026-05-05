@@ -2,14 +2,24 @@ import json
 from pathlib import Path
 import os
 
+
 class ConfigService:
     """애플리케이션 설정 관리 (최근 프로젝트 등)"""
-    
+
     def __init__(self):
         self._config_dir = Path.home() / ".flow"
         self._config_file = self._config_dir / "config.json"
         self._config = {
-            "recent_projects": []
+            "recent_projects": [],
+            "recent_songs": [],
+            "recent_workspaces": [],
+            "current_workspace": "",
+            "max_verses": 5,
+            "window_geometry": "",
+            "window_state": "",
+            "display_screen_name": "",  # 송출 모니터 식별 (QScreen.name)
+            "display_windowed_mode": False,  # 송출을 윈도우 모드로
+            "output_resolution": [1920, 1080],  # 송출/렌더 출력 해상도 [W, H]
         }
         self.load()
 
@@ -34,9 +44,9 @@ class ConfigService:
 
     def get_recent_projects(self) -> list[str]:
         """최근 프로젝트 경로 목록 반환 (존재하는 파일만 표시하지만 목록에서 강제 삭제는 자제)"""
-        self.load() # 최신 상태 로드
+        self.load()  # 최신 상태 로드
         recent = self._config.get("recent_projects", [])
-        # 노출할 때는 존재하는 것만 리턴하되, 원본 데이터(self._config)는 보존하여 
+        # 노출할 때는 존재하는 것만 리턴하되, 원본 데이터(self._config)는 보존하여
         # 일시적인 네트워크 드라이브 단절 등으로 인한 데이터 유실 방지
         valid_recent = [p for p in recent if Path(p).exists()]
         return valid_recent
@@ -45,11 +55,11 @@ class ConfigService:
         """최근 프로젝트 목록에 추가"""
         if not path:
             return
-            
+
         # 1. 먼저 문자열 수준에서 정규화 (백슬래시 -> 슬래시)
         # 윈도우에서 복사한 경로가 리눅스 환경으로 넘어왔을 때를 대비
         clean_path = str(path).replace("\\", "/")
-        
+
         # 2. 절대 경로화 및 표준 포맷(POSIX) 변환
         try:
             path_obj = Path(clean_path).resolve()
@@ -57,20 +67,20 @@ class ConfigService:
         except Exception:
             path_str = clean_path
             path_obj = Path(path_str)
-            
+
         # 3. 파일이 실제로 존재할 때만 추가
         if not path_obj.exists():
             return
 
-        self.load() # 다른 인스턴스에서 추가했을 수 있으므로 먼저 로드
+        self.load()  # 다른 인스턴스에서 추가했을 수 있으므로 먼저 로드
         recent = self._config.get("recent_projects", [])
-        
+
         # 중복 제거 (대소문자 구분 없이 체크하여 윈도우/리눅스 포괄 대응)
         cleaned_recent = [p for p in recent if p.lower() != path_str.lower()]
-        
+
         # 목록 맨 앞에 추가
         cleaned_recent.insert(0, path_str)
-        
+
         # 최대 10개까지 유지 및 저장
         self._config["recent_projects"] = cleaned_recent[:10]
         self.save()
@@ -79,10 +89,165 @@ class ConfigService:
         """최근 프로젝트 목록에서 제거"""
         self.load()
         recent = self._config.get("recent_projects", [])
-        
+
         # 대소문자 구분 없이 제거
         new_recent = [p for p in recent if p.lower() != path.lower()]
-        
+
         if len(new_recent) != len(recent):
             self._config["recent_projects"] = new_recent
             self.save()
+
+    def get_recent_songs(self) -> list[str]:
+        """최근 단독 편집 곡 목록 반환"""
+        self.load()
+        recent = self._config.get("recent_songs", [])
+        return [p for p in recent if Path(p).exists()]
+
+    def add_recent_song(self, path: str):
+        """최근 단독 편집 곡 추가"""
+        if not path:
+            return
+        clean_path = str(path).replace("\\", "/")
+        try:
+            path_str = Path(clean_path).resolve().as_posix()
+        except:
+            path_str = clean_path
+
+        if not Path(path_str).exists():
+            return
+
+        self.load()
+        recent = self._config.get("recent_songs", [])
+        cleaned = [p for p in recent if p.lower() != path_str.lower()]
+        cleaned.insert(0, path_str)
+        self._config["recent_songs"] = cleaned[:10]
+        self.save()
+
+    def remove_recent_song(self, path: str):
+        """최근 단독 편집 곡 제거"""
+        self.load()
+        recent = self._config.get("recent_songs", [])
+        new_recent = [p for p in recent if p.lower() != path.lower()]
+        if len(new_recent) != len(recent):
+            self._config["recent_songs"] = new_recent
+            self.save()
+
+    # ==== Workspace management ====
+
+    def get_recent_workspaces(self) -> list[str]:
+        """최근 워크스페이스 경로 목록 (존재하는 것만)"""
+        self.load()
+        recent = self._config.get("recent_workspaces", [])
+        return [p for p in recent if Path(p).exists()]
+
+    def add_recent_workspace(self, path: str) -> None:
+        """최근 워크스페이스 목록에 추가"""
+        if not path:
+            return
+
+        clean_path = str(path).replace("\\", "/")
+        try:
+            path_obj = Path(clean_path).resolve()
+            path_str = path_obj.as_posix()
+        except Exception:
+            path_str = clean_path
+            path_obj = Path(path_str)
+
+        if not path_obj.exists():
+            return
+
+        self.load()
+        recent = self._config.get("recent_workspaces", [])
+        cleaned = [p for p in recent if p.lower() != path_str.lower()]
+        cleaned.insert(0, path_str)
+
+        self._config["recent_workspaces"] = cleaned[:10]
+        self._config["current_workspace"] = path_str
+        self.save()
+
+    def remove_recent_workspace(self, path: str) -> None:
+        """최근 워크스페이스 목록에서 제거"""
+        self.load()
+        recent = self._config.get("recent_workspaces", [])
+        new_recent = [p for p in recent if p.lower() != path.lower()]
+        if len(new_recent) != len(recent):
+            self._config["recent_workspaces"] = new_recent
+            self.save()
+
+    def get_current_workspace(self) -> str:
+        """마지막으로 사용한 워크스페이스 경로 (빈 문자열이면 없음)"""
+        self.load()
+        current = self._config.get("current_workspace", "")
+        if current and Path(current).exists():
+            return current
+        return ""
+
+    def set_current_workspace(self, path: str) -> None:
+        """현재 사용 중인 워크스페이스 경로 설정"""
+        self.load()
+        clean = str(path).replace("\\", "/")
+        try:
+            self._config["current_workspace"] = Path(clean).resolve().as_posix()
+        except Exception:
+            self._config["current_workspace"] = clean
+        self.save()
+
+    # ==== Display 모니터 선택 ====
+
+    def get_display_screen_name(self) -> str:
+        """송출 모니터로 사용할 QScreen 이름 (없으면 빈 문자열)."""
+        self.load()
+        return self._config.get("display_screen_name", "")
+
+    def set_display_screen_name(self, name: str) -> None:
+        """송출 모니터 이름 저장 (QScreen.name() 값)."""
+        self.load()
+        self._config["display_screen_name"] = name or ""
+        self.save()
+
+    def get_display_windowed_mode(self) -> bool:
+        self.load()
+        return bool(self._config.get("display_windowed_mode", False))
+
+    def set_display_windowed_mode(self, windowed: bool) -> None:
+        self.load()
+        self._config["display_windowed_mode"] = bool(windowed)
+        self.save()
+
+    # ==== 출력 해상도 ====
+
+    def get_output_resolution(self) -> tuple[int, int]:
+        """송출/렌더 출력 해상도 (W, H). 기본 1920×1080."""
+        self.load()
+        v = self._config.get("output_resolution", [1920, 1080])
+        try:
+            return (int(v[0]), int(v[1]))
+        except (TypeError, ValueError, IndexError):
+            return (1920, 1080)
+
+    def set_output_resolution(self, width: int, height: int) -> None:
+        self.load()
+        self._config["output_resolution"] = [int(width), int(height)]
+        self.save()
+
+    def get_max_verses(self) -> int:
+        """최대 절 수 반환"""
+        return self._config.get("max_verses", 5)
+
+    def set_max_verses(self, count: int):
+        """최대 절 수 설정"""
+        self._config["max_verses"] = max(1, min(10, count))  # 1~10 사이로 제한
+        self.save()
+
+    def get_window_layout(self) -> tuple[str, str]:
+        """창 크기 및 상태 반환"""
+        return (
+            self._config.get("window_geometry", ""),
+            self._config.get("window_state", ""),
+        )
+
+    def set_window_layout(self, geometry: str, state: str):
+        """창 크기 및 상태 저장"""
+        self._config["window_geometry"] = geometry
+        self._config["window_state"] = state
+        self.save()

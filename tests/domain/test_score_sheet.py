@@ -20,7 +20,7 @@ class TestScoreSheetCreation:
     
     def test_create_score_sheet_with_image_path(self):
         """이미지 경로로 시트 생성"""
-        sheet = ScoreSheet(name="은혜", image_path="/images/grace.jpg")
+        sheet = ScoreSheet(name="곡B", image_path="/images/grace.jpg")
         
         assert sheet.image_path == "/images/grace.jpg"
     
