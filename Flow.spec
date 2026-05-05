@@ -25,6 +25,11 @@ a = Analysis(
     datas=[
         ('assets', 'assets'),
         ('src/flow/resources', 'flow/resources'),
+        # GPL/LGPL distribution: ship the license + third-party notices
+        # so end users can see what they have rights to and where to get
+        # source for bundled LGPL libraries (Qt/PySide6).
+        ('LICENSE', '.'),
+        ('THIRD_PARTY_NOTICES.md', '.'),
     ],
     hiddenimports=[],
     hookspath=[],

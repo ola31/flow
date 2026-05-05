@@ -34,6 +34,7 @@ DisableProgramGroupPage=yes
 OutputDir={#OutputDir}
 OutputBaseFilename=Flow-Setup-{#AppVersion}
 SetupIconFile=..\assets\icon.ico
+LicenseFile=..\LICENSE
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
