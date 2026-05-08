@@ -115,3 +115,31 @@ def test_patch_store_save_writes_version(tmp_path: Path) -> None:
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert raw["version"] == 1
     assert isinstance(raw["patches"], list)
+
+
+def test_patch_store_handles_corrupted_json(tmp_path: Path) -> None:
+    path = tmp_path / ".patches.json"
+    path.write_text("{ this is not valid json", encoding="utf-8")
+    store = PatchStore(path)
+    assert store.patches == []  # corrupted → fall back to empty
+
+
+def test_patch_store_handles_missing_required_keys(tmp_path: Path) -> None:
+    path = tmp_path / ".patches.json"
+    # patch entry missing "patched_main"
+    path.write_text(
+        '{"version":1,"patches":[{"id":"x","type":"edit"}]}',
+        encoding="utf-8",
+    )
+    store = PatchStore(path)
+    assert store.patches == []
+
+
+def test_patch_store_handles_unknown_type(tmp_path: Path) -> None:
+    path = tmp_path / ".patches.json"
+    path.write_text(
+        '{"version":1,"patches":[{"id":"x","type":"weird","patched_main":"y","created_at":"t"}]}',
+        encoding="utf-8",
+    )
+    store = PatchStore(path)
+    assert store.patches == []
