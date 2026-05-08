@@ -108,6 +108,7 @@ class EmergencyPatchPanel(QWidget):
             f"font-size: {styles.FONT_MD}px; }}"
         )
         self._editor.setTabChangesFocus(True)
+        self._editor.textChanged.connect(self._on_text_changed)
         layout.addWidget(self._editor, 1)
 
         self._preview_label = QLabel()
@@ -126,6 +127,35 @@ class EmergencyPatchPanel(QWidget):
             f"padding: {styles.SP_SM}px {styles.SP_LG}px; font-weight: 600; }}"
         )
         layout.addWidget(self._apply_btn)
+
+    def preview_pixmap(self):  # -> QPixmap | None
+        return self._preview_label.pixmap()
+
+    def _on_text_changed(self) -> None:
+        self._sync_current_to_pending()
+        self._render_preview()
+
+    def _render_preview(self) -> None:
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtGui import QPixmap
+
+        from flow.services.markdown import Slide, render_slide
+
+        text = self._editor.toPlainText()
+        slide = Slide(main=text, sub_override=None, section_sub_default=None)
+        try:
+            img = render_slide(self._spec, slide, song_dir=self._song_dir)
+        except Exception:
+            self._preview_label.setText("(미리보기 오류)")
+            return
+        pix = QPixmap.fromImage(img)
+        scaled = pix.scaled(
+            self._preview_label.width(),
+            self._preview_label.height(),
+            _Qt.AspectRatioMode.KeepAspectRatio,
+            _Qt.TransformationMode.SmoothTransformation,
+        )
+        self._preview_label.setPixmap(scaled)
 
     def _allocate_add_slot(self) -> str:
         slot = f"add:{self._add_counter}"
@@ -148,6 +178,7 @@ class EmergencyPatchPanel(QWidget):
             self._pending[key] = _PendingState(text=text, is_dirty=False)
         self._editor.setPlainText(text)
         self._update_title_label()
+        self._render_preview()
 
     def _sync_current_to_pending(self) -> None:
         """Store current editor text into pending and update dirty flag."""

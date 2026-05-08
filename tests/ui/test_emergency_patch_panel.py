@@ -48,3 +48,17 @@ def test_typing_updates_pending_text(qtbot, tmp_path: Path) -> None:
     panel.set_text("고친 가사")
     assert panel.current_text() == "고친 가사"
     assert panel.has_pending_changes()
+
+
+def test_preview_updates_when_text_changes(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    panel.show()
+    pix_before = panel.preview_pixmap()
+    assert pix_before is not None
+    panel.set_text("크게 고친 가사")
+    pix_after = panel.preview_pixmap()
+    assert pix_after is not None
+    # Image bytes should differ when text changed (rough but reliable smoke check)
+    assert pix_before.toImage() != pix_after.toImage()
