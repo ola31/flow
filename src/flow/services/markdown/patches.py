@@ -116,22 +116,37 @@ def slide_hash(main: str) -> str:
 
 
 def apply_patches(spec: SongSpec, patches: list[SlidePatch]) -> SongSpec:
-    """Return a new SongSpec with edit patches applied.
+    """Return a new SongSpec with edit and append patches applied.
 
-    Edit patches: hash match first, fall back to slide_index, else orphan
-    (silently dropped at this layer; UI surfaces them separately).
-
-    (Append patches handled in Task 4.)
+    Two-phase:
+      1. Edit patches: hash match first, fall back to slide_index, else orphan.
+      2. Append patches: appended at the end in created_at order.
     """
+    from flow.services.markdown.parser import Slide
+
+    edit_patches = [p for p in patches if p.type is PatchType.EDIT]
+    append_patches = sorted(
+        (p for p in patches if p.type is PatchType.APPEND),
+        key=lambda p: p.created_at,
+    )
+
     new_slides = list(spec.slides)
-    for patch in patches:
-        if patch.type is not PatchType.EDIT:
-            continue
+    for patch in edit_patches:
         target = _find_edit_target(new_slides, patch)
         if target is None:
             continue
         old = new_slides[target]
         new_slides[target] = replace(old, main=patch.patched_main)
+
+    for patch in append_patches:
+        new_slides.append(
+            Slide(
+                main=patch.patched_main,
+                sub_override=None,
+                section_sub_default=None,
+            )
+        )
+
     return replace(spec, slides=new_slides)
 
 

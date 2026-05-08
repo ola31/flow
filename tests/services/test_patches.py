@@ -227,3 +227,52 @@ def test_apply_patches_does_not_mutate_input_spec() -> None:
     )
     apply_patches(spec, [patch])
     assert spec.slides[0].main == "원본 1"  # original unchanged
+
+
+def test_apply_patches_append_adds_at_end() -> None:
+    spec = _make_spec("기존 1", "기존 2")
+    patch = SlidePatch(
+        id="a1",
+        type=PatchType.APPEND,
+        patched_main="추가된 1",
+        slide_hash=None,
+        slide_index=None,
+        created_at="2026-05-05T19:50:33Z",
+        created_during="live",
+    )
+    result = apply_patches(spec, [patch])
+    assert len(result.slides) == 3
+    assert result.slides[2].main == "추가된 1"
+
+
+def test_apply_patches_append_multiple_in_created_at_order() -> None:
+    spec = _make_spec("기존 1")
+    p1 = SlidePatch(
+        id="a1", type=PatchType.APPEND, patched_main="첫 추가",
+        slide_hash=None, slide_index=None,
+        created_at="2026-05-05T19:50:33Z", created_during="live",
+    )
+    p2 = SlidePatch(
+        id="a2", type=PatchType.APPEND, patched_main="두 번째 추가",
+        slide_hash=None, slide_index=None,
+        created_at="2026-05-05T19:51:00Z", created_during="live",
+    )
+    # Pass them in reverse order — apply_patches must sort by created_at
+    result = apply_patches(spec, [p2, p1])
+    assert [s.main for s in result.slides] == ["기존 1", "첫 추가", "두 번째 추가"]
+
+
+def test_apply_patches_append_runs_after_edits() -> None:
+    spec = _make_spec("원본 1", "원본 2")
+    edit = SlidePatch(
+        id="e1", type=PatchType.EDIT, patched_main="수정 2",
+        slide_hash=slide_hash("원본 2"), slide_index=1,
+        created_at="t1", created_during="live",
+    )
+    appended = SlidePatch(
+        id="a1", type=PatchType.APPEND, patched_main="새것",
+        slide_hash=None, slide_index=None,
+        created_at="t2", created_during="live",
+    )
+    result = apply_patches(spec, [edit, appended])
+    assert [s.main for s in result.slides] == ["원본 1", "수정 2", "새것"]
