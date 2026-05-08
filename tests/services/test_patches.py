@@ -143,3 +143,87 @@ def test_patch_store_handles_unknown_type(tmp_path: Path) -> None:
     )
     store = PatchStore(path)
     assert store.patches == []
+
+
+from flow.services.markdown.parser import Frontmatter, Slide, SongSpec
+from flow.services.markdown.patches import apply_patches, slide_hash
+
+
+def _make_spec(*mains: str) -> SongSpec:
+    return SongSpec(
+        title="t",
+        frontmatter=Frontmatter(),
+        slides=[
+            Slide(main=m, sub_override=None, section_sub_default=None) for m in mains
+        ],
+    )
+
+
+def test_slide_hash_is_stable() -> None:
+    h1 = slide_hash("주의 사랑은")
+    h2 = slide_hash("주의 사랑은")
+    assert h1 == h2
+    assert h1.startswith("sha256:")
+
+
+def test_apply_patches_edit_by_hash(tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2", "원본 3")
+    patch = SlidePatch(
+        id="p1",
+        type=PatchType.EDIT,
+        patched_main="패치된 본문",
+        slide_hash=slide_hash("원본 2"),
+        slide_index=99,  # wrong index — hash should win
+        created_at="t",
+        created_during="live",
+    )
+    result = apply_patches(spec, [patch])
+    assert result.slides[0].main == "원본 1"
+    assert result.slides[1].main == "패치된 본문"
+    assert result.slides[2].main == "원본 3"
+
+
+def test_apply_patches_edit_index_fallback_when_hash_misses(tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2", "원본 3")
+    patch = SlidePatch(
+        id="p1",
+        type=PatchType.EDIT,
+        patched_main="패치된 본문",
+        slide_hash="sha256:nomatch",
+        slide_index=1,
+        created_at="t",
+        created_during="live",
+    )
+    result = apply_patches(spec, [patch])
+    assert result.slides[1].main == "패치된 본문"
+
+
+def test_apply_patches_edit_orphan_when_both_miss(tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2")
+    patch = SlidePatch(
+        id="p1",
+        type=PatchType.EDIT,
+        patched_main="패치된 본문",
+        slide_hash="sha256:nomatch",
+        slide_index=99,  # out of range
+        created_at="t",
+        created_during="live",
+    )
+    result = apply_patches(spec, [patch])
+    # No slide should be patched
+    assert [s.main for s in result.slides] == ["원본 1", "원본 2"]
+
+
+def test_apply_patches_does_not_mutate_input_spec() -> None:
+    spec = _make_spec("원본 1", "원본 2")
+    patch = SlidePatch(
+        id="p1",
+        type=PatchType.EDIT,
+        patched_main="패치",
+        slide_hash=slide_hash("원본 1"),
+        slide_index=0,
+        created_at="t",
+        created_during="live",
+    )
+    apply_patches(spec, [patch])
+    assert spec.slides[0].main == "원본 1"  # original unchanged

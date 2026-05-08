@@ -2,9 +2,10 @@
 """Slide patch storage — `.patches.json` per song, edit + append patches."""
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 
@@ -103,3 +104,42 @@ class PatchStore:
         except (KeyError, ValueError) as exc:
             logger.warning("patches.json schema error (%s): %s", self._path, exc)
             self._patches = []
+
+
+from flow.services.markdown.parser import SongSpec
+
+
+def slide_hash(main: str) -> str:
+    """Hash a slide's main body for patch-matching. Stable for identical text."""
+    digest = hashlib.sha256(main.encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def apply_patches(spec: SongSpec, patches: list[SlidePatch]) -> SongSpec:
+    """Return a new SongSpec with edit patches applied.
+
+    Edit patches: hash match first, fall back to slide_index, else orphan
+    (silently dropped at this layer; UI surfaces them separately).
+
+    (Append patches handled in Task 4.)
+    """
+    new_slides = list(spec.slides)
+    for patch in patches:
+        if patch.type is not PatchType.EDIT:
+            continue
+        target = _find_edit_target(new_slides, patch)
+        if target is None:
+            continue
+        old = new_slides[target]
+        new_slides[target] = replace(old, main=patch.patched_main)
+    return replace(spec, slides=new_slides)
+
+
+def _find_edit_target(slides: list, patch: SlidePatch) -> int | None:
+    if patch.slide_hash is not None:
+        for i, s in enumerate(slides):
+            if slide_hash(s.main) == patch.slide_hash:
+                return i
+    if patch.slide_index is not None and 0 <= patch.slide_index < len(slides):
+        return patch.slide_index
+    return None
