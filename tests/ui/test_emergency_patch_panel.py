@@ -1,0 +1,50 @@
+# tests/ui/test_emergency_patch_panel.py
+"""Tests for EmergencyPatchPanel — the live-mode split editor."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from flow.services.markdown import (
+    Frontmatter,
+    Slide,
+    SongSpec,
+)
+from flow.ui.live.emergency_patch_panel import EmergencyPatchPanel
+
+
+def _make_spec(*mains: str) -> SongSpec:
+    return SongSpec(
+        title="t",
+        frontmatter=Frontmatter(),
+        slides=[
+            Slide(main=m, sub_override=None, section_sub_default=None) for m in mains
+        ],
+    )
+
+
+def test_open_in_edit_mode_loads_slide_text(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2", "원본 3")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=1)
+    qtbot.addWidget(panel)
+    assert panel.current_text() == "원본 2"
+
+
+def test_open_in_add_mode_starts_empty(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2")
+    panel = EmergencyPatchPanel(
+        spec=spec, song_dir=tmp_path, initial_index=None  # add mode
+    )
+    qtbot.addWidget(panel)
+    assert panel.current_text() == ""
+    assert panel.is_add_mode()
+
+
+def test_typing_updates_pending_text(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    panel.set_text("고친 가사")
+    assert panel.current_text() == "고친 가사"
+    assert panel.has_pending_changes()
