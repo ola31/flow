@@ -724,7 +724,12 @@ class MarkdownSlideConverter(SlideConverter):
         self._cache.clear()
 
     def _slides_for(self, md_path: Path) -> list:
-        from flow.services.markdown import parse, render_all
+        from flow.services.markdown import (
+            PatchStore,
+            apply_patches,
+            parse,
+            render_all,
+        )
 
         key = Path(md_path).resolve()
         cached = self._cache.get(key)
@@ -732,7 +737,9 @@ class MarkdownSlideConverter(SlideConverter):
             return cached
         text = key.read_text(encoding="utf-8")
         spec = parse(text)
-        images = render_all(spec, song_dir=key.parent)
+        patch_store = PatchStore(key.parent / ".patches.json")
+        patched_spec = apply_patches(spec, patch_store.patches)
+        images = render_all(patched_spec, song_dir=key.parent)
         self._cache[key] = images
         return images
 
