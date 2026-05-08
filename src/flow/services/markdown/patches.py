@@ -18,7 +18,7 @@ class PatchType(str, Enum):
     APPEND = "append"
 
 
-@dataclass
+@dataclass(frozen=True)
 class SlidePatch:
     id: str
     type: PatchType
@@ -28,8 +28,8 @@ class SlidePatch:
     created_at: str
     created_during: str
 
-    def to_json(self) -> dict:
-        d: dict = {
+    def to_json(self) -> dict[str, object]:
+        d: dict[str, object] = {
             "id": self.id,
             "type": self.type.value,
             "patched_main": self.patched_main,
@@ -42,7 +42,7 @@ class SlidePatch:
         return d
 
     @classmethod
-    def from_json(cls, raw: dict) -> SlidePatch:
+    def from_json(cls, raw: dict[str, object]) -> SlidePatch:
         ptype = PatchType(raw["type"])
         return cls(
             id=raw["id"],
@@ -51,7 +51,7 @@ class SlidePatch:
             slide_hash=raw.get("slide_hash"),
             slide_index=raw.get("slide_index"),
             created_at=raw["created_at"],
-            created_during=raw.get("created_during", "live"),
+            created_during=raw["created_during"],
         )
 
 
