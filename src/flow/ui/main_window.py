@@ -36,7 +36,6 @@ from flow.ui.undo_commands import (
     RemoveHotspotCommand,
     MoveHotspotCommand,
     MapSlideCommand,
-    UnlinkAllSlidesCommand,
 )
 
 from flow.domain.project import Project
@@ -414,9 +413,6 @@ class MainWindow(QMainWindow):
 
         self._slide_preview.slide_selected.connect(self._on_slide_selected)
         self._slide_preview.slide_double_clicked.connect(self._on_slide_double_clicked)
-        self._slide_preview.slide_unlink_all_requested.connect(
-            self._on_slide_unlink_all_requested
-        )
         self._slide_preview._list.installEventFilter(self)
         self._slide_preview.reload_all_requested.connect(self._on_reload_all_ppt)
         self._slide_preview._btn_close.clicked.connect(self._on_close_ppt)
@@ -2791,46 +2787,6 @@ class MainWindow(QMainWindow):
                 return song.score_sheets
 
         return self._project.all_score_sheets
-
-    def _on_slide_unlink_all_requested(self, index: int) -> None:
-        """특정 슬라이드가 매핑된 모든 곳에서 해제 (Undo 지원)"""
-        if not self._project:
-            return
-
-        if self._is_live:
-            return
-
-        command = UnlinkAllSlidesCommand(
-            self._project,
-            index,
-            lambda: (
-                self._canvas.update(),
-                self._update_mapped_slides_ui(),
-                self._update_preview(self._canvas.get_selected_hotspot()),
-                self._update_verse_buttons_state(),
-                # 우측 매핑 패널도 동기화 (선택된 핫스팟이 있고 패널이 열려있으면)
-                self._mapping_panel.refresh(
-                    self._canvas.get_selected_hotspot(),
-                    self._project.current_verse_index,
-                    self._slide_manager.get_slide_image,
-                ) if (
-                    self._mapping_panel.isVisible()
-                    and self._canvas.get_selected_hotspot() is not None
-                ) else None,
-            ),
-        )
-        self._undo_stack.push(command)
-
-        count = len(command.affected_items)
-        if count > 0:
-            self.statusBar().showMessage(
-                f"해제 완료: {count}개의 핫스팟에서 슬라이드 {index + 1} 연결을 끊었습니다. (Ctrl+Z 가능)",
-                3000,
-            )
-        else:
-            self.statusBar().showMessage(
-                "해당 슬라이드가 매핑된 핫스팟이 없습니다.", 2000
-            )
 
     def _update_verse_buttons_state(self) -> None:
         if not self._project:

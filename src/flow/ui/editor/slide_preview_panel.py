@@ -70,7 +70,6 @@ class _DraggableSlideList(QListWidget):
 class SlidePreviewPanel(QWidget):
     slide_selected = Signal(int)
     slide_double_clicked = Signal(int)
-    slide_unlink_all_requested = Signal(int)
     reload_all_requested = Signal()
     emergency_patch_requested = Signal(int)  # slide index
     append_slide_requested = Signal()
@@ -492,14 +491,5 @@ class SlidePreviewPanel(QWidget):
             menu.exec(self._list.mapToGlobal(pos))
             return
 
-        # Existing edit-mode menu (unchanged)
-        if not self._editable:
-            return
-        if not item:
-            return
-        index = item.data(Qt.ItemDataRole.UserRole)
-        unlink_action = menu.addAction("매핑 해제")
-        unlink_action.triggered.connect(
-            lambda: self.slide_unlink_all_requested.emit(index)
-        )
-        menu.exec(self._list.mapToGlobal(pos))
+        # Project (non-live) mode: no thumbnail context menu — mapping
+        # changes belong to the canvas / mapping panel, not here.
