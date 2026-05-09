@@ -87,9 +87,13 @@ def test_converter_picks_up_edit_patch_by_hash(
     assert img.width() > 0
 
 
-def test_invalidate_cache_re_reads_patches(
+def test_cache_self_detects_patch_additions(
     song_dir_with_md: Path, qapp
 ) -> None:
+    """The content-hash cache re-reads .patches.json and slides.md on
+    each call, so additions are reflected immediately without an
+    explicit invalidate call. (invalidate_cache stays available for
+    memory cleanup.)"""
     conv = MarkdownSlideConverter()
     assert conv.get_slide_count(song_dir_with_md) == 2
 
@@ -112,7 +116,17 @@ def test_invalidate_cache_re_reads_patches(
         encoding="utf-8",
     )
 
-    # Cache still says 2 — must invalidate
-    assert conv.get_slide_count(song_dir_with_md) == 2
-    conv.invalidate_cache(song_dir_with_md)
+    # New count is reflected on the next call — no explicit invalidate
+    # needed because the cache re-parses input on every request.
     assert conv.get_slide_count(song_dir_with_md) == 3
+
+
+def test_unchanged_slide_returns_same_qimage_object(
+    song_dir_with_md: Path, qapp
+) -> None:
+    """Per-content cache: same slide content → same QImage object.
+    Lets downstream UI skip re-paints for unchanged thumbnails."""
+    conv = MarkdownSlideConverter()
+    img_first = conv.convert_slide(song_dir_with_md, 0)
+    img_second = conv.convert_slide(song_dir_with_md, 0)
+    assert img_first is img_second  # object identity, not just equal

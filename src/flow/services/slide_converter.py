@@ -702,10 +702,18 @@ def _find_bundled_onlyoffice() -> Path | None:
 
 
 class MarkdownSlideConverter(SlideConverter):
-    """Renders Flow markdown slide files to images using Qt only."""
+    """Renders Flow markdown slide files to images using Qt only.
+
+    Uses content-hash caching so unchanged slides return the same QImage
+    object across calls. Lets downstream UI (e.g. thumbnail strip) skip
+    repaints for slides that didn't actually change after a patch.
+    """
 
     def __init__(self) -> None:
-        self._cache: dict[Path, list] = {}
+        # Per file: { content_hash → QImage }. Hashing on the rendered
+        # slide's main body means edits / appends only re-render the
+        # affected slides; the rest hit the cache.
+        self._cache: dict[Path, dict[str, QImage]] = {}
 
     def get_engine_name(self) -> str:
         return "Markdown"
@@ -728,19 +736,32 @@ class MarkdownSlideConverter(SlideConverter):
             PatchStore,
             apply_patches,
             parse,
-            render_all,
+            render_slide,
+            slide_hash,
         )
 
         key = Path(md_path).resolve()
-        cached = self._cache.get(key)
-        if cached is not None:
-            return cached
         text = key.read_text(encoding="utf-8")
         spec = parse(text)
         patch_store = PatchStore(key.parent / ".patches.json")
         patched_spec = apply_patches(spec, patch_store.patches)
-        images = render_all(patched_spec, song_dir=key.parent)
-        self._cache[key] = images
+
+        # Content-hash cache: same slide content → same QImage object.
+        per_slide_cache = self._cache.get(key, {})
+        new_per_slide_cache: dict[str, QImage] = {}
+        images: list[QImage] = []
+        for slide in patched_spec.slides:
+            content_key = slide_hash(slide.main)
+            cached_img = per_slide_cache.get(content_key)
+            if cached_img is None:
+                cached_img = render_slide(
+                    patched_spec, slide, song_dir=key.parent
+                )
+            new_per_slide_cache[content_key] = cached_img
+            images.append(cached_img)
+        # Replace the per-file cache so dropped slides get garbage collected
+        # but kept slides retain identity.
+        self._cache[key] = new_per_slide_cache
         return images
 
 

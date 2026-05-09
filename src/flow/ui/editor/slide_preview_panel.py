@@ -408,10 +408,25 @@ class SlidePreviewPanel(QWidget):
             if item.foreground().color() != target:
                 item.setForeground(target)
 
+    # Custom item role for stashing the source QImage on each thumbnail
+    # so refresh_slides can skip repainting items whose image didn't
+    # actually change between calls.
+    _SLIDE_IMAGE_ROLE = Qt.ItemDataRole.UserRole + 10
+
     def refresh_slides(self) -> None:
-        """목록 완전 갱신 (PPT가 바뀌었을 때만 호출 권장)"""
-        self._list.clear()
+        """슬라이드 목록 점진 갱신.
+
+        clear() 한 후 다시 채우면 모든 항목이 재렌더링되어 시각적으로
+        '전체 갱신'처럼 보임. 대신 다음과 같이 동작:
+          - count가 줄어들면 끝에서 잘라냄
+          - 각 인덱스에서 QImage가 같은 객체면 스킵 (변경 없음)
+          - 다른 객체면 in-place로 아이콘 교체
+          - count가 늘어나면 끝에 새 항목 append
+        MarkdownSlideConverter의 content-hash 캐시와 결합되어, 패치된
+        슬라이드 하나만 갱신할 때 다른 썸네일은 그대로 유지됨.
+        """
         if not self._slide_manager:
+            self._list.clear()
             return
 
         count = self._slide_manager.get_slide_count()
@@ -420,41 +435,64 @@ class SlidePreviewPanel(QWidget):
 
         self._title.setText(f"PPT 슬라이드 ({count})")
         self._title.setToolTip(f"{ppt_name}\n{str(ppt_path) if ppt_path else ''}")
-
-        # PPT가 없으면 닫기 버튼 비활성화
         self._btn_close.setEnabled(ppt_path is not None)
 
-        # 현재 매핑 정보 가져오기
         mapped_indices = getattr(self, "_mapped_indices", set())
+
+        # Truncate trailing items if the new count is smaller.
+        while self._list.count() > count:
+            self._list.takeItem(self._list.count() - 1)
+
+        from flow.ui.styles import ACCENT_INTER, TEXT_TERTIARY
 
         for i in range(count):
             try:
                 qimg = self._slide_manager.get_slide_image(i)
-                if qimg is None:
-                    continue
-                pixmap = QPixmap.fromImage(qimg)
             except Exception:
+                qimg = None
+            if qimg is None:
                 continue
 
             is_mapped = i in mapped_indices
-            label = f"Slide {i + 1}"
-            if is_mapped:
-                label += " ●"
+            label = f"Slide {i + 1}" + (" ●" if is_mapped else "")
+            target_color = QColor(ACCENT_INTER if is_mapped else TEXT_TERTIARY)
 
-            item = QListWidgetItem(label)
-            scaled_pixmap = pixmap.scaled(
-                192,
-                108,
+            existing_item = self._list.item(i) if i < self._list.count() else None
+            if existing_item is not None:
+                cached_img = existing_item.data(self._SLIDE_IMAGE_ROLE)
+                if cached_img is qimg:
+                    # No image change — only update label/foreground if needed.
+                    if existing_item.text() != label:
+                        existing_item.setText(label)
+                    if existing_item.foreground().color() != target_color:
+                        existing_item.setForeground(target_color)
+                    continue
+                # Image changed: rebuild icon in place.
+                pixmap = QPixmap.fromImage(qimg)
+                scaled = pixmap.scaled(
+                    192, 108,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                existing_item.setIcon(QIcon(scaled))
+                existing_item.setText(label)
+                existing_item.setForeground(target_color)
+                existing_item.setData(self._SLIDE_IMAGE_ROLE, qimg)
+                existing_item.setData(Qt.ItemDataRole.UserRole, i)
+                continue
+
+            # New item past previous end.
+            pixmap = QPixmap.fromImage(qimg)
+            scaled = pixmap.scaled(
+                192, 108,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
-            item.setIcon(QIcon(scaled_pixmap))
+            item = QListWidgetItem(label)
+            item.setIcon(QIcon(scaled))
             item.setData(Qt.ItemDataRole.UserRole, i)
-
-            if is_mapped:
-                from flow.ui.styles import ACCENT_INTER
-                item.setForeground(QColor(ACCENT_INTER))
-
+            item.setData(self._SLIDE_IMAGE_ROLE, qimg)
+            item.setForeground(target_color)
             self._list.addItem(item)
 
         # Notify listeners that the thumbnail list has been rebuilt so
