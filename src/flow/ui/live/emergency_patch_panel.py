@@ -12,8 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
+from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -128,6 +128,30 @@ class EmergencyPatchPanel(QWidget):
             self._current_key = self._allocate_add_slot()
             self._refresh_editor_for_current()
 
+    def apply_now(self) -> None:
+        self._sync_current_to_pending()
+        dirty = [
+            (key, state.text)
+            for key, state in self._pending.items()
+            if state.is_dirty
+        ]
+        self.applied.emit(dirty)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """Intercept Ctrl+Return on the editor before QPlainTextEdit handles it."""
+        if (
+            watched is self._editor
+            and event.type() == QEvent.Type.KeyPress
+        ):
+            key_event = QKeyEvent(event)
+            if (
+                key_event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+                and key_event.modifiers() & Qt.KeyboardModifier.ControlModifier
+            ):
+                self.apply_now()
+                return True
+        return super().eventFilter(watched, event)
+
     def _ask_add_another(self) -> bool:
         """Show 'add new slide?' popup, return True if user said yes."""
         from flow.ui.live.confirm_dialog import ConfirmDialog
@@ -188,6 +212,11 @@ class EmergencyPatchPanel(QWidget):
             f"padding: {styles.SP_SM}px {styles.SP_LG}px; font-weight: 600; }}"
         )
         layout.addWidget(self._apply_btn)
+
+        self._apply_btn.clicked.connect(self.apply_now)
+        # QPlainTextEdit consumes Ctrl+Return before window shortcuts fire,
+        # so intercept it via an event filter installed directly on the editor.
+        self._editor.installEventFilter(self)
 
     def preview_pixmap(self):  # -> QPixmap | None
         return self._preview_label.pixmap()

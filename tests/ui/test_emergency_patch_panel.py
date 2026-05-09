@@ -152,3 +152,71 @@ def test_add_mode_next_with_yes_creates_another_slot(qtbot, tmp_path: Path, monk
     assert panel.is_add_mode()
     assert panel._current_key != first_slot
     assert panel.current_text() == ""  # fresh slot
+
+
+def test_apply_emits_signal_with_dirty_slots(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    panel.set_text("고친 1")
+    panel.go_next()
+    panel.set_text("고친 2")
+
+    with qtbot.waitSignal(panel.applied, timeout=1000) as blocker:
+        panel.apply_now()
+
+    payload = blocker.args[0]
+    keys_to_text = dict(payload)
+    assert keys_to_text[0] == "고친 1"
+    assert keys_to_text[1] == "고친 2"
+
+
+def test_apply_does_not_emit_unchanged_slots(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2", "원본 3")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    panel.set_text("고친 1")
+    panel.go_next()  # slide 2 — don't change
+    panel.go_next()  # slide 3 — don't change
+
+    with qtbot.waitSignal(panel.applied, timeout=1000) as blocker:
+        panel.apply_now()
+
+    payload = blocker.args[0]
+    assert len(payload) == 1
+    assert payload[0][0] == 0
+    assert payload[0][1] == "고친 1"
+
+
+def test_apply_emits_add_slots_with_string_keys(qtbot, tmp_path: Path, monkeypatch) -> None:
+    spec = _make_spec("원본 1")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=None)
+    qtbot.addWidget(panel)
+    panel.set_text("새 1")
+    monkeypatch.setattr(panel, "_ask_add_another", lambda: True)
+    panel.go_next()
+    panel.set_text("새 2")
+
+    with qtbot.waitSignal(panel.applied, timeout=1000) as blocker:
+        panel.apply_now()
+
+    payload = blocker.args[0]
+    keys = [k for k, _ in payload]
+    assert all(isinstance(k, str) and k.startswith("add:") for k in keys)
+    texts = [t for _, t in payload]
+    assert "새 1" in texts and "새 2" in texts
+
+
+def test_ctrl_enter_triggers_apply(qtbot, tmp_path: Path) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    spec = _make_spec("원본 1")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    panel.show()
+    panel.set_text("고친 1")
+    panel._editor.setFocus()
+
+    with qtbot.waitSignal(panel.applied, timeout=1000):
+        QTest.keyClick(panel._editor, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
