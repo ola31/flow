@@ -128,6 +128,22 @@ class EmergencyPatchPanel(QWidget):
             self._current_key = self._allocate_add_slot()
             self._refresh_editor_for_current()
 
+    def revert_current(self) -> None:
+        key = self._current_key
+        if isinstance(key, str):
+            # Add-mode: drop slot, return to last existing slide
+            self._pending.pop(key, None)
+            if len(self._spec.slides) > 0:
+                self._current_key = len(self._spec.slides) - 1
+                self._refresh_editor_for_current()
+            else:
+                # No existing slides — close
+                self.close_requested.emit()
+            return
+        # Edit-mode: clear pending so refresh seeds with original
+        self._pending.pop(key, None)
+        self._refresh_editor_for_current()
+
     def apply_now(self) -> None:
         self._sync_current_to_pending()
         dirty = [
@@ -225,7 +241,20 @@ class EmergencyPatchPanel(QWidget):
         self._title_label.setStyleSheet(
             f"color: {styles.AMBER}; font-size: {styles.FONT_SM}px; font-weight: 600;"
         )
-        layout.addWidget(self._title_label)
+        header_row = QHBoxLayout()
+        header_row.setSpacing(styles.SP_SM)
+        header_row.addWidget(self._title_label)
+        header_row.addStretch(1)
+        self._revert_btn = QPushButton("원본으로 되돌리기")
+        self._revert_btn.setStyleSheet(
+            f"QPushButton {{ background-color: transparent; "
+            f"color: {styles.AMBER}; border: 1px solid {styles.AMBER}; "
+            f"border-radius: 4px; padding: 4px 8px; "
+            f"font-size: {styles.FONT_XS}px; }}"
+        )
+        self._revert_btn.clicked.connect(self.revert_current)
+        header_row.addWidget(self._revert_btn)
+        layout.addLayout(header_row)
 
         self._editor = QPlainTextEdit()
         self._editor.setStyleSheet(

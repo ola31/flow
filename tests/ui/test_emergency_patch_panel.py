@@ -286,3 +286,30 @@ def test_close_with_pending_dialog_cancelled_no_close(
 
     panel.attempt_close()
     assert not close_fired  # dialog cancelled → stay open
+
+
+def test_revert_clears_pending_for_current_only(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    panel.set_text("고친 1")
+    panel.go_next()
+    panel.set_text("고친 2")
+    panel.go_prev()  # back to slide 0
+
+    panel.revert_current()
+    assert panel.current_text() == "원본 1"
+    panel.go_next()
+    assert panel.current_text() == "고친 2"  # other slide untouched
+
+
+def test_revert_in_add_mode_drops_slot_and_returns_to_last(
+    qtbot, tmp_path: Path
+) -> None:
+    spec = _make_spec("원본 1")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=None)
+    qtbot.addWidget(panel)
+    panel.set_text("새 슬라이드")
+    panel.revert_current()
+    assert not panel.is_add_mode()
+    assert panel.current_text() == "원본 1"
