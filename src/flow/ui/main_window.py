@@ -1939,12 +1939,13 @@ class MainWindow(QMainWindow):
                 )
         store.save()
 
-        # Invalidate cache so next read sees patches
-        self._slide_manager._markdown_converter.invalidate_cache(md_path)
-        # Rebuild the thumbnail strip so the new pixmaps reflect patches.
-        # SlidePreviewPanel.refresh_slides() emits slides_refreshed which
-        # triggers _recompute_patched_badges to set the AMBER dots.
-        self._slide_preview.refresh_slides()
+        # reload_song re-counts metadata for this song through the worker,
+        # which then emits load_finished → _on_ppt_load_finished →
+        # _slide_preview.refresh_slides(). That path is required for
+        # APPEND patches because just clearing the converter cache leaves
+        # the slide_manager's _total_slide_count at the pre-patch value —
+        # the new slide wouldn't be in the iteration range.
+        self._slide_manager.reload_song(song)
         self._refresh_live_display_for_patched(song)
         self._close_emergency_patch_panel()
 
