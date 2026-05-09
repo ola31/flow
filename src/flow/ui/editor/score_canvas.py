@@ -51,6 +51,7 @@ class ScoreCanvas(QWidget):
     popover_unmap_requested = Signal(object)
     slide_dropped_on_hotspot = Signal(object, int)
     live_hotspot_clicked = Signal(object)
+    emergency_patch_requested = Signal(object)  # Hotspot
 
     HOTSPOT_RADIUS = 15
     HOTSPOT_COLOR = QColor(*HOTSPOT_DEFAULT_FILL)
@@ -72,6 +73,7 @@ class ScoreCanvas(QWidget):
         self._offset_x = 0
         self._offset_y = 0
         self._verse_index = 0  # 현재 선택된 절 (UI 표시용)
+        self._live_emergency_enabled = False
 
         # UI 리소스 캐시
         self._font_main = QFont("Malgun Gothic", 10)
@@ -184,6 +186,11 @@ class ScoreCanvas(QWidget):
 
     def set_edit_mode(self, enabled: bool) -> None:
         self._edit_mode = enabled
+
+    def set_live_mode(self, *, is_live: bool, slide_source: str) -> None:
+        """Called by main_window on enter/exit live. slide_source is the
+        current song's source ('markdown' | 'pptx' | 'none')."""
+        self._live_emergency_enabled = is_live and slide_source == "markdown"
 
     def set_hotspot_editable(self, editable: bool) -> None:
         self._hotspot_editable = editable
@@ -771,6 +778,14 @@ class ScoreCanvas(QWidget):
                     lambda: self.hotspot_unmap_request.emit(hotspot)
                 )
                 menu.addAction(unmap_action)
+
+        if self._live_emergency_enabled:
+            menu.addSeparator()
+            emergency_action = QAction("긴급 수정", self)
+            emergency_action.triggered.connect(
+                lambda: self.emergency_patch_requested.emit(hotspot)
+            )
+            menu.addAction(emergency_action)
 
         menu.exec(self.mapToGlobal(pos))
 
