@@ -20,6 +20,37 @@ SLIDE_MIME_TYPE = "application/x-flow-slide-index"
 
 
 class _DraggableSlideList(QListWidget):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._patched_indices: set[int] = set()
+
+    def set_patched_indices(self, indices: set[int]) -> None:
+        self._patched_indices = set(indices)
+        self.viewport().update()
+
+    def paintEvent(self, event):  # noqa: N802
+        super().paintEvent(event)
+        if not self._patched_indices:
+            return
+        from PySide6.QtCore import QRect
+        from PySide6.QtGui import QColor, QPainter
+
+        from flow.ui import styles
+
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(QColor(styles.AMBER))
+        painter.setPen(QColor(styles.AMBER))
+        for i in range(self.count()):
+            item = self.item(i)
+            idx = item.data(Qt.ItemDataRole.UserRole)
+            if idx not in self._patched_indices:
+                continue
+            rect = self.visualItemRect(item)
+            dot = QRect(rect.right() - 14, rect.top() + 4, 8, 8)
+            painter.drawEllipse(dot)
+        painter.end()
+
     def startDrag(self, supportedActions) -> None:
         item = self.currentItem()
         if not item:
@@ -50,6 +81,7 @@ class SlidePreviewPanel(QWidget):
         self._slide_manager = None
         self._editable = True  # [복구] 편집 가능 상태 보관
         self._live_emergency_enabled = False
+        self._patched_indices: set[int] = set()
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -303,6 +335,11 @@ class SlidePreviewPanel(QWidget):
     def set_live_mode(self, *, is_live: bool, slide_source: str) -> None:
         """라이브 모드 전환 및 긴급 패치 메뉴 활성 여부 설정"""
         self._live_emergency_enabled = is_live and slide_source == "markdown"
+
+    def set_patched_indices(self, indices: set[int]) -> None:
+        """패치된 슬라이드 인덱스를 설정하고 썸네일에 AMBER 배지를 표시한다."""
+        self._patched_indices = set(indices)
+        self._list.set_patched_indices(indices)
 
     def set_editable(self, editable: bool) -> None:
         """편집 모드 활성/비활성 제어"""
