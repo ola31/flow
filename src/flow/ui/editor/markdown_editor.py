@@ -210,8 +210,17 @@ class MarkdownEditor(QWidget):
         self._refresh_patches_bar(self._current_md_path)
 
     def _on_patches_details(self) -> None:
-        # Phase 2 — leave as no-op for MVP
-        pass
+        if self._current_md_path is None:
+            return
+        from flow.ui.editor.patch_details_dialog import PatchDetailsDialog
+
+        dlg = PatchDetailsDialog(self._current_md_path, parent=self)
+        dlg.patches_changed.connect(
+            lambda: self._refresh_patches_bar(self._current_md_path)
+        )
+        dlg.exec()
+        # Final refresh in case the user only used the close button
+        self._refresh_patches_bar(self._current_md_path)
 
     # Internals
     def _on_cursor_moved(self) -> None:
