@@ -103,6 +103,11 @@ class MainWindow(QMainWindow):
         self._is_dirty = False
         self._in_transition = False
 
+        # Emergency patch panel state
+        self._patch_panel = None  # EmergencyPatchPanel | None
+        self._patch_splitter = None  # QSplitter | None (unused — kept for API compat)
+        self._patch_original_index = -1
+
         self._apply_global_style()
         self._setup_ui()
         self._setup_toolbar()
@@ -681,6 +686,15 @@ class MainWindow(QMainWindow):
         self._canvas.popover_unmap_requested.connect(self._on_popover_unmap)
         self._canvas.slide_dropped_on_hotspot.connect(self._on_popover_mapping)
         self._canvas.live_hotspot_clicked.connect(self._on_live_hotspot_clicked)
+        self._canvas.emergency_patch_requested.connect(
+            self._on_canvas_emergency_patch_requested
+        )
+        self._slide_preview.emergency_patch_requested.connect(
+            self._on_preview_emergency_patch_requested
+        )
+        self._slide_preview.append_slide_requested.connect(
+            self._on_append_slide_requested
+        )
 
         # 라이브 컨트롤러 시그널 - 메인 윈도우 및 송출창 업데이트
         self._live_controller.live_changed.connect(self._on_live_changed)
@@ -1610,6 +1624,30 @@ class MainWindow(QMainWindow):
         self._statusbar.showMessage("라이브 — 핫스팟 클릭 → Enter로 송출  |  Esc로 종료")
         title = self.windowTitle().replace(" [LIVE]", "")
         self.setWindowTitle(title + " [LIVE]")
+        # Propagate live + slide_source to widgets that gate emergency patch
+        song = self._current_markdown_song()
+        if song is not None:
+            source = "markdown"
+        else:
+            try:
+                sheet = self._canvas.get_score_sheet()
+                actual_song = (
+                    next(
+                        (
+                            s
+                            for s in (self._project.selected_songs or [])
+                            if sheet and any(sh.id == sheet.id for sh in s.score_sheets)
+                        ),
+                        None,
+                    )
+                    if self._project
+                    else None
+                )
+                source = actual_song.slide_source if actual_song else "none"
+            except Exception:
+                source = "none"
+        self._canvas.set_live_mode(is_live=True, slide_source=source)
+        self._slide_preview.set_live_mode(is_live=True, slide_source=source)
 
     def _exit_live(self) -> None:
         self._is_live = False
@@ -1619,11 +1657,176 @@ class MainWindow(QMainWindow):
         if self._display_window and self._display_window.isVisible():
             self._toggle_display()
         self._display_action.setEnabled(False)
+        self._canvas.set_live_mode(is_live=False, slide_source="none")
+        self._slide_preview.set_live_mode(is_live=False, slide_source="none")
+        self._close_emergency_patch_panel()  # close if open
         self._project_screen.set_live_mode(False)
         self._update_toolbar_for_mode("default")
         self._statusbar.showMessage("편집 모드")
         title = self.windowTitle().replace(" [LIVE]", "")
         self.setWindowTitle(title)
+
+    # === 긴급 슬라이드 패치 (Emergency Patch Panel) ===
+
+    def _current_markdown_song(self):
+        """Return the active song iff its slide source is markdown, else None."""
+        if not self._project:
+            return None
+        sheet = self._canvas.get_score_sheet()
+        if sheet is None:
+            return None
+        song = next(
+            (
+                s
+                for s in (self._project.selected_songs or [])
+                if any(sh.id == sheet.id for sh in s.score_sheets)
+            ),
+            None,
+        )
+        if song is None:
+            return None
+        if song.slide_source != "markdown":
+            return None
+        return song
+
+    def _on_canvas_emergency_patch_requested(self, hotspot) -> None:
+        if not self._is_live:
+            return
+        song = self._current_markdown_song()
+        if song is None:
+            return
+        verse_index = self._project.current_verse_index
+        slide_idx = hotspot.get_slide_index(verse_index)
+        if slide_idx < 0:
+            slide_idx = hotspot.get_slide_index(5)  # fallback to chorus
+        if slide_idx < 0:
+            return
+        self._open_emergency_patch_panel(song=song, initial_index=slide_idx)
+
+    def _on_preview_emergency_patch_requested(self, slide_index: int) -> None:
+        if not self._is_live:
+            return
+        song = self._current_markdown_song()
+        if song is None:
+            return
+        self._open_emergency_patch_panel(song=song, initial_index=slide_index)
+
+    def _on_append_slide_requested(self) -> None:
+        if not self._is_live:
+            return
+        song = self._current_markdown_song()
+        if song is None:
+            return
+        self._open_emergency_patch_panel(song=song, initial_index=None)
+
+    def _open_emergency_patch_panel(self, *, song, initial_index) -> None:
+        from flow.services.markdown import PatchStore, apply_patches, parse
+        from flow.ui.live.emergency_patch_panel import EmergencyPatchPanel
+
+        if not self._is_live:
+            return
+        if self._patch_panel is not None:
+            return  # already open
+
+        md_path = song.markdown_path
+        text = md_path.read_text(encoding="utf-8")
+        spec = parse(text)
+        store = PatchStore(md_path.parent / ".patches.json")
+        patched_spec = apply_patches(spec, store.patches)
+
+        panel = EmergencyPatchPanel(
+            spec=patched_spec,
+            song_dir=md_path.parent,
+            initial_index=initial_index,
+            parent=self._h_splitter,
+        )
+        panel.applied.connect(
+            lambda payload: self._on_patch_applied(song, payload)
+        )
+        panel.close_requested.connect(self._close_emergency_patch_panel)
+
+        # Insert panel at index 0 in the existing h_splitter (leftmost pane)
+        self._h_splitter.insertWidget(0, panel)
+        # Adjust sizes: panel 400, song_list ~240, center ~600, pip ~0, mapping ~0
+        current_sizes = self._h_splitter.sizes()
+        total = sum(current_sizes)
+        panel_width = 400
+        remaining = max(0, total - panel_width)
+        # Distribute remaining proportionally among existing panes
+        if current_sizes:
+            ratio = remaining / max(total, 1)
+            new_sizes = [panel_width] + [int(s * ratio) for s in current_sizes]
+        else:
+            new_sizes = [panel_width] + list(current_sizes)
+        self._h_splitter.setSizes(new_sizes)
+
+        self._patch_panel = panel
+
+    def _close_emergency_patch_panel(self) -> None:
+        if self._patch_panel is None:
+            return
+        self._patch_panel.setParent(None)  # type: ignore[arg-type]
+        self._patch_panel.deleteLater()
+        self._patch_panel = None
+        self._patch_splitter = None
+        self._patch_original_index = -1
+        # Restore h_splitter sizes to live-mode defaults
+        if self._is_live:
+            self._h_splitter.setSizes([240, 800, 280, 0])
+
+    def _on_patch_applied(self, song, payload: list) -> None:
+        import uuid
+        from datetime import datetime, timezone
+
+        from flow.services.markdown import (
+            PatchStore,
+            PatchType,
+            SlidePatch,
+            parse,
+            slide_hash,
+        )
+
+        md_path = song.markdown_path
+        spec = parse(md_path.read_text(encoding="utf-8"))
+        store = PatchStore(md_path.parent / ".patches.json")
+        now = datetime.now(timezone.utc).isoformat()
+
+        for key, text in payload:
+            if isinstance(key, int):
+                if 0 <= key < len(spec.slides):
+                    h = slide_hash(spec.slides[key].main)
+                else:
+                    h = None
+                store.add(
+                    SlidePatch(
+                        id=str(uuid.uuid4()),
+                        type=PatchType.EDIT,
+                        patched_main=text,
+                        slide_hash=h,
+                        slide_index=key,
+                        created_at=now,
+                        created_during="live",
+                    )
+                )
+            else:
+                store.add(
+                    SlidePatch(
+                        id=str(uuid.uuid4()),
+                        type=PatchType.APPEND,
+                        patched_main=text,
+                        slide_hash=None,
+                        slide_index=None,
+                        created_at=now,
+                        created_during="live",
+                    )
+                )
+        store.save()
+
+        # Invalidate cache so next read sees patches
+        self._slide_manager._markdown_converter.invalidate_cache(md_path)
+        # Display refresh and thumbnail badge sync land in Tasks 19-21.
+        # For now just close the panel.
+        self._close_emergency_patch_panel()
 
     def _toggle_display(self) -> None:
         """송출 시작/중지 토글"""
