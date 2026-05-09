@@ -43,11 +43,6 @@ class EmergencyPatchPanel(QWidget):
     # str like "add:N" (append slot allocated this session).
     applied = Signal(list)
     close_requested = Signal()
-    # Operator wants to switch to the previous / next markdown song without
-    # leaving the patch session. MainWindow handles pending changes,
-    # closes this panel, and opens a new one for the target song.
-    prev_song_requested = Signal()
-    next_song_requested = Signal()
 
     def __init__(
         self,
@@ -95,15 +90,6 @@ class EmergencyPatchPanel(QWidget):
 
     def set_text(self, text: str) -> None:
         self._editor.setPlainText(text)
-
-    def set_song_nav_enabled(self, prev: bool, next: bool) -> None:
-        """Enable/disable the prev/next song buttons. Called by MainWindow
-        based on whether other markdown songs exist in the project."""
-        try:
-            self._prev_song_btn.setEnabled(prev)
-            self._next_song_btn.setEnabled(next)
-        except AttributeError:
-            pass
 
     def set_active(self, active: bool) -> None:
         """Visually indicate whether this panel currently has keyboard focus.
@@ -299,32 +285,8 @@ class EmergencyPatchPanel(QWidget):
         self._title_label.setStyleSheet(
             f"color: {styles.AMBER}; font-size: {styles.FONT_SM}px; font-weight: 600;"
         )
-        # Song-nav buttons (prev / next song) sit to the left of the title.
-        # Shown disabled when no other markdown song is reachable.
-        _song_btn_qss = (
-            f"QPushButton {{ background-color: transparent; "
-            f"color: {styles.TEXT_SECONDARY}; "
-            f"border: 1px solid {styles.BORDER_SUBTLE_RGBA}; "
-            f"border-radius: 4px; padding: 2px 6px; "
-            f"font-size: {styles.FONT_XS}px; }}"
-            f"QPushButton:hover {{ color: {styles.TEXT_PRIMARY}; }}"
-            f"QPushButton:disabled {{ color: {styles.TEXT_TERTIARY}; "
-            f"border: 1px solid {styles.BORDER_SUBTLE_RGBA}; }}"
-        )
-        self._prev_song_btn = QPushButton("⏪ 곡")
-        self._prev_song_btn.setStyleSheet(_song_btn_qss)
-        self._prev_song_btn.setToolTip("이전 곡으로 (Ctrl+Shift+←)")
-        self._prev_song_btn.clicked.connect(self.prev_song_requested)
-        self._next_song_btn = QPushButton("곡 ⏩")
-        self._next_song_btn.setStyleSheet(_song_btn_qss)
-        self._next_song_btn.setToolTip("다음 곡으로 (Ctrl+Shift+→)")
-        self._next_song_btn.clicked.connect(self.next_song_requested)
-
         header_row = QHBoxLayout()
         header_row.setSpacing(styles.SP_SM)
-        header_row.addWidget(self._prev_song_btn)
-        header_row.addWidget(self._next_song_btn)
-        header_row.addSpacing(styles.SP_SM)
         header_row.addWidget(self._title_label)
         header_row.addStretch(1)
         self._revert_btn = QPushButton("원본으로 되돌리기")
@@ -354,10 +316,6 @@ class EmergencyPatchPanel(QWidget):
         sc_next.activated.connect(self.go_next)
         sc_prev = QShortcut(QKeySequence("Ctrl+Left"), self)
         sc_prev.activated.connect(self.go_prev)
-        sc_next_song = QShortcut(QKeySequence("Ctrl+Shift+Right"), self)
-        sc_next_song.activated.connect(self.next_song_requested)
-        sc_prev_song = QShortcut(QKeySequence("Ctrl+Shift+Left"), self)
-        sc_prev_song.activated.connect(self.prev_song_requested)
 
         self._preview_label = QLabel()
         self._preview_label.setMinimumHeight(120)

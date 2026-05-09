@@ -1774,12 +1774,6 @@ class MainWindow(QMainWindow):
             lambda payload: self._on_patch_applied(song, payload)
         )
         panel.close_requested.connect(self._close_emergency_patch_panel)
-        panel.prev_song_requested.connect(
-            lambda: self._on_patch_song_switch(-1)
-        )
-        panel.next_song_requested.connect(
-            lambda: self._on_patch_song_switch(+1)
-        )
 
         # Width reacts to discrete window state (maximized vs normal) only,
         # not to continuous resize. This avoids the maximize-animation
@@ -1812,9 +1806,6 @@ class MainWindow(QMainWindow):
         # Initial visual: panel is the freshly-focused pane, live area is dim.
         panel.set_active(True)
         self._project_screen.set_focus_active(False)
-        # Disable song-nav buttons if no other markdown song is reachable.
-        prev_ok, next_ok = self._patch_song_nav_availability(song)
-        panel.set_song_nav_enabled(prev_ok, next_ok)
 
     def _close_emergency_patch_panel(self) -> None:
         if self._patch_panel is None:
@@ -1880,77 +1871,6 @@ class MainWindow(QMainWindow):
             self._project_screen.set_focus_active(not panel_focused)
         except (RuntimeError, AttributeError):
             pass
-
-    def _patch_song_nav_availability(self, current_song) -> tuple[bool, bool]:
-        """Return (prev_ok, next_ok) for the song-nav buttons in the panel.
-
-        prev_ok / next_ok are True iff at least one OTHER markdown song
-        exists somewhere in the project — direction is moot for cycling
-        but we expose two flags in case we go non-cyclic later.
-        """
-        if not self._project:
-            return (False, False)
-        songs = self._project.selected_songs or []
-        others = [
-            s
-            for s in songs
-            if s.name != current_song.name
-            and getattr(s, "slide_source", None) == "markdown"
-        ]
-        return (bool(others), bool(others))
-
-    def _on_patch_song_switch(self, direction: int) -> None:
-        """Switch to the prev (-1) / next (+1) markdown song from inside
-        the patch panel. Pending changes get the standard apply-or-discard
-        dialog before the switch happens."""
-        if self._patch_panel is None or not self._project:
-            return
-        songs = self._project.selected_songs or []
-        if len(songs) < 2:
-            return
-        current = self._current_markdown_song()
-        if current is None:
-            return
-        try:
-            idx = next(
-                i for i, s in enumerate(songs) if s.name == current.name
-            )
-        except StopIteration:
-            return
-        n = len(songs)
-        new_song = None
-        for offset in range(1, n + 1):
-            candidate = songs[(idx + direction * offset) % n]
-            if (
-                candidate.name != current.name
-                and getattr(candidate, "slide_source", None) == "markdown"
-            ):
-                new_song = candidate
-                break
-        if new_song is None:
-            self._statusbar.showMessage("이동할 다른 마크다운 곡이 없습니다.", 2000)
-            return
-
-        # Handle pending changes: ask user via the panel's existing dialog.
-        panel = self._patch_panel
-        if panel.has_pending_changes():
-            choice = panel._ask_apply_or_discard()
-            if choice is None:
-                return  # cancelled — stay on current song
-            if choice == "apply":
-                # apply_now triggers _on_patch_applied → close_emergency_patch_panel
-                panel.apply_now()
-            else:  # discard
-                self._close_emergency_patch_panel()
-        else:
-            self._close_emergency_patch_panel()
-
-        # Switch the live canvas to the new song's first sheet so context
-        # matches what the new patch panel will edit.
-        if new_song.score_sheets:
-            self._on_song_selected(new_song.score_sheets[0])
-        # Open a fresh panel on the new song's first slide.
-        self._open_emergency_patch_panel(song=new_song, initial_index=0)
 
     def _patch_panel_target_width(self) -> int:
         """Pick a panel width that fits the current window state."""

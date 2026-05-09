@@ -365,30 +365,3 @@ def test_cancel_button_invokes_attempt_close(qtbot, tmp_path: Path) -> None:
     # No pending edits → cancel should fire close_requested immediately.
     with qtbot.waitSignal(panel.close_requested, timeout=1000):
         panel._cancel_btn.click()
-
-
-def test_song_nav_signals_exist() -> None:
-    assert hasattr(EmergencyPatchPanel, "prev_song_requested")
-    assert hasattr(EmergencyPatchPanel, "next_song_requested")
-
-
-def test_song_nav_buttons_emit_signals(qtbot, tmp_path: Path) -> None:
-    spec = _make_spec("원본 1")
-    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
-    qtbot.addWidget(panel)
-    with qtbot.waitSignal(panel.next_song_requested, timeout=1000):
-        panel._next_song_btn.click()
-    with qtbot.waitSignal(panel.prev_song_requested, timeout=1000):
-        panel._prev_song_btn.click()
-
-
-def test_set_song_nav_enabled_toggles_buttons(qtbot, tmp_path: Path) -> None:
-    spec = _make_spec("원본 1")
-    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
-    qtbot.addWidget(panel)
-    panel.set_song_nav_enabled(False, False)
-    assert not panel._prev_song_btn.isEnabled()
-    assert not panel._next_song_btn.isEnabled()
-    panel.set_song_nav_enabled(True, True)
-    assert panel._prev_song_btn.isEnabled()
-    assert panel._next_song_btn.isEnabled()
