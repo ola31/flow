@@ -137,8 +137,51 @@ class EmergencyPatchPanel(QWidget):
         ]
         self.applied.emit(dirty)
 
+    def attempt_close(self) -> None:
+        """Close the panel, prompting if there are pending changes."""
+        self._sync_current_to_pending()
+        dirty_count = sum(1 for s in self._pending.values() if s.is_dirty)
+        if dirty_count == 0:
+            self.close_requested.emit()
+            return
+        choice = self._ask_apply_or_discard()
+        if choice == "apply":
+            self.apply_now()
+            self.close_requested.emit()
+        elif choice == "discard":
+            self.close_requested.emit()
+        # else: None (dialog cancelled) → stay open
+
+    def _ask_apply_or_discard(self) -> str | None:
+        """Show 모두 적용 / 모두 버리기 dialog. Returns 'apply', 'discard', or None."""
+        from flow.ui.live.confirm_dialog import ConfirmDialog
+
+        dirty_count = sum(1 for s in self._pending.values() if s.is_dirty)
+        dlg = ConfirmDialog(
+            title="변경사항 처리",
+            message=(
+                f"누적된 변경사항 {dirty_count}건이 있습니다.\n"
+                "모두 적용할까요? 모두 버릴까요?"
+            ),
+            left_label="모두 적용",
+            right_label="모두 버리기",
+            parent=self,
+        )
+        dlg.exec()
+        if dlg.result_choice == "left":
+            return "apply"
+        if dlg.result_choice == "right":
+            return "discard"
+        return None
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
+        if event.key() == Qt.Key.Key_Escape:
+            self.attempt_close()
+            return
+        super().keyPressEvent(event)
+
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        """Intercept Ctrl+Return on the editor before QPlainTextEdit handles it."""
+        """Intercept Ctrl+Return and Esc on the editor before QPlainTextEdit handles them."""
         if (
             watched is self._editor
             and event.type() == QEvent.Type.KeyPress
@@ -149,6 +192,9 @@ class EmergencyPatchPanel(QWidget):
                 and key_event.modifiers() & Qt.KeyboardModifier.ControlModifier
             ):
                 self.apply_now()
+                return True
+            if key_event.key() == Qt.Key.Key_Escape:
+                self.attempt_close()
                 return True
         return super().eventFilter(watched, event)
 

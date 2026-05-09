@@ -220,3 +220,69 @@ def test_ctrl_enter_triggers_apply(qtbot, tmp_path: Path) -> None:
 
     with qtbot.waitSignal(panel.applied, timeout=1000):
         QTest.keyClick(panel._editor, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
+
+
+def test_close_no_pending_emits_close_immediately(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+
+    with qtbot.waitSignal(panel.close_requested, timeout=1000):
+        panel.attempt_close()
+
+
+def test_close_with_pending_yes_apply_emits_apply_then_close(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    spec = _make_spec("원본 1")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    panel.set_text("고친")
+
+    monkeypatch.setattr(panel, "_ask_apply_or_discard", lambda: "apply")
+
+    apply_fired: list = []
+    close_fired: list = []
+    panel.applied.connect(lambda payload: apply_fired.append(payload))
+    panel.close_requested.connect(lambda: close_fired.append(True))
+
+    panel.attempt_close()
+    assert apply_fired and apply_fired[0][0][1] == "고친"
+    assert close_fired
+
+
+def test_close_with_pending_discard_emits_close_only(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    spec = _make_spec("원본 1")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    panel.set_text("고친")
+
+    monkeypatch.setattr(panel, "_ask_apply_or_discard", lambda: "discard")
+
+    apply_fired: list = []
+    close_fired: list = []
+    panel.applied.connect(lambda payload: apply_fired.append(payload))
+    panel.close_requested.connect(lambda: close_fired.append(True))
+
+    panel.attempt_close()
+    assert not apply_fired
+    assert close_fired
+
+
+def test_close_with_pending_dialog_cancelled_no_close(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    spec = _make_spec("원본 1")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    panel.set_text("고친")
+
+    monkeypatch.setattr(panel, "_ask_apply_or_discard", lambda: None)
+
+    close_fired: list = []
+    panel.close_requested.connect(lambda: close_fired.append(True))
+
+    panel.attempt_close()
+    assert not close_fired  # dialog cancelled → stay open
