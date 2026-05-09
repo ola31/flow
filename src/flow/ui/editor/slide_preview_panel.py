@@ -42,11 +42,14 @@ class SlidePreviewPanel(QWidget):
     slide_double_clicked = Signal(int)
     slide_unlink_all_requested = Signal(int)
     reload_all_requested = Signal()
+    emergency_patch_requested = Signal(int)  # slide index
+    append_slide_requested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._slide_manager = None
         self._editable = True  # [복구] 편집 가능 상태 보관
+        self._live_emergency_enabled = False
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -297,6 +300,10 @@ class SlidePreviewPanel(QWidget):
 
         QApplication.processEvents()
 
+    def set_live_mode(self, *, is_live: bool, slide_source: str) -> None:
+        """라이브 모드 전환 및 긴급 패치 메뉴 활성 여부 설정"""
+        self._live_emergency_enabled = is_live and slide_source == "markdown"
+
     def set_editable(self, editable: bool) -> None:
         """편집 모드 활성/비활성 제어"""
         self._editable = editable
@@ -407,21 +414,31 @@ class SlidePreviewPanel(QWidget):
 
     def _show_context_menu(self, pos) -> None:
         """우측 클릭 컨텍스트 메뉴 표시"""
-        if not self._editable:
-            return  # [복구] 비편집 모드 차단
         item = self._list.itemAt(pos)
-        if not item:
-            return
-
-        index = item.data(Qt.ItemDataRole.UserRole)
 
         from PySide6.QtWidgets import QMenu
-
         menu = QMenu(self)
 
+        if self._live_emergency_enabled:
+            if item is not None:
+                index = item.data(Qt.ItemDataRole.UserRole)
+                emergency_action = menu.addAction("긴급 수정")
+                emergency_action.triggered.connect(
+                    lambda: self.emergency_patch_requested.emit(index)
+                )
+            append_action = menu.addAction("맨 끝에 슬라이드 추가")
+            append_action.triggered.connect(self.append_slide_requested.emit)
+            menu.exec(self._list.mapToGlobal(pos))
+            return
+
+        # Existing edit-mode menu (unchanged)
+        if not self._editable:
+            return
+        if not item:
+            return
+        index = item.data(Qt.ItemDataRole.UserRole)
         unlink_action = menu.addAction("매핑 해제")
         unlink_action.triggered.connect(
             lambda: self.slide_unlink_all_requested.emit(index)
         )
-
         menu.exec(self._list.mapToGlobal(pos))
