@@ -215,7 +215,24 @@ class ProjectScreen(QWidget):
         self._slide_manager = slide_manager
         self._config_service = config_service
         self._is_live = False
+        # Object name + WA_StyledBackground let MainWindow toggle a focus
+        # border on this screen without leaking into child widgets.
+        self.setObjectName("projectScreen")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._setup_ui()
+        self.set_focus_active(False)
+
+    def set_focus_active(self, active: bool) -> None:
+        """Show / hide the 5px ACCENT bar on the left edge.
+
+        Used by MainWindow during emergency-patch sessions to indicate
+        that the live area (this screen) is the focused side rather than
+        the patch panel. When the patch panel is closed, it stays off.
+        """
+        color = ACCENT if active else "transparent"
+        self.setStyleSheet(
+            f"#projectScreen {{ border-left: 5px solid {color}; }}"
+        )
 
     @property
     def toolbar_container(self) -> QWidget:

@@ -1805,8 +1805,9 @@ class MainWindow(QMainWindow):
             panel._editor.setFocus(Qt.FocusReason.OtherFocusReason)
         except AttributeError:
             pass
-        # Initial visual: panel is the freshly-focused pane.
+        # Initial visual: panel is the freshly-focused pane, live area is dim.
         panel.set_active(True)
+        self._project_screen.set_focus_active(False)
 
     def _close_emergency_patch_panel(self) -> None:
         if self._patch_panel is None:
@@ -1827,6 +1828,11 @@ class MainWindow(QMainWindow):
         self._patch_panel = None
         self._patch_splitter = None
         self._patch_original_index = -1
+        # Clear the live-side highlight; the patch session is over.
+        try:
+            self._project_screen.set_focus_active(False)
+        except (RuntimeError, AttributeError):
+            pass
 
     def _patch_panel_has_focus(self) -> bool:
         """Return True when the emergency patch panel (or any child widget) has keyboard focus."""
@@ -1857,11 +1863,14 @@ class MainWindow(QMainWindow):
                 self._patch_panel.setFocus(Qt.FocusReason.TabFocusReason)
 
     def _on_focus_changed_for_patch(self, _old, _new) -> None:
-        """Update the patch panel's active highlight when focus moves."""
+        """Update both panes' active highlight when focus moves so the
+        accent bar visibly travels from one side to the other."""
         if self._patch_panel is None:
             return
         try:
-            self._patch_panel.set_active(self._patch_panel_has_focus())
+            panel_focused = self._patch_panel_has_focus()
+            self._patch_panel.set_active(panel_focused)
+            self._project_screen.set_focus_active(not panel_focused)
         except (RuntimeError, AttributeError):
             pass
 
