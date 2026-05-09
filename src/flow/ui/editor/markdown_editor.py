@@ -6,6 +6,8 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
@@ -17,7 +19,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from flow.services.markdown import parse, render_all, render_slide
+from flow.services.markdown import PatchStore, parse, render_all, render_slide
+from flow.ui import styles
 from flow.ui.editor.markdown_frontmatter_dialog import (
     FrontmatterDialog,
     apply_frontmatter_to_text,
@@ -81,6 +84,43 @@ class MarkdownEditor(QWidget):
         layout.addWidget(toolbar)
         layout.addWidget(splitter, 1)
 
+        # Patches notification bar (inserted at top in a moment)
+        self._patches_bar = QFrame()
+        self._patches_bar.setStyleSheet(
+            f"background-color: {styles.AMBER_MUTED}; "
+            f"border-left: 3px solid {styles.AMBER};"
+        )
+        bar_layout = QHBoxLayout(self._patches_bar)
+        bar_layout.setContentsMargins(
+            styles.SP_MD, styles.SP_SM, styles.SP_MD, styles.SP_SM
+        )
+        self._patches_bar_label = QLabel(
+            "긴급 수정 0건이 .md 원본에 반영되지 않았습니다."
+        )
+        self._patches_bar_label.setStyleSheet(
+            f"color: {styles.AMBER}; font-size: {styles.FONT_SM}px;"
+        )
+        bar_layout.addWidget(self._patches_bar_label, 1)
+
+        for label, slot in (
+            ("원본에 반영", self._on_patches_apply_to_source),
+            ("폐기", self._on_patches_discard),
+            ("자세히 보기", self._on_patches_details),
+        ):
+            btn = QPushButton(label)
+            btn.setStyleSheet(
+                f"QPushButton {{ background-color: transparent; "
+                f"color: {styles.AMBER}; border: 1px solid {styles.AMBER}; "
+                f"border-radius: 4px; padding: 4px 8px; "
+                f"font-size: {styles.FONT_XS}px; }}"
+            )
+            btn.clicked.connect(slot)
+            bar_layout.addWidget(btn)
+
+        self._patches_bar.hide()
+        layout.insertWidget(0, self._patches_bar)
+        self._current_md_path: Path | None = None
+
         # Wire
         save_btn.clicked.connect(self.save)
         section_btn.clicked.connect(self._insert_section)
@@ -98,6 +138,9 @@ class MarkdownEditor(QWidget):
         # preview_label is still at minimumSize and the main preview comes out
         # too small until the user clicks the editor.
         QTimer.singleShot(0, self._render_preview)
+
+        # Show patches bar if unreconciled patches exist for this song.
+        self._refresh_patches_bar(md_path)
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -120,6 +163,45 @@ class MarkdownEditor(QWidget):
         self._md_path.write_text(text, encoding="utf-8")
         self._original_text = text
         self._render_preview()
+
+    def load_file(self, md_path: Path) -> None:
+        """Swap the editor to a different markdown file and refresh the patches bar."""
+        self._md_path = md_path
+        self._original_text = (
+            md_path.read_text(encoding="utf-8") if md_path.exists() else ""
+        )
+        self._text_edit.setPlainText(self._original_text)
+        self._refresh_patches_bar(md_path)
+
+    # Patches bar helpers
+
+    def _refresh_patches_bar(self, md_path: Path) -> None:
+        store = PatchStore(md_path.parent / ".patches.json")
+        n = len(store.patches)
+        if n == 0:
+            self._patches_bar.hide()
+            return
+        self._patches_bar_label.setText(
+            f"긴급 수정 {n}건이 .md 원본에 반영되지 않았습니다."
+        )
+        self._patches_bar.show()
+        self._current_md_path = md_path
+
+    def _on_patches_apply_to_source(self) -> None:
+        # Implemented in Task 24
+        pass
+
+    def _on_patches_discard(self) -> None:
+        if self._current_md_path is None:
+            return
+        store = PatchStore(self._current_md_path.parent / ".patches.json")
+        store.clear()
+        store.save()
+        self._refresh_patches_bar(self._current_md_path)
+
+    def _on_patches_details(self) -> None:
+        # Phase 2 — leave as no-op for MVP
+        pass
 
     # Internals
     def _on_cursor_moved(self) -> None:
