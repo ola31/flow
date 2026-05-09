@@ -62,3 +62,47 @@ def test_preview_updates_when_text_changes(qtbot, tmp_path: Path) -> None:
     assert pix_after is not None
     # Image bytes should differ when text changed (rough but reliable smoke check)
     assert pix_before.toImage() != pix_after.toImage()
+
+
+def test_next_slide_navigates_forward(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2", "원본 3")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    panel.go_next()
+    assert panel.current_text() == "원본 2"
+    panel.go_next()
+    assert panel.current_text() == "원본 3"
+
+
+def test_prev_slide_navigates_backward(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2", "원본 3")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=2)
+    qtbot.addWidget(panel)
+    panel.go_prev()
+    assert panel.current_text() == "원본 2"
+
+
+def test_pending_text_preserved_across_navigation(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2", "원본 3")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    panel.set_text("진행중 1")
+    panel.go_next()
+    assert panel.current_text() == "원본 2"  # slide 2 unedited
+    panel.set_text("진행중 2")
+    panel.go_prev()
+    assert panel.current_text() == "진행중 1"  # came back to slide 1's pending
+
+
+def test_can_go_next_at_last_returns_false(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=1)
+    qtbot.addWidget(panel)
+    assert not panel.can_go_next()
+
+
+def test_can_go_prev_at_first_returns_false(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    assert not panel.can_go_prev()

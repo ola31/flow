@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -84,6 +85,38 @@ class EmergencyPatchPanel(QWidget):
     def set_text(self, text: str) -> None:
         self._editor.setPlainText(text)
 
+    def can_go_prev(self) -> bool:
+        if isinstance(self._current_key, int):
+            return self._current_key > 0
+        # Add mode: prev goes back to the last existing slide.
+        return len(self._spec.slides) > 0
+
+    def can_go_next(self) -> bool:
+        if isinstance(self._current_key, int):
+            return self._current_key < len(self._spec.slides) - 1
+        # Add mode: next always offers "add another" (no hard limit)
+        return True
+
+    def go_prev(self) -> None:
+        if not self.can_go_prev():
+            return
+        self._sync_current_to_pending()
+        if isinstance(self._current_key, int):
+            self._current_key = self._current_key - 1
+        else:
+            # add mode → last existing slide
+            self._current_key = len(self._spec.slides) - 1
+        self._refresh_editor_for_current()
+
+    def go_next(self) -> None:
+        if not self.can_go_next():
+            return
+        self._sync_current_to_pending()
+        if isinstance(self._current_key, int):
+            self._current_key = self._current_key + 1
+            self._refresh_editor_for_current()
+        # Add-mode "next" is handled later (Task 11) — needs popup. No-op for now.
+
     # --- Internals --------------------------------------------------------
 
     def _build_ui(self) -> None:
@@ -110,6 +143,9 @@ class EmergencyPatchPanel(QWidget):
         self._editor.setTabChangesFocus(True)
         self._editor.textChanged.connect(self._on_text_changed)
         layout.addWidget(self._editor, 1)
+
+        QShortcut(QKeySequence("Ctrl+Right"), self, activated=self.go_next)
+        QShortcut(QKeySequence("Ctrl+Left"), self, activated=self.go_prev)
 
         self._preview_label = QLabel()
         self._preview_label.setMinimumHeight(120)
