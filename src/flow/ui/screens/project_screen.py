@@ -201,8 +201,6 @@ class LivePIP(QFrame):
 
 class ProjectScreen(QWidget):
     live_toggle_requested = Signal()
-    song_prev_requested = Signal()
-    song_next_requested = Signal()
     live_verse_changed = Signal(int)
 
     def __init__(
@@ -331,34 +329,14 @@ class ProjectScreen(QWidget):
         nav_layout.setContentsMargins(12, 0, 12, 0)
         nav_layout.setSpacing(8)
 
-        _nav_btn_style = f"""
-            QPushButton {{
-                background: #2a2a2a; color: #aaa; border: 1px solid #444;
-                border-radius: 4px; padding: 2px 10px; font-size: {FONT_XS}px; font-weight: {FW_MEDIUM};
-            }}
-            QPushButton:hover {{ background: #3a3a3a; color: white; }}
-        """
-
-        btn_prev = QPushButton("이전곡")
-        btn_prev.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        btn_prev.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_prev.setStyleSheet(_nav_btn_style)
-        btn_prev.clicked.connect(self.song_prev_requested)
-        nav_layout.addWidget(btn_prev)
-
+        # 이전곡 / 다음곡 버튼은 긴급 수정 패널 헤더로 이동.
+        # song name label 만 남김.
         self._nav_song_name = QLabel("")
         self._nav_song_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._nav_song_name.setStyleSheet(
             f"font-size: {FONT_MD}px; font-weight: {FW_MEDIUM}; color: {TEXT_PRIMARY};"
         )
         nav_layout.addWidget(self._nav_song_name, 1)
-
-        btn_next = QPushButton("다음곡")
-        btn_next.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        btn_next.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_next.setStyleSheet(_nav_btn_style)
-        btn_next.clicked.connect(self.song_next_requested)
-        nav_layout.addWidget(btn_next)
 
         nav_sep = QFrame()
         nav_sep.setFrameShape(QFrame.Shape.VLine)
