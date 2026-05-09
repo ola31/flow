@@ -486,6 +486,10 @@ class SlideManager(QObject):
                 w.stop()
         self._old_workers.clear()
 
+    def invalidate_markdown_cache(self, md_path: Path) -> None:
+        """Public hook to drop the markdown render cache for one song."""
+        self._markdown_converter.invalidate_cache(md_path)
+
     def global_to_local(self, global_index: int) -> tuple[str, int]:
         for song in self._songs:
             offset = self._slide_offsets.get(song.name, 0)
