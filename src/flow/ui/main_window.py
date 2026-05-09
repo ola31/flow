@@ -1813,18 +1813,30 @@ class MainWindow(QMainWindow):
         # bubbling up to MainWindow.keyPressEvent.
         from PySide6.QtWidgets import QApplication
         QApplication.instance().installEventFilter(self)
+        # Track focus moves so we can highlight the active pane visually.
+        QApplication.instance().focusChanged.connect(
+            self._on_focus_changed_for_patch
+        )
 
         # Focus the editor immediately so the operator can type right away.
         try:
             panel._editor.setFocus(Qt.FocusReason.OtherFocusReason)
         except AttributeError:
             pass
+        # Initial visual: panel is the freshly-focused pane.
+        panel.set_active(True)
 
     def _close_emergency_patch_panel(self) -> None:
         if self._patch_panel is None:
             return
         from PySide6.QtWidgets import QApplication
         QApplication.instance().removeEventFilter(self)
+        try:
+            QApplication.instance().focusChanged.disconnect(
+                self._on_focus_changed_for_patch
+            )
+        except (TypeError, RuntimeError):
+            pass
         self._patch_panel.setParent(None)  # type: ignore[arg-type]
         self._patch_panel.deleteLater()
         self._patch_panel = None
@@ -1862,6 +1874,15 @@ class MainWindow(QMainWindow):
                 self._patch_panel._editor.setFocus(Qt.FocusReason.TabFocusReason)
             except AttributeError:
                 self._patch_panel.setFocus(Qt.FocusReason.TabFocusReason)
+
+    def _on_focus_changed_for_patch(self, _old, _new) -> None:
+        """Update the patch panel's active highlight when focus moves."""
+        if self._patch_panel is None:
+            return
+        try:
+            self._patch_panel.set_active(self._patch_panel_has_focus())
+        except (RuntimeError, AttributeError):
+            pass
 
     def _on_patch_applied(self, song, payload: list) -> None:
         import uuid

@@ -338,3 +338,21 @@ def test_empty_spec_with_index_falls_back_to_add_mode(qtbot, tmp_path: Path) -> 
     panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
     qtbot.addWidget(panel)
     assert panel.is_add_mode()
+
+
+def test_set_active_changes_panel_stylesheet(qtbot, tmp_path: Path) -> None:
+    """Visual focus indicator: ACCENT left bar appears/disappears."""
+    spec = _make_spec("원본 1")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+
+    panel.set_active(True)
+    active_qss = panel.styleSheet()
+    panel.set_active(False)
+    inactive_qss = panel.styleSheet()
+
+    assert active_qss != inactive_qss
+    # Active state must reference the ACCENT token; inactive must not.
+    from flow.ui import styles
+    assert styles.ACCENT.lower() in active_qss.lower()
+    assert styles.ACCENT.lower() not in inactive_qss.lower()

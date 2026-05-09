@@ -91,6 +91,22 @@ class EmergencyPatchPanel(QWidget):
     def set_text(self, text: str) -> None:
         self._editor.setPlainText(text)
 
+    def set_active(self, active: bool) -> None:
+        """Visually indicate whether this panel currently has keyboard focus.
+
+        Active: 3px ACCENT bar on the left + ELEVATED background tone.
+        Inactive: transparent left border + dimmer SURFACE background.
+        Scoped to #emergencyPatchPanel so child widgets keep their styles.
+        """
+        bg = styles.BG_ELEVATED if active else styles.BG_SURFACE
+        border_color = styles.ACCENT if active else "transparent"
+        self.setStyleSheet(
+            f"#emergencyPatchPanel {{ "
+            f"background-color: {bg}; "
+            f"border-left: 3px solid {border_color}; "
+            f"}}"
+        )
+
     def can_go_prev(self) -> bool:
         if isinstance(self._current_key, int):
             return self._current_key > 0
@@ -240,6 +256,11 @@ class EmergencyPatchPanel(QWidget):
     # --- Internals --------------------------------------------------------
 
     def _build_ui(self) -> None:
+        # Object name lets us scope the focus-state stylesheet to this widget
+        # only (so child QLabel / QPushButton aren't repainted by it).
+        self.setObjectName("emergencyPatchPanel")
+        self.set_active(False)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(
             styles.SP_MD, styles.SP_MD, styles.SP_MD, styles.SP_MD
