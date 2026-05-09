@@ -1844,9 +1844,81 @@ class MainWindow(QMainWindow):
 
         # Invalidate cache so next read sees patches
         self._slide_manager._markdown_converter.invalidate_cache(md_path)
-        # Display refresh and thumbnail badge sync land in Tasks 19-21.
-        # For now just close the panel.
+        self._refresh_thumbnails_and_display(song)
         self._close_emergency_patch_panel()
+
+    def _refresh_thumbnails_and_display(self, song) -> None:
+        """Re-read the song's slides (with patches applied) and update UI.
+
+        - Recomputes which slide indices have patches and updates the
+          thumbnail badge state.
+        - If the audience display is showing a slide that was just
+          patched, push the new image so the audience sees the fix.
+        """
+        from flow.services.markdown import PatchStore, PatchType, parse
+
+        if getattr(song, "slide_source", None) != "markdown":
+            return
+
+        md_path = song.markdown_path
+        store = PatchStore(md_path.parent / ".patches.json")
+        try:
+            spec = parse(md_path.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        n_original = len(spec.slides)
+
+        patched_indices: set[int] = set()
+        for p in store.patches:
+            if p.type is PatchType.EDIT and p.slide_index is not None:
+                if 0 <= p.slide_index < n_original:
+                    patched_indices.add(p.slide_index)
+        n_appended = sum(1 for p in store.patches if p.type is PatchType.APPEND)
+        for i in range(n_appended):
+            patched_indices.add(n_original + i)
+
+        # Update the badge state on the preview widget
+        try:
+            self._slide_preview.set_patched_indices(patched_indices)
+        except AttributeError:
+            pass
+
+        # If the display is showing a slide that's now patched, refresh it.
+        # _live_controller._live_slide_index is the *global* slide index when
+        # the live display is showing a raw slide (not a hotspot).
+        # For hotspot-based live, we resolve the local index via get_slide_index.
+        try:
+            lc = self._live_controller
+            # Determine which global slide index is currently on the display.
+            live_global: int = -1
+            if lc._live_slide_index >= 0:
+                live_global = lc._live_slide_index
+            elif lc._live_hotspot is not None:
+                v_idx = self._project.current_verse_index if self._project else 0
+                slide_idx = lc._live_hotspot.get_slide_index(v_idx)
+                if slide_idx < 0:
+                    slide_idx = lc._live_hotspot.get_slide_index(5)
+                if slide_idx >= 0:
+                    live_global = slide_idx
+
+            if live_global >= 0:
+                # Convert the global index to a song-local index and check
+                # whether that local index is in the patched set.
+                try:
+                    _song_name, local_idx = self._slide_manager.global_to_local(
+                        live_global
+                    )
+                except Exception:
+                    local_idx = live_global
+                    _song_name = None
+
+                if local_idx in patched_indices:
+                    # Re-emit the (now-patched) image so the display updates.
+                    lc.sync_live()
+        except Exception:
+            # Best-effort: patches are already saved; a display-side hiccup
+            # must not bubble up and undo the successful save.
+            pass
 
     def _toggle_display(self) -> None:
         """송출 시작/중지 토글"""
