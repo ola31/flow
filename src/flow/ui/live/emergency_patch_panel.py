@@ -229,11 +229,14 @@ class EmergencyPatchPanel(QWidget):
         super().keyPressEvent(event)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        """Intercept Ctrl+Return, Esc, and Ctrl+←/→ on the editor.
+        """Intercept Ctrl+Return and Esc on the editor.
 
         Must run before QPlainTextEdit handles the key event — otherwise
-        Ctrl+Enter inserts a newline, Esc does nothing, and Ctrl+←/→ moves
-        the cursor word-by-word instead of navigating slides.
+        Ctrl+Enter inserts a newline and Esc does nothing.
+
+        Ctrl+←/→ is intentionally NOT intercepted — it stays as the
+        editor's default word-by-word cursor movement. Slide navigation
+        is via the ◀ ▶ header buttons.
         """
         if (
             watched is self._editor
@@ -251,12 +254,6 @@ class EmergencyPatchPanel(QWidget):
                 return True
             if key_event.key() == Qt.Key.Key_Escape:
                 self.attempt_close()
-                return True
-            if ctrl and key_event.key() == Qt.Key.Key_Right:
-                self.go_next()
-                return True
-            if ctrl and key_event.key() == Qt.Key.Key_Left:
-                self.go_prev()
                 return True
         return super().eventFilter(watched, event)
 
@@ -309,11 +306,11 @@ class EmergencyPatchPanel(QWidget):
         )
         self._prev_btn = QPushButton("◀")
         self._prev_btn.setStyleSheet(_nav_btn_qss)
-        self._prev_btn.setToolTip("이전 슬라이드 (Ctrl+←)")
+        self._prev_btn.setToolTip("이전 슬라이드")
         self._prev_btn.clicked.connect(self.go_prev)
         self._next_btn = QPushButton("▶")
         self._next_btn.setStyleSheet(_nav_btn_qss)
-        self._next_btn.setToolTip("다음 슬라이드 (Ctrl+→)")
+        self._next_btn.setToolTip("다음 슬라이드")
         self._next_btn.clicked.connect(self.go_next)
         header_row = QHBoxLayout()
         header_row.setSpacing(styles.SP_SM)
@@ -344,10 +341,6 @@ class EmergencyPatchPanel(QWidget):
         self._editor.textChanged.connect(self._on_text_changed)
         layout.addWidget(self._editor, 1)
 
-        sc_next = QShortcut(QKeySequence("Ctrl+Right"), self)
-        sc_next.activated.connect(self.go_next)
-        sc_prev = QShortcut(QKeySequence("Ctrl+Left"), self)
-        sc_prev.activated.connect(self.go_prev)
 
         self._preview_label = QLabel()
         self._preview_label.setMinimumHeight(120)
