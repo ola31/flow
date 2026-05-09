@@ -1774,6 +1774,26 @@ class MainWindow(QMainWindow):
         if self._is_live:
             self._h_splitter.setSizes([240, 800, 280, 0])
 
+    def _patch_panel_has_focus(self) -> bool:
+        """Return True when the emergency patch panel (or any child widget) has keyboard focus."""
+        if self._patch_panel is None:
+            return False
+        try:
+            return self._patch_panel.hasFocus() or self._patch_panel.isAncestorOf(
+                self.focusWidget()
+            )
+        except (RuntimeError, AttributeError):
+            return False
+
+    def _toggle_patch_focus(self) -> None:
+        """Toggle keyboard focus between the patch panel and the live canvas."""
+        if self._patch_panel is None:
+            return
+        if self._patch_panel_has_focus():
+            self._canvas.setFocus()
+        else:
+            self._patch_panel.setFocus()
+
     def _on_patch_applied(self, song, payload: list) -> None:
         import uuid
         from datetime import datetime, timezone
@@ -2747,6 +2767,18 @@ class MainWindow(QMainWindow):
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         """키보드 이벤트 핸들러"""
+        # Patch panel focused → don't dispatch live shortcuts; let normal Qt
+        # event flow handle text editing inside the panel.
+        if self._patch_panel_has_focus():
+            super().keyPressEvent(event)
+            return
+
+        # Tab toggles between live and patch panel (only when panel is open)
+        if event.key() == Qt.Key.Key_Tab and self._patch_panel is not None:
+            self._toggle_patch_focus()
+            event.accept()
+            return
+
         if not self._project:
             super().keyPressEvent(event)
             return
