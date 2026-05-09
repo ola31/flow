@@ -1773,23 +1773,32 @@ class MainWindow(QMainWindow):
         panel.setMinimumWidth(360)
         panel.setMaximumWidth(560)
 
+        # Snapshot pre-insert sizes so we can restore them on close.
+        # Pre-insert layout = 4 panes [song_list, center, pip, mapping].
+        self._patch_pre_sizes = list(self._h_splitter.sizes())
+
         # Insert between song_list (index 0) and center_widget (index 1) so
         # the editor lands directly adjacent to the canvas/thumbnails the
         # user just right-clicked. Everything to the right shifts by one.
         self._h_splitter.insertWidget(1, panel)
-        # After insert: [song_list, patch, center, pip, mapping]
-        # Hide song_list + pip + mapping; only patch + center are interactive
-        # during emergency edit. Restore on close.
-        total = sum(self._h_splitter.sizes()) or 1280
+        # Post-insert layout: [song_list, patch, center, pip, mapping]
+        # Preserve song_list/pip/mapping sizes from before; subtract the
+        # panel width from center so total stays the same.
+        pre = self._patch_pre_sizes
+        song_list_w = pre[0] if len(pre) > 0 else 220
+        center_w_old = pre[1] if len(pre) > 1 else 800
+        pip_w = pre[2] if len(pre) > 2 else 0
+        mapping_w = pre[3] if len(pre) > 3 else 0
         panel_width = 400
-        center_width = max(500, total - panel_width)
-        new_sizes = [0, panel_width, center_width, 0, 0]
+        center_w_new = max(360, center_w_old - panel_width)
+        new_sizes = [song_list_w, panel_width, center_w_new, pip_w, mapping_w]
+        # Pad / clip so length matches splitter
         while len(new_sizes) < self._h_splitter.count():
             new_sizes.append(0)
         new_sizes = new_sizes[: self._h_splitter.count()]
         self._h_splitter.setSizes(new_sizes)
-        # Stretch factors: only center_widget grows on window resize. The
-        # patch panel keeps its set width.
+        # Stretch factors: center grows on window resize; panel stays put;
+        # song_list / pip / mapping keep their snapshot widths.
         for i in range(self._h_splitter.count()):
             self._h_splitter.setStretchFactor(i, 1 if i == 2 else 0)
 
@@ -1817,9 +1826,10 @@ class MainWindow(QMainWindow):
         self._patch_panel = None
         self._patch_splitter = None
         self._patch_original_index = -1
-        # Restore h_splitter sizes to live-mode defaults
+        # Restore the snapshot taken on open (4-pane layout).
         if self._is_live:
-            self._h_splitter.setSizes([240, 800, 280, 0])
+            pre = getattr(self, "_patch_pre_sizes", None) or [240, 800, 280, 0]
+            self._h_splitter.setSizes(pre)
 
     def _patch_panel_has_focus(self) -> bool:
         """Return True when the emergency patch panel (or any child widget) has keyboard focus."""
