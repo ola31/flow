@@ -1762,49 +1762,31 @@ class MainWindow(QMainWindow):
         store = PatchStore(md_path.parent / ".patches.json")
         patched_spec = apply_patches(spec, store.patches)
 
+        # Mount the panel as a sibling of the QStackedWidget at the
+        # MainWindow central layout level — NOT inside project_screen's
+        # h_splitter. This keeps the panel completely separate from the
+        # project_screen's toolbar / song_nav_bar, which the user found
+        # visually confusing when both shared a top edge.
+        central_layout = self.centralWidget().layout()
         panel = EmergencyPatchPanel(
             spec=patched_spec,
             song_dir=md_path.parent,
             initial_index=initial_index,
-            parent=self._h_splitter,
+            parent=self.centralWidget(),
         )
         panel.applied.connect(
             lambda payload: self._on_patch_applied(song, payload)
         )
         panel.close_requested.connect(self._close_emergency_patch_panel)
 
-        # Bound the panel width so the QPlainTextEdit's growing sizeHint
-        # can't push other splitter panes to zero as the operator types.
+        # Bound the panel width so it doesn't squeeze the project_screen as
+        # the QPlainTextEdit's sizeHint grows with content.
         panel.setMinimumWidth(360)
         panel.setMaximumWidth(560)
 
-        # Snapshot pre-insert sizes so we can restore them on close.
-        # Pre-insert layout = 4 panes [song_list, center, pip, mapping].
-        self._patch_pre_sizes = list(self._h_splitter.sizes())
-
-        # Insert as the leftmost pane (left of song_list). The patch session
-        # is a focused emergency action that's visually distinct from the
-        # normal project context.
-        self._h_splitter.insertWidget(0, panel)
-        # Post-insert layout: [patch, song_list, center, pip, mapping]
-        # Preserve everything else; subtract the panel width from center.
-        pre = self._patch_pre_sizes
-        song_list_w = pre[0] if len(pre) > 0 else 220
-        center_w_old = pre[1] if len(pre) > 1 else 800
-        pip_w = pre[2] if len(pre) > 2 else 0
-        mapping_w = pre[3] if len(pre) > 3 else 0
-        panel_width = 400
-        center_w_new = max(360, center_w_old - panel_width)
-        new_sizes = [panel_width, song_list_w, center_w_new, pip_w, mapping_w]
-        # Pad / clip so length matches splitter
-        while len(new_sizes) < self._h_splitter.count():
-            new_sizes.append(0)
-        new_sizes = new_sizes[: self._h_splitter.count()]
-        self._h_splitter.setSizes(new_sizes)
-        # Stretch factors: center grows on window resize; everything else
-        # keeps its snapshot width. Center is now at index 2.
-        for i in range(self._h_splitter.count()):
-            self._h_splitter.setStretchFactor(i, 1 if i == 2 else 0)
+        # central_layout is QHBoxLayout with [activity_bar, _stack].
+        # Insert panel between them: [activity_bar, patch_panel, _stack].
+        central_layout.insertWidget(1, panel)
 
         self._patch_panel = panel
         # Application-level eventFilter to capture Tab regardless of which
@@ -1837,15 +1819,14 @@ class MainWindow(QMainWindow):
             )
         except (TypeError, RuntimeError):
             pass
+        # Remove from central_layout and let the QStackedWidget reclaim space.
+        central_layout = self.centralWidget().layout()
+        central_layout.removeWidget(self._patch_panel)
         self._patch_panel.setParent(None)  # type: ignore[arg-type]
         self._patch_panel.deleteLater()
         self._patch_panel = None
         self._patch_splitter = None
         self._patch_original_index = -1
-        # Restore the snapshot taken on open (4-pane layout).
-        if self._is_live:
-            pre = getattr(self, "_patch_pre_sizes", None) or [240, 800, 280, 0]
-            self._h_splitter.setSizes(pre)
 
     def _patch_panel_has_focus(self) -> bool:
         """Return True when the emergency patch panel (or any child widget) has keyboard focus."""
