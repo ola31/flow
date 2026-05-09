@@ -1779,10 +1779,11 @@ class MainWindow(QMainWindow):
         )
         panel.close_requested.connect(self._close_emergency_patch_panel)
 
-        # Bound the panel width so it doesn't squeeze the project_screen as
-        # the QPlainTextEdit's sizeHint grows with content.
-        panel.setMinimumWidth(360)
-        panel.setMaximumWidth(560)
+        # Fixed width so the panel doesn't expand/shrink with the window.
+        # Using a min/max range made the panel grow visibly along with the
+        # OS maximize animation; setFixedWidth keeps it constant — only
+        # the project_screen on the right resizes to fill remaining space.
+        panel.setFixedWidth(420)
 
         # central_layout is QHBoxLayout with [activity_bar, _stack].
         # Insert panel between them: [activity_bar, patch_panel, _stack].
