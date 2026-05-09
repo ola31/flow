@@ -365,3 +365,28 @@ def test_cancel_button_invokes_attempt_close(qtbot, tmp_path: Path) -> None:
     # No pending edits → cancel should fire close_requested immediately.
     with qtbot.waitSignal(panel.close_requested, timeout=1000):
         panel._cancel_btn.click()
+
+
+def test_slide_nav_buttons_present(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    assert hasattr(panel, "_prev_btn")
+    assert hasattr(panel, "_next_btn")
+
+
+def test_next_button_advances_slide(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    panel._next_btn.click()
+    assert panel.current_text() == "원본 2"
+
+
+def test_prev_button_disabled_at_first_slide(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    assert not panel._prev_btn.isEnabled()
+    panel._next_btn.click()
+    assert panel._prev_btn.isEnabled()

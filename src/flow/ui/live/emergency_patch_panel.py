@@ -229,23 +229,34 @@ class EmergencyPatchPanel(QWidget):
         super().keyPressEvent(event)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        """Intercept Ctrl+Return and Esc on the editor.
+        """Intercept Ctrl+Return, Esc, and Ctrl+←/→ on the editor.
 
-        Must run before QPlainTextEdit handles the key event.
+        Must run before QPlainTextEdit handles the key event — otherwise
+        Ctrl+Enter inserts a newline, Esc does nothing, and Ctrl+←/→ moves
+        the cursor word-by-word instead of navigating slides.
         """
         if (
             watched is self._editor
             and event.type() == QEvent.Type.KeyPress
         ):
             key_event: QKeyEvent = event  # type: ignore[assignment]
+            ctrl = bool(
+                key_event.modifiers() & Qt.KeyboardModifier.ControlModifier
+            )
             if (
                 key_event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
-                and key_event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                and ctrl
             ):
                 self.apply_now()
                 return True
             if key_event.key() == Qt.Key.Key_Escape:
                 self.attempt_close()
+                return True
+            if ctrl and key_event.key() == Qt.Key.Key_Right:
+                self.go_next()
+                return True
+            if ctrl and key_event.key() == Qt.Key.Key_Left:
+                self.go_prev()
                 return True
         return super().eventFilter(watched, event)
 
@@ -285,10 +296,31 @@ class EmergencyPatchPanel(QWidget):
         self._title_label.setStyleSheet(
             f"color: {styles.AMBER}; font-size: {styles.FONT_SM}px; font-weight: 600;"
         )
+        # Slide nav buttons (◀ / ▶) flank the title.
+        _nav_btn_qss = (
+            f"QPushButton {{ background-color: transparent; "
+            f"color: {styles.TEXT_SECONDARY}; "
+            f"border: 1px solid {styles.BORDER_SUBTLE_RGBA}; "
+            f"border-radius: 4px; padding: 2px 8px; "
+            f"font-size: {styles.FONT_SM}px; min-width: 24px; }}"
+            f"QPushButton:hover {{ color: {styles.TEXT_PRIMARY}; "
+            f"border: 1px solid {styles.BORDER_STANDARD_RGBA}; }}"
+            f"QPushButton:disabled {{ color: {styles.TEXT_TERTIARY}; }}"
+        )
+        self._prev_btn = QPushButton("◀")
+        self._prev_btn.setStyleSheet(_nav_btn_qss)
+        self._prev_btn.setToolTip("이전 슬라이드 (Ctrl+←)")
+        self._prev_btn.clicked.connect(self.go_prev)
+        self._next_btn = QPushButton("▶")
+        self._next_btn.setStyleSheet(_nav_btn_qss)
+        self._next_btn.setToolTip("다음 슬라이드 (Ctrl+→)")
+        self._next_btn.clicked.connect(self.go_next)
         header_row = QHBoxLayout()
         header_row.setSpacing(styles.SP_SM)
-        header_row.addWidget(self._title_label)
-        header_row.addStretch(1)
+        header_row.addWidget(self._prev_btn)
+        header_row.addWidget(self._title_label, 1)
+        header_row.addWidget(self._next_btn)
+        header_row.addSpacing(styles.SP_SM)
         self._revert_btn = QPushButton("원본으로 되돌리기")
         self._revert_btn.setStyleSheet(
             f"QPushButton {{ background-color: transparent; "
@@ -406,6 +438,17 @@ class EmergencyPatchPanel(QWidget):
             self._pending[key] = _PendingState(text=text, is_dirty=False)
         self._editor.setPlainText(text)
         self._update_title_label()
+        # Update slide-nav button enabled state to match current position.
+        # ◀ at first slide / ▶ at last existing slide get disabled.
+        # In add mode both stay enabled (◀ goes back to last existing,
+        # ▶ offers another add slot via popup).
+        try:
+            self._prev_btn.setEnabled(self.can_go_prev())
+            # In add-mode, can_go_next is True (popup will handle it),
+            # so the button stays enabled.
+            self._next_btn.setEnabled(self.can_go_next() or self.is_add_mode())
+        except AttributeError:
+            pass
         # Defer the preview render so QLabel.width()/height() return the
         # post-layout values, not the pre-show minimum. Without this the
         # first render uses tiny dimensions and the slide gets clipped.
