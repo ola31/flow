@@ -94,8 +94,8 @@ class EmergencyPatchPanel(QWidget):
     def set_active(self, active: bool) -> None:
         """Visually indicate whether this panel currently has keyboard focus.
 
-        Active: 3px ACCENT bar on the left + ELEVATED background tone.
-        Inactive: transparent left border + dimmer SURFACE background.
+        Active: thick ACCENT bar on the left + ELEVATED background tone.
+        Inactive: transparent left bar + dimmer SURFACE background.
         Scoped to #emergencyPatchPanel so child widgets keep their styles.
         """
         bg = styles.BG_ELEVATED if active else styles.BG_SURFACE
@@ -103,9 +103,17 @@ class EmergencyPatchPanel(QWidget):
         self.setStyleSheet(
             f"#emergencyPatchPanel {{ "
             f"background-color: {bg}; "
-            f"border-left: 3px solid {border_color}; "
+            f"border-left: 5px solid {border_color}; "
             f"}}"
         )
+        # Boost title visibility when active so the operator can spot it
+        # at a glance even if the left bar is partly clipped by chrome.
+        if hasattr(self, "_title_label"):
+            color = styles.AMBER if active else styles.TEXT_TERTIARY
+            self._title_label.setStyleSheet(
+                f"color: {color}; font-size: {styles.FONT_SM}px; "
+                "font-weight: 600;"
+            )
 
     def can_go_prev(self) -> bool:
         if isinstance(self._current_key, int):
@@ -259,6 +267,10 @@ class EmergencyPatchPanel(QWidget):
         # Object name lets us scope the focus-state stylesheet to this widget
         # only (so child QLabel / QPushButton aren't repainted by it).
         self.setObjectName("emergencyPatchPanel")
+        # WA_StyledBackground tells Qt to actually paint the CSS background
+        # and border on a custom QWidget subclass — without it the
+        # set_active() stylesheet would silently render nothing.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.set_active(False)
 
         layout = QVBoxLayout(self)
@@ -312,15 +324,32 @@ class EmergencyPatchPanel(QWidget):
         )
         layout.addWidget(self._preview_label)
 
+        # Action row: 취소 + 적용. 적용 is the primary action (ACCENT),
+        # 취소 is the ghost-secondary action.
+        action_row = QHBoxLayout()
+        action_row.setSpacing(styles.SP_SM)
+        self._cancel_btn = QPushButton("취소 (Esc)")
+        self._cancel_btn.setStyleSheet(
+            f"QPushButton {{ background-color: transparent; "
+            f"color: {styles.TEXT_SECONDARY}; "
+            f"border: 1px solid {styles.BORDER_SUBTLE_RGBA}; "
+            f"border-radius: 6px; "
+            f"padding: {styles.SP_SM}px {styles.SP_LG}px; }}"
+            f"QPushButton:hover {{ color: {styles.TEXT_PRIMARY}; "
+            f"border: 1px solid {styles.BORDER_STANDARD_RGBA}; }}"
+        )
+        self._cancel_btn.clicked.connect(self.attempt_close)
+        action_row.addWidget(self._cancel_btn)
+
         self._apply_btn = QPushButton("적용 (Ctrl+Enter)")
         self._apply_btn.setStyleSheet(
             f"QPushButton {{ background-color: {styles.ACCENT}; color: white; "
             f"border: none; border-radius: 6px; "
             f"padding: {styles.SP_SM}px {styles.SP_LG}px; font-weight: 600; }}"
         )
-        layout.addWidget(self._apply_btn)
-
         self._apply_btn.clicked.connect(self.apply_now)
+        action_row.addWidget(self._apply_btn, 1)
+        layout.addLayout(action_row)
         # QPlainTextEdit consumes Ctrl+Return before window shortcuts fire,
         # so intercept it via an event filter installed directly on the editor.
         self._editor.installEventFilter(self)

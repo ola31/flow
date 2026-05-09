@@ -356,3 +356,12 @@ def test_set_active_changes_panel_stylesheet(qtbot, tmp_path: Path) -> None:
     from flow.ui import styles
     assert styles.ACCENT.lower() in active_qss.lower()
     assert styles.ACCENT.lower() not in inactive_qss.lower()
+
+
+def test_cancel_button_invokes_attempt_close(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    # No pending edits → cancel should fire close_requested immediately.
+    with qtbot.waitSignal(panel.close_requested, timeout=1000):
+        panel._cancel_btn.click()
