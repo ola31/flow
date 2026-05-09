@@ -109,13 +109,38 @@ class EmergencyPatchPanel(QWidget):
         self._refresh_editor_for_current()
 
     def go_next(self) -> None:
-        if not self.can_go_next():
-            return
-        self._sync_current_to_pending()
+        # Edit mode, not at last → just move forward
         if isinstance(self._current_key, int):
-            self._current_key = self._current_key + 1
+            if self._current_key < len(self._spec.slides) - 1:
+                self._sync_current_to_pending()
+                self._current_key = self._current_key + 1
+                self._refresh_editor_for_current()
+                return
+            # At last existing slide → ask
+            if self._ask_add_another():
+                self._sync_current_to_pending()
+                self._current_key = self._allocate_add_slot()
+                self._refresh_editor_for_current()
+            return
+        # Add mode → ask for another
+        if self._ask_add_another():
+            self._sync_current_to_pending()
+            self._current_key = self._allocate_add_slot()
             self._refresh_editor_for_current()
-        # Add-mode "next" is handled later (Task 11) — needs popup. No-op for now.
+
+    def _ask_add_another(self) -> bool:
+        """Show 'add new slide?' popup, return True if user said yes."""
+        from flow.ui.live.confirm_dialog import ConfirmDialog
+
+        dlg = ConfirmDialog(
+            title="새 슬라이드 추가",
+            message="새 슬라이드를 추가하시겠습니까?",
+            left_label="예",
+            right_label="아니오",
+            parent=self,
+        )
+        dlg.exec()
+        return dlg.result_choice == "left"
 
     # --- Internals --------------------------------------------------------
 

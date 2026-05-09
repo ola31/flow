@@ -106,3 +106,49 @@ def test_can_go_prev_at_first_returns_false(qtbot, tmp_path: Path) -> None:
     panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
     qtbot.addWidget(panel)
     assert not panel.can_go_prev()
+
+
+def test_go_next_at_last_existing_slide_offers_add(qtbot, tmp_path: Path, monkeypatch) -> None:
+    spec = _make_spec("원본 1", "원본 2")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=1)
+    qtbot.addWidget(panel)
+
+    # Stub: user clicks 예
+    monkeypatch.setattr(panel, "_ask_add_another", lambda: True)
+    panel.go_next()
+    assert panel.is_add_mode()
+
+
+def test_go_next_at_last_with_no_says_no_op(qtbot, tmp_path: Path, monkeypatch) -> None:
+    spec = _make_spec("원본 1", "원본 2")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=1)
+    qtbot.addWidget(panel)
+
+    monkeypatch.setattr(panel, "_ask_add_another", lambda: False)
+    panel.go_next()
+    assert not panel.is_add_mode()
+    assert panel.current_text() == "원본 2"  # still on slide 2
+
+
+def test_add_mode_prev_returns_to_last_existing(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=None)
+    qtbot.addWidget(panel)
+    panel.set_text("새 슬라이드 작성중")
+    panel.go_prev()
+    assert not panel.is_add_mode()
+    assert panel.current_text() == "원본 2"
+
+
+def test_add_mode_next_with_yes_creates_another_slot(qtbot, tmp_path: Path, monkeypatch) -> None:
+    spec = _make_spec("원본 1")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=None)
+    qtbot.addWidget(panel)
+    first_slot = panel._current_key  # access internal for test only
+    panel.set_text("첫 번째 추가")
+
+    monkeypatch.setattr(panel, "_ask_add_another", lambda: True)
+    panel.go_next()
+    assert panel.is_add_mode()
+    assert panel._current_key != first_slot
+    assert panel.current_text() == ""  # fresh slot
