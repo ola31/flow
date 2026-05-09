@@ -60,6 +60,15 @@ class EmergencyPatchPanel(QWidget):
         self._pending: dict[int | str, _PendingState] = {}
         self._add_counter = 0  # next "add:N" suffix to allocate
 
+        # Preview rendering is expensive (full 1920×1080 QImage + QPainter
+        # text layout per call). Debounce it so fast typing doesn't trigger
+        # a full render per keystroke.
+        from PySide6.QtCore import QTimer
+        self._render_timer = QTimer(self)
+        self._render_timer.setSingleShot(True)
+        self._render_timer.setInterval(150)
+        self._render_timer.timeout.connect(self._render_preview)
+
         self._build_ui()
 
         if initial_index is None:
@@ -385,8 +394,13 @@ class EmergencyPatchPanel(QWidget):
         return self._preview_label.pixmap()
 
     def _on_text_changed(self) -> None:
+        # Sync pending state immediately (cheap — just dict update + flag)
+        # so has_pending_changes() reflects the latest keystroke even if
+        # the panel is closed before the debounced render fires.
         self._sync_current_to_pending()
-        self._render_preview()
+        # Debounce the preview render — restart the timer on every
+        # keystroke so render only fires when typing pauses.
+        self._render_timer.start()
 
     def _render_preview(self) -> None:
         from PySide6.QtCore import Qt as _Qt

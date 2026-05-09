@@ -58,6 +58,8 @@ def test_preview_updates_when_text_changes(qtbot, tmp_path: Path) -> None:
     pix_before = panel.preview_pixmap()
     assert pix_before is not None
     panel.set_text("크게 고친 가사")
+    # Preview render is debounced — wait for the timer to fire.
+    qtbot.wait(panel._render_timer.interval() + 100)
     pix_after = panel.preview_pixmap()
     assert pix_after is not None
     # Image bytes should differ when text changed (rough but reliable smoke check)

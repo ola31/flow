@@ -1939,13 +1939,23 @@ class MainWindow(QMainWindow):
                 )
         store.save()
 
-        # reload_song re-counts metadata for this song through the worker,
-        # which then emits load_finished → _on_ppt_load_finished →
-        # _slide_preview.refresh_slides(). That path is required for
-        # APPEND patches because just clearing the converter cache leaves
-        # the slide_manager's _total_slide_count at the pre-patch value —
-        # the new slide wouldn't be in the iteration range.
-        self._slide_manager.reload_song(song)
+        # Update the song's slide count + project offsets synchronously so
+        # the next refresh_slides loop sees the new count. We avoid
+        # slide_manager.reload_song() because it dispatches to a worker
+        # thread and shows the "PPT 파일 읽기 중" loading UI — overkill
+        # for a markdown patch where the converter's content-hash cache
+        # already serves unchanged slides instantly.
+        try:
+            new_count = self._slide_manager._markdown_converter.get_slide_count(
+                md_path
+            )
+            song.set_slide_count(new_count)
+            self._slide_manager._recalculate_offsets()
+        except Exception:
+            # Fallback to the worker path if the in-process count fails.
+            self._slide_manager.reload_song(song)
+        else:
+            self._slide_preview.refresh_slides()
         self._refresh_live_display_for_patched(song)
         self._close_emergency_patch_panel()
 
