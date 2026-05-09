@@ -1779,11 +1779,12 @@ class MainWindow(QMainWindow):
         )
         panel.close_requested.connect(self._close_emergency_patch_panel)
 
-        # Fixed width so the panel doesn't expand/shrink with the window.
-        # Using a min/max range made the panel grow visibly along with the
-        # OS maximize animation; setFixedWidth keeps it constant — only
-        # the project_screen on the right resizes to fill remaining space.
-        panel.setFixedWidth(420)
+        # Width reacts to discrete window state (maximized vs normal) only,
+        # not to continuous resize. This avoids the maximize-animation
+        # problem (gradual widening tied to the WM animation) while still
+        # adapting to window size: smaller windows get a narrower panel so
+        # project_screen isn't squished.
+        panel.setFixedWidth(self._patch_panel_target_width())
 
         # central_layout is QHBoxLayout with [activity_bar, _stack].
         # Insert panel between them: [activity_bar, patch_panel, _stack].
@@ -1874,6 +1875,25 @@ class MainWindow(QMainWindow):
             self._project_screen.set_focus_active(not panel_focused)
         except (RuntimeError, AttributeError):
             pass
+
+    def _patch_panel_target_width(self) -> int:
+        """Pick a panel width that fits the current window state."""
+        if self.windowState() & (
+            Qt.WindowState.WindowMaximized | Qt.WindowState.WindowFullScreen
+        ):
+            return 420
+        return 320
+
+    def changeEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        super().changeEvent(event)
+        # React only to discrete state changes (maximize / restore /
+        # fullscreen). Continuous resize never reaches here, so the panel
+        # width snaps once per state transition rather than animating.
+        if (
+            event.type() == QEvent.Type.WindowStateChange
+            and self._patch_panel is not None
+        ):
+            self._patch_panel.setFixedWidth(self._patch_panel_target_width())
 
     def _on_patch_applied(self, song, payload: list) -> None:
         import uuid
