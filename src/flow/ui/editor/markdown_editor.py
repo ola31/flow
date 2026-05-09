@@ -39,6 +39,12 @@ class MarkdownEditor(QWidget):
         self._original_text = (
             md_path.read_text(encoding="utf-8") if md_path.exists() else ""
         )
+        # Per-instance content-hash cache so re-renders (after save / nav)
+        # only repaint slides whose content actually changed.
+        self._slide_render_cache: dict[str, "QImage"] = {}
+        # Generation counter for the async thumbnail render chain so a new
+        # render request supersedes an in-flight one.
+        self._render_generation = 0
 
         # Toolbar
         toolbar = QToolBar()
@@ -261,21 +267,58 @@ class MarkdownEditor(QWidget):
         return min(running_idx, len(slides) - 1)
 
     def _render_preview(self) -> None:
-        """Re-parse + render all slides; populate thumbnails + main preview."""
+        """Re-parse + render slides lazily.
+
+        Main preview (slide 0) renders synchronously so something appears
+        immediately. Thumbnails render one per event-loop iteration via
+        a chained QTimer.singleShot — keeps the UI responsive on large
+        songs. Re-renders hit a content-hash cache so unchanged slides
+        skip the render call entirely.
+        """
         text = self.text()
         spec = parse(text)
-        images = render_all(spec, song_dir=self._md_path.parent)
+        self._cached_spec = spec
         self._thumbs.clear()
-        for i, img in enumerate(images):
-            item = QListWidgetItem(f"{i + 1}")
-            pix = QPixmap.fromImage(img).scaled(
-                167, 93, Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            item.setIcon(QIcon(pix))
-            self._thumbs.addItem(item)
-        if images:
-            self._render_main_preview(0)
+        if not spec.slides:
+            return
+        # Render main preview now
+        self._render_main_preview(0)
+        # Bump generation so any in-flight chain stops; queue the new one.
+        self._render_generation += 1
+        gen = self._render_generation
+        QTimer.singleShot(0, lambda: self._render_thumb_async(0, gen))
+
+    def _render_thumb_async(self, idx: int, gen: int) -> None:
+        # Stop if a newer render request superseded this chain or the
+        # editor was torn down.
+        if gen != self._render_generation:
+            return
+        spec = getattr(self, "_cached_spec", None)
+        if spec is None or idx >= len(spec.slides):
+            return
+        slide = spec.slides[idx]
+        from flow.services.markdown import slide_hash as _slide_hash
+        key = _slide_hash(slide.main)
+        cached = self._slide_render_cache.get(key)
+        if cached is None:
+            try:
+                cached = render_slide(spec, slide, song_dir=self._md_path.parent)
+                self._slide_render_cache[key] = cached
+            except Exception:
+                # Skip on render failure, continue with the next thumb
+                QTimer.singleShot(
+                    0, lambda: self._render_thumb_async(idx + 1, gen)
+                )
+                return
+        item = QListWidgetItem(f"{idx + 1}")
+        pix = QPixmap.fromImage(cached).scaled(
+            167, 93, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        item.setIcon(QIcon(pix))
+        self._thumbs.addItem(item)
+        # Schedule next thumbnail
+        QTimer.singleShot(0, lambda: self._render_thumb_async(idx + 1, gen))
 
     def _render_main_preview(self, idx: int) -> None:
         text = self.text()
