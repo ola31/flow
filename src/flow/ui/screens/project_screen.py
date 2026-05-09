@@ -309,7 +309,12 @@ class ProjectScreen(QWidget):
 
     def _setup_ui(self) -> None:
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        # Reserve 4px on every side so the focus-active border (drawn via
+        # set_focus_active) actually shows. Without this, child widgets
+        # like the toolbar paint over the border at the screen's edges.
+        # The 4px stays transparent when the screen is inactive, so the
+        # only visible difference between modes is the border color.
+        main_layout.setContentsMargins(4, 4, 4, 4)
         main_layout.setSpacing(0)
 
         self._toolbar = QWidget()
