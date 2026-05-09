@@ -1689,31 +1689,54 @@ class MainWindow(QMainWindow):
             return None
         return song
 
+    def _resolve_global_slide(self, global_index: int):
+        """Convert a project-global slide index to (song, local_index).
+
+        Returns (song, local_index) when the index resolves to a markdown
+        song, else (None, -1). The slide preview's thumbnail strip and
+        Hotspot.get_slide_index() both report GLOBAL indices across all
+        songs in the project.
+        """
+        try:
+            song_name, local_idx = self._slide_manager.global_to_local(global_index)
+        except (ValueError, AttributeError):
+            return (None, -1)
+        if not self._project:
+            return (None, -1)
+        song = next(
+            (s for s in (self._project.selected_songs or []) if s.name == song_name),
+            None,
+        )
+        if song is None or song.slide_source != "markdown":
+            return (None, -1)
+        return (song, local_idx)
+
     def _on_canvas_emergency_patch_requested(self, hotspot) -> None:
-        if not self._is_live:
-            return
-        song = self._current_markdown_song()
-        if song is None:
+        if not self._is_live or not self._project:
             return
         verse_index = self._project.current_verse_index
-        slide_idx = hotspot.get_slide_index(verse_index)
-        if slide_idx < 0:
-            slide_idx = hotspot.get_slide_index(5)  # fallback to chorus
-        if slide_idx < 0:
+        global_slide = hotspot.get_slide_index(verse_index)
+        if global_slide < 0:
+            global_slide = hotspot.get_slide_index(5)  # fallback to chorus
+        if global_slide < 0:
             return
-        self._open_emergency_patch_panel(song=song, initial_index=slide_idx)
+        song, local_idx = self._resolve_global_slide(global_slide)
+        if song is None:
+            return
+        self._open_emergency_patch_panel(song=song, initial_index=local_idx)
 
     def _on_preview_emergency_patch_requested(self, slide_index: int) -> None:
         if not self._is_live:
             return
-        song = self._current_markdown_song()
+        song, local_idx = self._resolve_global_slide(slide_index)
         if song is None:
             return
-        self._open_emergency_patch_panel(song=song, initial_index=slide_index)
+        self._open_emergency_patch_panel(song=song, initial_index=local_idx)
 
     def _on_append_slide_requested(self) -> None:
         if not self._is_live:
             return
+        # Append is anchored to the song that owns the canvas's current sheet
         song = self._current_markdown_song()
         if song is None:
             return
@@ -1745,26 +1768,39 @@ class MainWindow(QMainWindow):
         )
         panel.close_requested.connect(self._close_emergency_patch_panel)
 
-        # Insert panel at index 0 in the existing h_splitter (leftmost pane)
-        self._h_splitter.insertWidget(0, panel)
-        # Adjust sizes: panel 400, song_list ~240, center ~600, pip ~0, mapping ~0
+        # Insert between song_list (index 0) and center_widget (index 1) so
+        # the editor lands directly adjacent to the canvas/thumbnails the
+        # user just right-clicked. Everything to the right shifts by one.
+        self._h_splitter.insertWidget(1, panel)
+        # Sizes after insert: [song_list, patch, center, pip, mapping]
+        # Hide song_list + pip so the operator can focus on the edit; restore
+        # on close. center keeps its priority by being given the leftover
+        # width.
         current_sizes = self._h_splitter.sizes()
-        total = sum(current_sizes)
+        total = sum(current_sizes) or 1280
         panel_width = 400
-        remaining = max(0, total - panel_width)
-        # Distribute remaining proportionally among existing panes
-        if current_sizes:
-            ratio = remaining / max(total, 1)
-            new_sizes = [panel_width] + [int(s * ratio) for s in current_sizes]
-        else:
-            new_sizes = [panel_width] + list(current_sizes)
+        center_width = max(400, total - panel_width)
+        # 5-pane sizes: [song_list=0, patch=400, center=rest, pip=0, mapping=0]
+        new_sizes = [0, panel_width, center_width, 0, 0]
+        # Pad in case splitter has fewer/more panes for any reason
+        while len(new_sizes) < self._h_splitter.count():
+            new_sizes.append(0)
+        new_sizes = new_sizes[: self._h_splitter.count()]
         self._h_splitter.setSizes(new_sizes)
 
         self._patch_panel = panel
+        # Application-level eventFilter to capture Tab regardless of which
+        # widget currently has focus. Qt would otherwise deliver Tab to the
+        # focused QPlainTextEdit (which uses setTabChangesFocus) instead of
+        # bubbling up to MainWindow.keyPressEvent.
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().installEventFilter(self)
 
     def _close_emergency_patch_panel(self) -> None:
         if self._patch_panel is None:
             return
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().removeEventFilter(self)
         self._patch_panel.setParent(None)  # type: ignore[arg-type]
         self._patch_panel.deleteLater()
         self._patch_panel = None
@@ -2814,6 +2850,22 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, watched, event) -> bool:
         """자식 위젯(리스트 등)의 특정 키 이벤트를 메인 창에서 가로채기 위한 필터"""
+        # Tab toggle for emergency patch panel — installed app-wide while panel
+        # is open so Tab is captured even when QPlainTextEdit has focus.
+        if (
+            self._patch_panel is not None
+            and event.type() == QEvent.Type.KeyPress
+            and event.key() == Qt.Key.Key_Tab
+            and not (event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        ):
+            from PySide6.QtWidgets import QApplication
+            # Don't hijack Tab inside modal dialogs spawned by the panel
+            # (ConfirmDialog, etc. — they handle their own keyboard).
+            modal = QApplication.activeModalWidget()
+            if modal is None or modal is self:
+                self._toggle_patch_focus()
+                return True
+
         if event.type() == QEvent.Type.KeyPress:
             # [수정] 뷰포트가 아닌 위젯 본체만 감시하여 이벤트 흐름 단일화 (중복 호출 차단)
             is_slide_list = watched == self._slide_preview._list

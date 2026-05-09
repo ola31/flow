@@ -64,8 +64,14 @@ class EmergencyPatchPanel(QWidget):
 
         if initial_index is None:
             self._current_key = self._allocate_add_slot()
+        elif len(spec.slides) == 0:
+            # No existing slides — degrade to add mode
+            self._current_key = self._allocate_add_slot()
         else:
-            self._current_key = initial_index
+            # Clip out-of-range indices to a valid slide. Callers may pass
+            # stale or global indices; we'd rather show a working panel
+            # on the wrong slide than crash on open.
+            self._current_key = max(0, min(initial_index, len(spec.slides) - 1))
 
         self._refresh_editor_for_current()
 

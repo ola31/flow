@@ -313,3 +313,28 @@ def test_revert_in_add_mode_drops_slot_and_returns_to_last(
     panel.revert_current()
     assert not panel.is_add_mode()
     assert panel.current_text() == "원본 1"
+
+
+def test_out_of_range_initial_index_clips_to_last_slide(qtbot, tmp_path: Path) -> None:
+    """Defense in depth: a stale/global index must not crash the panel."""
+    spec = _make_spec("원본 1", "원본 2")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=99)
+    qtbot.addWidget(panel)
+    # Should clip to the last valid slide rather than IndexError
+    assert panel.current_text() == "원본 2"
+
+
+def test_negative_initial_index_clips_to_first_slide(qtbot, tmp_path: Path) -> None:
+    spec = _make_spec("원본 1", "원본 2")
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=-3)
+    qtbot.addWidget(panel)
+    assert panel.current_text() == "원본 1"
+
+
+def test_empty_spec_with_index_falls_back_to_add_mode(qtbot, tmp_path: Path) -> None:
+    """If a song somehow has zero slides, opening in edit mode should
+    degrade to add mode rather than crash."""
+    spec = SongSpec(title="t", frontmatter=Frontmatter(), slides=[])
+    panel = EmergencyPatchPanel(spec=spec, song_dir=tmp_path, initial_index=0)
+    qtbot.addWidget(panel)
+    assert panel.is_add_mode()
