@@ -9,6 +9,8 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 
+from flow.services.markdown.parser import SongSpec
+
 logger = logging.getLogger(__name__)
 
 _PATCHES_VERSION = 1
@@ -44,15 +46,17 @@ class SlidePatch:
 
     @classmethod
     def from_json(cls, raw: dict[str, object]) -> SlidePatch:
-        ptype = PatchType(raw["type"])
+        ptype = PatchType(str(raw["type"]))
+        slide_hash_val = raw.get("slide_hash")
+        slide_index_val = raw.get("slide_index")
         return cls(
-            id=raw["id"],
+            id=str(raw["id"]),
             type=ptype,
-            patched_main=raw["patched_main"],
-            slide_hash=raw.get("slide_hash"),
-            slide_index=raw.get("slide_index"),
-            created_at=raw["created_at"],
-            created_during=raw["created_during"],
+            patched_main=str(raw["patched_main"]),
+            slide_hash=str(slide_hash_val) if slide_hash_val is not None else None,
+            slide_index=int(slide_index_val) if slide_index_val is not None else None,  # type: ignore[call-overload]
+            created_at=str(raw["created_at"]),
+            created_during=str(raw["created_during"]),
         )
 
 
@@ -104,9 +108,6 @@ class PatchStore:
         except (KeyError, ValueError) as exc:
             logger.warning("patches.json schema error (%s): %s", self._path, exc)
             self._patches = []
-
-
-from flow.services.markdown.parser import SongSpec
 
 
 def slide_hash(main: str) -> str:

@@ -1,20 +1,19 @@
 """SlidePreviewPanel - PPT 슬라이드 목록을 썸네일로 표시하는 패널"""
 
+from PySide6.QtCore import QMimeData, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QDrag, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
     QHBoxLayout,
-    QScrollArea,
+    QLabel,
     QListWidget,
     QListWidgetItem,
-    QLabel,
-    QPushButton,
     QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtCore import Qt, Signal, QSize, QEvent, QMimeData
-from PySide6.QtGui import QPixmap, QIcon, QColor, QDrag
-from flow.services.slide_manager import SlideManager
 
+from flow.services.slide_manager import SlideManager
 
 SLIDE_MIME_TYPE = "application/x-flow-slide-index"
 
@@ -86,12 +85,28 @@ class SlidePreviewPanel(QWidget):
 
     def _setup_ui(self) -> None:
         from flow.ui.styles import (
-            BG_SURFACE, BG_ELEVATED, BG_DEEP, TEXT_PRIMARY, TEXT_SECONDARY,
-            TEXT_TERTIARY, ACCENT, ACCENT_INTER, ACCENT_HOVER,
-            BORDER_SUBTLE_RGBA, BORDER_STANDARD_RGBA,
-            SURFACE_GHOST, SURFACE_SUBTLE, SURFACE_RAISED,
-            FONT_XS, FONT_SM, FONT_MD, FONT_LG, FONT_TITLE, FW_MEDIUM, FW_SEMI,
-            RADIUS_SM, RADIUS_MD, RADIUS_LG, SP_XS, SP_SM,
+            ACCENT,
+            ACCENT_INTER,
+            BG_ELEVATED,
+            BG_SURFACE,
+            BORDER_STANDARD_RGBA,
+            BORDER_SUBTLE_RGBA,
+            FONT_LG,
+            FONT_SM,
+            FONT_TITLE,
+            FONT_XS,
+            FW_MEDIUM,
+            FW_SEMI,
+            RADIUS_LG,
+            RADIUS_MD,
+            RADIUS_SM,
+            SP_SM,
+            SP_XS,
+            SURFACE_GHOST,
+            SURFACE_RAISED,
+            TEXT_PRIMARY,
+            TEXT_SECONDARY,
+            TEXT_TERTIARY,
         )
 
         self.setStyleSheet(f"background-color: {BG_SURFACE};")
@@ -104,7 +119,8 @@ class SlidePreviewPanel(QWidget):
         header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(SP_XS, 0, SP_XS, 0)
 
-        from flow.ui.icons import icon_label as _icon_label, icon_qicon
+        from flow.ui.icons import icon_label as _icon_label
+        from flow.ui.icons import icon_qicon
         self._title_icon = _icon_label("slideshow", 14, TEXT_SECONDARY)
         header_layout.addWidget(self._title_icon)
 

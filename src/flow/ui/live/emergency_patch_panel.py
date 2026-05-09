@@ -197,12 +197,15 @@ class EmergencyPatchPanel(QWidget):
         super().keyPressEvent(event)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        """Intercept Ctrl+Return and Esc on the editor before QPlainTextEdit handles them."""
+        """Intercept Ctrl+Return and Esc on the editor.
+
+        Must run before QPlainTextEdit handles the key event.
+        """
         if (
             watched is self._editor
             and event.type() == QEvent.Type.KeyPress
         ):
-            key_event = QKeyEvent(event)
+            key_event: QKeyEvent = event  # type: ignore[assignment]
             if (
                 key_event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
                 and key_event.modifiers() & Qt.KeyboardModifier.ControlModifier
@@ -268,8 +271,10 @@ class EmergencyPatchPanel(QWidget):
         self._editor.textChanged.connect(self._on_text_changed)
         layout.addWidget(self._editor, 1)
 
-        QShortcut(QKeySequence("Ctrl+Right"), self, activated=self.go_next)
-        QShortcut(QKeySequence("Ctrl+Left"), self, activated=self.go_prev)
+        sc_next = QShortcut(QKeySequence("Ctrl+Right"), self)
+        sc_next.activated.connect(self.go_next)
+        sc_prev = QShortcut(QKeySequence("Ctrl+Left"), self)
+        sc_prev.activated.connect(self.go_prev)
 
         self._preview_label = QLabel()
         self._preview_label.setMinimumHeight(120)
