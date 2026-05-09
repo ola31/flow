@@ -1768,25 +1768,30 @@ class MainWindow(QMainWindow):
         )
         panel.close_requested.connect(self._close_emergency_patch_panel)
 
+        # Bound the panel width so the QPlainTextEdit's growing sizeHint
+        # can't push other splitter panes to zero as the operator types.
+        panel.setMinimumWidth(360)
+        panel.setMaximumWidth(560)
+
         # Insert between song_list (index 0) and center_widget (index 1) so
         # the editor lands directly adjacent to the canvas/thumbnails the
         # user just right-clicked. Everything to the right shifts by one.
         self._h_splitter.insertWidget(1, panel)
-        # Sizes after insert: [song_list, patch, center, pip, mapping]
-        # Hide song_list + pip so the operator can focus on the edit; restore
-        # on close. center keeps its priority by being given the leftover
-        # width.
-        current_sizes = self._h_splitter.sizes()
-        total = sum(current_sizes) or 1280
+        # After insert: [song_list, patch, center, pip, mapping]
+        # Hide song_list + pip + mapping; only patch + center are interactive
+        # during emergency edit. Restore on close.
+        total = sum(self._h_splitter.sizes()) or 1280
         panel_width = 400
-        center_width = max(400, total - panel_width)
-        # 5-pane sizes: [song_list=0, patch=400, center=rest, pip=0, mapping=0]
+        center_width = max(500, total - panel_width)
         new_sizes = [0, panel_width, center_width, 0, 0]
-        # Pad in case splitter has fewer/more panes for any reason
         while len(new_sizes) < self._h_splitter.count():
             new_sizes.append(0)
         new_sizes = new_sizes[: self._h_splitter.count()]
         self._h_splitter.setSizes(new_sizes)
+        # Stretch factors: only center_widget grows on window resize. The
+        # patch panel keeps its set width.
+        for i in range(self._h_splitter.count()):
+            self._h_splitter.setStretchFactor(i, 1 if i == 2 else 0)
 
         self._patch_panel = panel
         # Application-level eventFilter to capture Tab regardless of which
@@ -1795,6 +1800,12 @@ class MainWindow(QMainWindow):
         # bubbling up to MainWindow.keyPressEvent.
         from PySide6.QtWidgets import QApplication
         QApplication.instance().installEventFilter(self)
+
+        # Focus the editor immediately so the operator can type right away.
+        try:
+            panel._editor.setFocus(Qt.FocusReason.OtherFocusReason)
+        except AttributeError:
+            pass
 
     def _close_emergency_patch_panel(self) -> None:
         if self._patch_panel is None:
@@ -1822,13 +1833,21 @@ class MainWindow(QMainWindow):
             return False
 
     def _toggle_patch_focus(self) -> None:
-        """Toggle keyboard focus between the patch panel and the live canvas."""
+        """Toggle keyboard focus between the patch panel and the live canvas.
+
+        The panel itself has FocusPolicy.NoFocus by default, so calling
+        setFocus on the panel widget is a no-op. Focus the editor inside
+        instead — that's what should receive keystrokes.
+        """
         if self._patch_panel is None:
             return
         if self._patch_panel_has_focus():
-            self._canvas.setFocus()
+            self._canvas.setFocus(Qt.FocusReason.TabFocusReason)
         else:
-            self._patch_panel.setFocus()
+            try:
+                self._patch_panel._editor.setFocus(Qt.FocusReason.TabFocusReason)
+            except AttributeError:
+                self._patch_panel.setFocus(Qt.FocusReason.TabFocusReason)
 
     def _on_patch_applied(self, song, payload: list) -> None:
         import uuid
