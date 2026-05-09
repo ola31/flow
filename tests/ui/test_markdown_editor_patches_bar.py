@@ -87,3 +87,30 @@ def test_load_file_refreshes_bar(qtbot, tmp_path: Path) -> None:
     editor.load_file(md2)
     assert editor._patches_bar.isVisible()
     assert "1" in editor._patches_bar_label.text()
+
+
+def test_apply_to_source_rewrites_md_and_clears_patches(qtbot, tmp_path: Path) -> None:
+    md = tmp_path / "slides.md"
+    md.write_text("# t\n\n원본\n", encoding="utf-8")
+    from flow.services.markdown import slide_hash
+    (tmp_path / ".patches.json").write_text(
+        json.dumps({
+            "version": 1,
+            "patches": [
+                {"id": "x", "type": "edit", "patched_main": "고친",
+                 "slide_hash": slide_hash("원본"), "slide_index": 0,
+                 "created_at": "t", "created_during": "live"}
+            ],
+        }),
+        encoding="utf-8",
+    )
+    editor = MarkdownEditor(md)
+    qtbot.addWidget(editor)
+    editor.show()
+    editor._on_patches_apply_to_source()
+
+    new_text = md.read_text(encoding="utf-8")
+    assert "고친" in new_text
+    assert "원본" not in new_text
+    patches_raw = json.loads((tmp_path / ".patches.json").read_text(encoding="utf-8"))
+    assert patches_raw["patches"] == []

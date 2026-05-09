@@ -158,3 +158,29 @@ def _find_edit_target(slides: list, patch: SlidePatch) -> int | None:
     if patch.slide_index is not None and 0 <= patch.slide_index < len(slides):
         return patch.slide_index
     return None
+
+
+def apply_patches_to_text(text: str, patches: list[SlidePatch]) -> str:
+    """Apply patches by re-parsing text, applying patches at SongSpec level,
+    and re-emitting markdown. Preserves frontmatter and title."""
+    import re
+
+    from flow.services.markdown.parser import parse
+
+    spec = parse(text)
+    patched = apply_patches(spec, patches)
+
+    lines: list[str] = []
+    if spec.title:
+        lines.append(f"# {spec.title}")
+        lines.append("")
+    for slide in patched.slides:
+        lines.append(slide.main.rstrip("\n"))
+        lines.append("")
+    out = "\n".join(lines).rstrip() + "\n"
+
+    # Preserve original frontmatter block if present
+    m = re.match(r"\A(---\s*\n.*?\n---\s*\n)", text, flags=re.DOTALL)
+    if m:
+        out = m.group(1) + out
+    return out

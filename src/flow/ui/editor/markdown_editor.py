@@ -188,8 +188,18 @@ class MarkdownEditor(QWidget):
         self._current_md_path = md_path
 
     def _on_patches_apply_to_source(self) -> None:
-        # Implemented in Task 24
-        pass
+        from flow.services.markdown import PatchStore, apply_patches_to_text
+
+        if self._current_md_path is None:
+            return
+        text = self._current_md_path.read_text(encoding="utf-8")
+        store = PatchStore(self._current_md_path.parent / ".patches.json")
+        new_text = apply_patches_to_text(text, store.patches)
+        self._current_md_path.write_text(new_text, encoding="utf-8")
+        store.clear()
+        store.save()
+        # Reload current view to reflect new .md content
+        self.load_file(self._current_md_path)
 
     def _on_patches_discard(self) -> None:
         if self._current_md_path is None:
