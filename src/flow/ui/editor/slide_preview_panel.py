@@ -74,6 +74,10 @@ class SlidePreviewPanel(QWidget):
     reload_all_requested = Signal()
     emergency_patch_requested = Signal(int)  # slide index
     append_slide_requested = Signal()
+    # Fired after refresh_slides() finishes rebuilding the thumbnail list.
+    # Listeners (e.g. main_window) use this to recompute patch badges that
+    # depend on which slides are currently shown.
+    slides_refreshed = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -453,6 +457,10 @@ class SlidePreviewPanel(QWidget):
                 item.setForeground(QColor(ACCENT_INTER))
 
             self._list.addItem(item)
+
+        # Notify listeners that the thumbnail list has been rebuilt so
+        # they can recompute view-derived state (e.g. patch badges).
+        self.slides_refreshed.emit()
 
     def _on_current_item_changed(
         self, current: QListWidgetItem, previous: QListWidgetItem

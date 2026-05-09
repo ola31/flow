@@ -695,6 +695,11 @@ class MainWindow(QMainWindow):
         self._slide_preview.append_slide_requested.connect(
             self._on_append_slide_requested
         )
+        # Whenever the thumbnail list is rebuilt, recompute the AMBER patch
+        # badge set so existing patches show up immediately on song load.
+        self._slide_preview.slides_refreshed.connect(
+            self._recompute_patched_badges
+        )
 
         # 라이브 컨트롤러 시그널 - 메인 윈도우 및 송출창 업데이트
         self._live_controller.live_changed.connect(self._on_live_changed)
@@ -1908,52 +1913,89 @@ class MainWindow(QMainWindow):
 
         # Invalidate cache so next read sees patches
         self._slide_manager._markdown_converter.invalidate_cache(md_path)
-        self._refresh_thumbnails_and_display(song)
+        # Rebuild the thumbnail strip so the new pixmaps reflect patches.
+        # SlidePreviewPanel.refresh_slides() emits slides_refreshed which
+        # triggers _recompute_patched_badges to set the AMBER dots.
+        self._slide_preview.refresh_slides()
+        self._refresh_live_display_for_patched(song)
         self._close_emergency_patch_panel()
 
-    def _refresh_thumbnails_and_display(self, song) -> None:
-        """Re-read the song's slides (with patches applied) and update UI.
+    def _recompute_patched_badges(self) -> None:
+        """Scan all markdown songs in the project and mark patched slides
+        on the global thumbnail strip.
 
-        - Recomputes which slide indices have patches and updates the
-          thumbnail badge state.
-        - If the audience display is showing a slide that was just
-          patched, push the new image so the audience sees the fix.
+        Called from SlidePreviewPanel.slides_refreshed so badges re-appear
+        whenever the thumbnail list is rebuilt — including when a song
+        loads with patches from a previous session.
         """
         from flow.services.markdown import PatchStore, PatchType, parse
 
-        if getattr(song, "slide_source", None) != "markdown":
+        global_indices: set[int] = set()
+        if self._project is None:
+            try:
+                self._slide_preview.set_patched_indices(global_indices)
+            except AttributeError:
+                pass
             return
 
-        md_path = song.markdown_path
-        store = PatchStore(md_path.parent / ".patches.json")
+        for song in (self._project.selected_songs or []):
+            if getattr(song, "slide_source", None) != "markdown":
+                continue
+            md_path = song.markdown_path
+            try:
+                store = PatchStore(md_path.parent / ".patches.json")
+            except Exception:
+                continue
+            if not store.patches:
+                continue
+            try:
+                spec = parse(md_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            n_original = len(spec.slides)
+            try:
+                base = self._slide_manager.local_to_global(song.name, 0)
+            except (ValueError, AttributeError):
+                continue
+            for p in store.patches:
+                if p.type is PatchType.EDIT and p.slide_index is not None:
+                    if 0 <= p.slide_index < n_original:
+                        global_indices.add(base + p.slide_index)
+            n_appended = sum(
+                1 for p in store.patches if p.type is PatchType.APPEND
+            )
+            for i in range(n_appended):
+                global_indices.add(base + n_original + i)
         try:
+            self._slide_preview.set_patched_indices(global_indices)
+        except AttributeError:
+            pass
+
+    def _refresh_live_display_for_patched(self, song) -> None:
+        """If the audience display is showing a slide that was just patched
+        for `song`, re-emit the (now-patched) image."""
+        if getattr(song, "slide_source", None) != "markdown":
+            return
+        from flow.services.markdown import PatchStore, PatchType, parse
+
+        md_path = song.markdown_path
+        try:
+            store = PatchStore(md_path.parent / ".patches.json")
             spec = parse(md_path.read_text(encoding="utf-8"))
         except Exception:
             return
         n_original = len(spec.slides)
-
-        patched_indices: set[int] = set()
+        local_patched: set[int] = set()
         for p in store.patches:
             if p.type is PatchType.EDIT and p.slide_index is not None:
                 if 0 <= p.slide_index < n_original:
-                    patched_indices.add(p.slide_index)
+                    local_patched.add(p.slide_index)
         n_appended = sum(1 for p in store.patches if p.type is PatchType.APPEND)
         for i in range(n_appended):
-            patched_indices.add(n_original + i)
+            local_patched.add(n_original + i)
 
-        # Update the badge state on the preview widget
-        try:
-            self._slide_preview.set_patched_indices(patched_indices)
-        except AttributeError:
-            pass
-
-        # If the display is showing a slide that's now patched, refresh it.
-        # _live_controller._live_slide_index is the *global* slide index when
-        # the live display is showing a raw slide (not a hotspot).
-        # For hotspot-based live, we resolve the local index via get_slide_index.
         try:
             lc = self._live_controller
-            # Determine which global slide index is currently on the display.
             live_global: int = -1
             if lc._live_slide_index >= 0:
                 live_global = lc._live_slide_index
@@ -1966,22 +2008,15 @@ class MainWindow(QMainWindow):
                     live_global = slide_idx
 
             if live_global >= 0:
-                # Convert the global index to a song-local index and check
-                # whether that local index is in the patched set.
                 try:
-                    _song_name, local_idx = self._slide_manager.global_to_local(
+                    _name, local_idx = self._slide_manager.global_to_local(
                         live_global
                     )
                 except Exception:
                     local_idx = live_global
-                    _song_name = None
-
-                if local_idx in patched_indices:
-                    # Re-emit the (now-patched) image so the display updates.
+                if local_idx in local_patched:
                     lc.sync_live()
         except Exception:
-            # Best-effort: patches are already saved; a display-side hiccup
-            # must not bubble up and undo the successful save.
             pass
 
     def _toggle_display(self) -> None:
