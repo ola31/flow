@@ -1777,13 +1777,12 @@ class MainWindow(QMainWindow):
         # Pre-insert layout = 4 panes [song_list, center, pip, mapping].
         self._patch_pre_sizes = list(self._h_splitter.sizes())
 
-        # Insert between song_list (index 0) and center_widget (index 1) so
-        # the editor lands directly adjacent to the canvas/thumbnails the
-        # user just right-clicked. Everything to the right shifts by one.
-        self._h_splitter.insertWidget(1, panel)
-        # Post-insert layout: [song_list, patch, center, pip, mapping]
-        # Preserve song_list/pip/mapping sizes from before; subtract the
-        # panel width from center so total stays the same.
+        # Insert as the leftmost pane (left of song_list). The patch session
+        # is a focused emergency action that's visually distinct from the
+        # normal project context.
+        self._h_splitter.insertWidget(0, panel)
+        # Post-insert layout: [patch, song_list, center, pip, mapping]
+        # Preserve everything else; subtract the panel width from center.
         pre = self._patch_pre_sizes
         song_list_w = pre[0] if len(pre) > 0 else 220
         center_w_old = pre[1] if len(pre) > 1 else 800
@@ -1791,14 +1790,14 @@ class MainWindow(QMainWindow):
         mapping_w = pre[3] if len(pre) > 3 else 0
         panel_width = 400
         center_w_new = max(360, center_w_old - panel_width)
-        new_sizes = [song_list_w, panel_width, center_w_new, pip_w, mapping_w]
+        new_sizes = [panel_width, song_list_w, center_w_new, pip_w, mapping_w]
         # Pad / clip so length matches splitter
         while len(new_sizes) < self._h_splitter.count():
             new_sizes.append(0)
         new_sizes = new_sizes[: self._h_splitter.count()]
         self._h_splitter.setSizes(new_sizes)
-        # Stretch factors: center grows on window resize; panel stays put;
-        # song_list / pip / mapping keep their snapshot widths.
+        # Stretch factors: center grows on window resize; everything else
+        # keeps its snapshot width. Center is now at index 2.
         for i in range(self._h_splitter.count()):
             self._h_splitter.setStretchFactor(i, 1 if i == 2 else 0)
 

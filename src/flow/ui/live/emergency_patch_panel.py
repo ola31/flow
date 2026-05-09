@@ -354,6 +354,15 @@ class EmergencyPatchPanel(QWidget):
             self._pending[key] = _PendingState(text=text, is_dirty=False)
         self._editor.setPlainText(text)
         self._update_title_label()
+        # Defer the preview render so QLabel.width()/height() return the
+        # post-layout values, not the pre-show minimum. Without this the
+        # first render uses tiny dimensions and the slide gets clipped.
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, self._render_preview)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        # Re-render the preview at the new size so the slide always fits.
         self._render_preview()
 
     def _sync_current_to_pending(self) -> None:
