@@ -94,8 +94,9 @@ class EmergencyPatchPanel(QWidget):
     def set_active(self, active: bool) -> None:
         """Visually indicate whether this panel currently has keyboard focus.
 
-        Active: thick ACCENT bar on the left + ELEVATED background tone.
-        Inactive: transparent left bar + dimmer SURFACE background.
+        Active: full ACCENT outline + ELEVATED background tone.
+        Inactive: transparent border (same width, so layout stays put) +
+                  dimmer SURFACE background.
         Scoped to #emergencyPatchPanel so child widgets keep their styles.
         """
         bg = styles.BG_ELEVATED if active else styles.BG_SURFACE
@@ -103,11 +104,12 @@ class EmergencyPatchPanel(QWidget):
         self.setStyleSheet(
             f"#emergencyPatchPanel {{ "
             f"background-color: {bg}; "
-            f"border-left: 5px solid {border_color}; "
+            f"border: 4px solid {border_color}; "
+            f"border-radius: 6px; "
             f"}}"
         )
         # Boost title visibility when active so the operator can spot it
-        # at a glance even if the left bar is partly clipped by chrome.
+        # at a glance even if the outline is partly clipped by chrome.
         if hasattr(self, "_title_label"):
             color = styles.AMBER if active else styles.TEXT_TERTIARY
             self._title_label.setStyleSheet(

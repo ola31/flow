@@ -223,15 +223,17 @@ class ProjectScreen(QWidget):
         self.set_focus_active(False)
 
     def set_focus_active(self, active: bool) -> None:
-        """Show / hide the 5px ACCENT bar on the left edge.
+        """Show / hide a full ACCENT outline around this screen.
 
         Used by MainWindow during emergency-patch sessions to indicate
         that the live area (this screen) is the focused side rather than
-        the patch panel. When the patch panel is closed, it stays off.
+        the patch panel. The border width is reserved when inactive
+        (transparent color) so toggling doesn't shift the layout.
         """
         color = ACCENT if active else "transparent"
         self.setStyleSheet(
-            f"#projectScreen {{ border-left: 5px solid {color}; }}"
+            f"#projectScreen {{ border: 4px solid {color}; "
+            f"border-radius: 6px; }}"
         )
 
     @property
