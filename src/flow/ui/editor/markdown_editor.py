@@ -93,10 +93,15 @@ class MarkdownEditor(QWidget):
 
         # Patches notification bar (inserted at top in a moment)
         self._patches_bar = QFrame()
+        self._patches_bar.setFrameShape(QFrame.Shape.NoFrame)
         self._patches_bar.setStyleSheet(
+            "QFrame#PatchesBar {"
             f"background-color: {styles.AMBER_MUTED}; "
+            "border: none; "
             f"border-left: 3px solid {styles.AMBER};"
+            "}"
         )
+        self._patches_bar.setObjectName("PatchesBar")
         bar_layout = QHBoxLayout(self._patches_bar)
         bar_layout.setContentsMargins(
             styles.SP_MD, styles.SP_SM, styles.SP_MD, styles.SP_SM
@@ -105,7 +110,8 @@ class MarkdownEditor(QWidget):
             "긴급 수정 0건이 .md 원본에 반영되지 않았습니다."
         )
         self._patches_bar_label.setStyleSheet(
-            f"color: {styles.AMBER}; font-size: {styles.FONT_SM}px;"
+            f"color: {styles.AMBER}; font-size: {styles.FONT_SM}px; "
+            f"background-color: transparent;"
         )
         bar_layout.addWidget(self._patches_bar_label, 1)
 

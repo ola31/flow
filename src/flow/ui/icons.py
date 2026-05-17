@@ -9,7 +9,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QRect
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QImage, QPainter, QPixmap
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontDatabase,
+    QGuiApplication,
+    QIcon,
+    QImage,
+    QPainter,
+    QPixmap,
+)
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 _FONT_FAMILY: str | None = None
@@ -87,16 +96,43 @@ def icon(name: str) -> str:
 
 
 def icon_pixmap(name: str, size: int = 18, color: str = "#a0a0a0") -> QPixmap:
-    """아이콘을 QPixmap으로 렌더링."""
+    """아이콘을 QPixmap으로 렌더링.
+
+    아이콘 폰트는 작은 사이즈에서 힌팅이 약해 흐릿하게 보이므로,
+    충분히 큰 사이즈(>=64px)로 한 번 그린 뒤 SmoothTransformation으로
+    물리 픽셀 크기까지 다운스케일하여 선명도를 확보한다. devicePixelRatio
+    역시 반영하여 고DPI 화면에서도 정확한 픽셀 밀도를 갖는다.
+    """
     _ensure_loaded()
-    px = QPixmap(size, size)
-    px.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(px)
+    app = QGuiApplication.instance()
+    dpr = app.devicePixelRatio() if app else 1.0
+    phys = max(1, int(round(size * dpr)))
+
+    # Super-sample: 적어도 물리 크기의 4배, 최소 96px 이상으로 렌더링.
+    super_size = max(96, phys * 4)
+    img = QImage(super_size, super_size, QImage.Format.Format_ARGB32_Premultiplied)
+    img.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(img)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    painter.setFont(icon_font(size))
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    painter.setFont(icon_font(super_size))
     painter.setPen(QColor(color))
-    painter.drawText(QRect(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, icon(name))
+    painter.drawText(
+        QRect(0, 0, super_size, super_size),
+        Qt.AlignmentFlag.AlignCenter,
+        icon(name),
+    )
     painter.end()
+
+    scaled = img.scaled(
+        phys,
+        phys,
+        Qt.AspectRatioMode.IgnoreAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    px = QPixmap.fromImage(scaled)
+    px.setDevicePixelRatio(dpr)
     return px
 
 
