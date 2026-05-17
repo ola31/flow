@@ -6,17 +6,19 @@ apply that single patch to `slides.md` or discard it.
 """
 from __future__ import annotations
 
+import difflib
+import html
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -30,6 +32,7 @@ from flow.services.markdown import (
     slide_hash,
 )
 from flow.ui import styles
+from flow.ui.icons import icon_qicon
 
 
 def _resolve_status(patch: SlidePatch, slides) -> tuple[str, str | None]:
@@ -172,17 +175,35 @@ class PatchDetailsDialog(QDialog):
         header.addStretch(1)
         outer.addLayout(header)
 
-        # Side-by-side diff
+        # Side-by-side diff with highlighting
+        original_text = original or ""
+        left_html, right_html = self._build_diff_html(
+            original_text, patch.patched_main
+        )
         diff = QHBoxLayout()
         diff.setSpacing(styles.SP_SM)
-        diff.addWidget(self._diff_pane("원본", original or "(원본 없음)"))
-        diff.addWidget(self._diff_pane("패치", patch.patched_main))
+        if original is None:
+            # Orphan / append — nothing to diff against, show placeholder.
+            placeholder = (
+                "(추가된 슬라이드 — 원본 없음)"
+                if patch.type is PatchType.APPEND
+                else "(원본 없음)"
+            )
+            diff.addWidget(
+                self._diff_pane("원본", f"<i style='color:{styles.TEXT_TERTIARY}'>"
+                                f"{html.escape(placeholder)}</i>")
+            )
+        else:
+            diff.addWidget(self._diff_pane("원본", left_html))
+        diff.addWidget(self._diff_pane("패치", right_html))
         outer.addLayout(diff)
 
         # Per-patch actions
         actions = QHBoxLayout()
         actions.addStretch(1)
-        apply_btn = QPushButton("원본에 반영")
+        apply_btn = QPushButton("  원본에 반영")
+        apply_btn.setIcon(icon_qicon("save", size=14, color=styles.AMBER))
+        apply_btn.setIconSize(QSize(14, 14))
         apply_btn.setStyleSheet(
             f"QPushButton {{ background-color: transparent; "
             f"color: {styles.AMBER}; border: 1px solid {styles.AMBER}; "
@@ -194,7 +215,9 @@ class PatchDetailsDialog(QDialog):
             apply_btn.setEnabled(False)
             apply_btn.setToolTip("매칭되는 원본 슬라이드가 없어 반영할 수 없습니다.")
         apply_btn.clicked.connect(lambda _=False, p=patch: self._apply_one(p))
-        discard_btn = QPushButton("폐기")
+        discard_btn = QPushButton("  폐기")
+        discard_btn.setIcon(icon_qicon("delete", size=14, color=styles.AMBER))
+        discard_btn.setIconSize(QSize(14, 14))
         discard_btn.setStyleSheet(apply_btn.styleSheet())
         discard_btn.clicked.connect(lambda _=False, p=patch: self._discard_one(p))
         actions.addWidget(apply_btn)
@@ -203,7 +226,40 @@ class PatchDetailsDialog(QDialog):
 
         return frame
 
-    def _diff_pane(self, header: str, body: str) -> QWidget:
+    @staticmethod
+    def _build_diff_html(original: str, patched: str) -> tuple[str, str]:
+        """Compute per-char diff and return (left_html, right_html).
+
+        Removed chars are tinted RED_MUTED in the left pane; inserted
+        chars are tinted GREEN_MUTED in the right pane. Replaced regions
+        show the old text on the left (red) and the new text on the right
+        (green).
+        """
+        matcher = difflib.SequenceMatcher(a=original, b=patched, autojunk=False)
+        left_parts: list[str] = []
+        right_parts: list[str] = []
+        del_style = (
+            f"background-color: {styles.RED_MUTED}; color: {styles.RED};"
+        )
+        ins_style = (
+            f"background-color: {styles.GREEN_MUTED}; color: {styles.GREEN};"
+        )
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            left_chunk = html.escape(original[i1:i2]).replace("\n", "<br>")
+            right_chunk = html.escape(patched[j1:j2]).replace("\n", "<br>")
+            if tag == "equal":
+                left_parts.append(left_chunk)
+                right_parts.append(right_chunk)
+            elif tag == "delete":
+                left_parts.append(f"<span style='{del_style}'>{left_chunk}</span>")
+            elif tag == "insert":
+                right_parts.append(f"<span style='{ins_style}'>{right_chunk}</span>")
+            elif tag == "replace":
+                left_parts.append(f"<span style='{del_style}'>{left_chunk}</span>")
+                right_parts.append(f"<span style='{ins_style}'>{right_chunk}</span>")
+        return "".join(left_parts), "".join(right_parts)
+
+    def _diff_pane(self, header: str, body_html: str) -> QWidget:
         wrap = QFrame()
         wrap.setStyleSheet(
             f"QFrame {{ background-color: {styles.BG_DEEP}; "
@@ -222,11 +278,15 @@ class PatchDetailsDialog(QDialog):
         )
         v.addWidget(label)
 
-        text = QPlainTextEdit()
-        text.setPlainText(body)
+        text = QTextEdit()
         text.setReadOnly(True)
+        text.setHtml(
+            f"<div style=\"font-family: '{styles.FONT_FAMILY}'; "
+            f"font-size: {styles.FONT_SM}px; color: {styles.TEXT_PRIMARY}; "
+            f"line-height: 1.4;\">{body_html}</div>"
+        )
         text.setStyleSheet(
-            f"QPlainTextEdit {{ background-color: transparent; "
+            f"QTextEdit {{ background-color: transparent; "
             f"color: {styles.TEXT_PRIMARY}; border: none; "
             f"font-family: '{styles.FONT_FAMILY}'; "
             f"font-size: {styles.FONT_SM}px; }}"

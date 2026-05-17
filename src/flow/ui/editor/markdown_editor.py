@@ -28,6 +28,7 @@ from flow.ui.editor.markdown_frontmatter_dialog import (
 )
 from flow.ui.editor.markdown_help_dialog import MarkdownHelpDialog
 from flow.ui.editor.markdown_highlighter import MarkdownHighlighter
+from flow.ui.icons import icon_qicon
 
 
 class MarkdownEditor(QWidget):
@@ -108,12 +109,14 @@ class MarkdownEditor(QWidget):
         )
         bar_layout.addWidget(self._patches_bar_label, 1)
 
-        for label, slot in (
-            ("원본에 반영", self._on_patches_apply_to_source),
-            ("폐기", self._on_patches_discard),
-            ("자세히 보기", self._on_patches_details),
+        for label, icon_name, slot in (
+            ("  원본에 반영", "save", self._on_patches_apply_to_source),
+            ("  폐기", "delete", self._on_patches_discard),
+            ("  자세히 보기", "view_list", self._on_patches_details),
         ):
             btn = QPushButton(label)
+            btn.setIcon(icon_qicon(icon_name, size=14, color=styles.AMBER))
+            btn.setIconSize(QSize(14, 14))
             btn.setStyleSheet(
                 f"QPushButton {{ background-color: transparent; "
                 f"color: {styles.AMBER}; border: 1px solid {styles.AMBER}; "
