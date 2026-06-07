@@ -241,6 +241,12 @@ class SlideManager(QObject):
             if worker is not None:
                 worker.abort_current_task()
 
+    def clear_caches(self) -> None:
+        """Clear cached converted slide images for all converter backends."""
+        if self._converter is not None:
+            self._converter.clear_cache()
+        self._markdown_converter.clear_cache()
+
     def is_watch_paused(self) -> bool:
         return self._watch_paused
 
@@ -563,7 +569,5 @@ class SlideManager(QObject):
         if has_pptx and self._converter is None:
             self.engine_missing.emit()
             return
-        if self._converter is not None:
-            self._converter.clear_cache()
-        self._markdown_converter.clear_cache()
+        self.clear_caches()
         self.load_songs(self._songs)

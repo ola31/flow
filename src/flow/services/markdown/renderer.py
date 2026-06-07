@@ -96,6 +96,9 @@ def render_slide(spec: SongSpec, slide: Slide, *, song_dir: Path) -> QImage:
     background = _effective_background(spec, slide, attrs)
     painter = QPainter(img)
     try:
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         _draw_background(painter, img, background, song_dir)
         _draw_main_text(painter, img, slide.main, attrs, spec.frontmatter)
         _draw_sub_text(painter, img, attrs.sub_text, attrs, spec.frontmatter)
@@ -105,11 +108,16 @@ def render_slide(spec: SongSpec, slide: Slide, *, song_dir: Path) -> QImage:
 
 
 def _effective_background(spec: SongSpec, slide: Slide, attrs: ResolvedAttrs) -> str:
-    """Pick background. Slide override wins; else 3+ line slides use background_3plus."""
+    """Pick background.
+
+    Slide override wins; otherwise longer slides use long-line backgrounds.
+    """
     if "background" in slide.overrides:
         return attrs.background
     n_lines = len(slide.main.split("\n")) if slide.main else 0
     fm = spec.frontmatter
+    if n_lines >= fm.multiline_4plus_threshold and fm.background_4plus:
+        return fm.background_4plus
     if n_lines >= fm.multiline_threshold and fm.background_3plus:
         return fm.background_3plus
     return attrs.background
@@ -192,7 +200,10 @@ def _draw_main_text(
         fm.para_spacing, slide_inches=fm.slide_inches, resolution=fm.resolution
     )
     lines = text.split("\n")
-    if len(lines) >= fm.multiline_threshold:
+    if len(lines) >= fm.multiline_4plus_threshold:
+        line_spacing = fm.line_spacing_4plus
+        text_bottom_pct = fm.text_bottom_pct_4plus
+    elif len(lines) >= fm.multiline_threshold:
         line_spacing = fm.line_spacing_3plus
         text_bottom_pct = fm.text_bottom_pct_3plus
     else:
@@ -239,6 +250,7 @@ def _draw_main_text(
         y = h * text_bottom_pct - doc_h + first_line_leading
     else:
         y = (h - doc_h) / 2 + first_line_leading / 2
+    y = round(y)
 
     painter.save()
     painter.translate(0, y)

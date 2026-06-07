@@ -1406,12 +1406,42 @@ class MainWindow(QMainWindow):
         """환경설정 다이얼로그 표시"""
         from flow.ui.settings_dialog import SettingsDialog
 
+        old_resolution = self._config_service.get_output_resolution()
         dialog = SettingsDialog(self._config_service, self)
         if dialog.exec():
+            new_resolution = self._config_service.get_output_resolution()
             # 설정 변경 시 버튼 갱신
             self._update_verse_buttons()
             self._sync_output_resolution()
-            self._statusbar.showMessage("설정이 저장되었습니다.", 2000)
+            if new_resolution != old_resolution:
+                self._reload_slides_after_output_resolution_change()
+            else:
+                self._statusbar.showMessage("설정이 저장되었습니다.", 2000)
+
+    def _reload_slides_after_output_resolution_change(self) -> None:
+        """Re-render loaded slides immediately after output resolution changes."""
+        self._slide_manager.clear_caches()
+
+        if self._project and self._project.selected_songs:
+            self._slide_manager.load_songs(self._project.selected_songs)
+            self._slide_preview.refresh_slides()
+            self._statusbar.showMessage(
+                "해상도 변경을 반영해 슬라이드를 다시 불러옵니다.",
+                3000,
+            )
+            return
+
+        current_path = self._slide_manager._pptx_path
+        if current_path is not None:
+            self._slide_manager.load_pptx(current_path)
+            self._slide_preview.refresh_slides()
+            self._statusbar.showMessage(
+                "해상도 변경을 반영해 슬라이드를 다시 불러옵니다.",
+                3000,
+            )
+            return
+
+        self._statusbar.showMessage("설정이 저장되었습니다.", 2000)
 
     def _sync_output_resolution(self) -> None:
         """Push the configured output resolution into the converter + md renderer.

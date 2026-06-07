@@ -64,6 +64,8 @@ _FIELDS: tuple[tuple[str, str], ...] = (
     ("sub_weight", "서브 굵기 (100–900)"),
     ("sub_color", "서브 색"),
     ("background", "배경"),
+    ("background_3plus", "3줄 이상 배경"),
+    ("background_4plus", "4줄 이상 배경"),
     ("slide_inches", "슬라이드 크기 (inch)"),
     ("resolution", "해상도 (px)"),
 )
@@ -514,6 +516,8 @@ class FrontmatterDialog(QDialog):
             # in the original markdown — keep file lean.
             default = _default_str("slide_inches")
             originally_present = "slide_inches" in self._original_raw
-            if v and (originally_present or _normalize_size(v) != _normalize_size(default)):
+            if v and (
+                originally_present or _normalize_size(v) != _normalize_size(default)
+            ):
                 out["slide_inches"] = v
         return out
