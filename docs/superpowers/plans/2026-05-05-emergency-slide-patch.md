@@ -3535,10 +3535,12 @@ This implementation plan covers all spec sections:
 - `EmergencyPatchPanel.close_requested()` — no payload
 - Slot key model `int | str` (with `"add:N"` for add slots) — consistent
 
+**Implemented beyond the original plan:**
+- "자세히 보기" diff dialog
+- drift / orphan / append status indicators in the reconciliation dialog
+- per-patch individual apply/discard
+
 **Out-of-scope items deferred to follow-up:**
-- "자세히 보기" diff dialog (Task 23 leaves it as no-op stub)
-- drift / orphan visual indicators (logic implemented, UI deferred)
-- per-patch individual apply/discard (only bulk in this plan)
 - Phase 2 features from spec §비범위 stay out
 
 ---

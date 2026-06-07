@@ -135,7 +135,7 @@ class SlidePreviewPanel(QWidget):
 
         self._btn_reload = QPushButton("새로고침")
         self._btn_reload.setIcon(icon_qicon("refresh", 12, TEXT_SECONDARY))
-        self._btn_reload.setFixedHeight(26)
+        self._btn_reload.setFixedHeight(30)
         self._btn_reload.setMinimumWidth(70)
         self._btn_reload.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_reload.setToolTip("모든 곡의 슬라이드 새로고침")
