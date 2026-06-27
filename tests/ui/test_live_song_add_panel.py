@@ -56,3 +56,13 @@ def test_panel_mark_added_delegates(qtbot, tmp_path):
     qtbot.addWidget(panel)
     panel.mark_added("곡A")
     assert panel._browser._cards[0]._added is True
+
+
+def test_panel_has_styled_background(qtbot, tmp_path):
+    """Fix 3: WA_StyledBackground must be set so the active-highlight CSS renders."""
+    from PySide6.QtCore import Qt
+
+    ws = _FakeWorkspace(_make_library(tmp_path, ["곡A"]))
+    panel = LiveSongAddPanel(songs_dir=tmp_path, included_names=set(), workspace=ws)
+    qtbot.addWidget(panel)
+    assert panel.testAttribute(Qt.WidgetAttribute.WA_StyledBackground)

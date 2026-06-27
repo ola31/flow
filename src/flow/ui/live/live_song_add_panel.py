@@ -36,6 +36,7 @@ class LiveSongAddPanel(QWidget):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("LiveSongAddPanel")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._active = False
         self._build_ui(songs_dir, included_names, workspace)
 

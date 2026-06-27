@@ -1716,7 +1716,8 @@ class MainWindow(QMainWindow):
         self._display_action.setEnabled(False)
         self._canvas.set_live_mode(is_live=False, slide_source="none")
         self._slide_preview.set_live_mode(is_live=False, slide_source="none")
-        self._close_emergency_patch_panel()  # close if open
+        self._close_emergency_patch_panel()  # close patch panel if open
+        self._unmount_live_side_panel()  # tear down song-add panel if open
         self._project_screen.set_live_mode(False)
         self._update_toolbar_for_mode("default")
         self._statusbar.showMessage("편집 모드")
@@ -1805,8 +1806,8 @@ class MainWindow(QMainWindow):
 
         if not self._is_live:
             return
-        if self._patch_panel is not None:
-            return  # already open
+        if self._live_side_panel is not None:
+            return  # patch or song-add panel already occupies the slot
 
         md_path = song.markdown_path
         text = md_path.read_text(encoding="utf-8")

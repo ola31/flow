@@ -84,3 +84,40 @@ def test_live_add_blocked_when_other_panel_open(live_mw):
     mw._live_side_panel = QWidget()  # simulate a patch panel occupying the slot
     mw._open_live_song_add_panel()
     assert not isinstance(mw._live_side_panel, LiveSongAddPanel)
+
+
+def test_exit_live_unmounts_song_add_panel(live_mw):
+    """Fix 1: _exit_live must tear down the song-add panel when it is open."""
+    mw, ws, project, path = live_mw
+    mw._open_live_song_add_panel()
+    assert isinstance(mw._live_side_panel, LiveSongAddPanel)
+    mw._exit_live()
+    assert mw._live_side_panel is None
+
+
+def test_patch_open_blocked_while_song_add_panel_open(live_mw, tmp_path):
+    """Fix 2: opening the patch panel while song-add is open must be a no-op."""
+    mw, ws, project, path = live_mw
+    mw._open_live_song_add_panel()
+    assert isinstance(mw._live_side_panel, LiveSongAddPanel)
+    before = mw._live_side_panel
+
+    # Create a minimal markdown file so _open_emergency_patch_panel can read
+    # past the file-I/O step (without Fix 2, it would succeed and replace the
+    # slot; with Fix 2, the _live_side_panel guard fires before any file I/O).
+    song_md = tmp_path / "test_song" / "slides.md"
+    song_md.parent.mkdir(parents=True, exist_ok=True)
+    song_md.write_text("# 테스트\n\n슬라이드 1\n", encoding="utf-8")
+
+    class _MockSong:
+        name = "test_song"
+        markdown_path = song_md
+
+    try:
+        mw._open_emergency_patch_panel(song=_MockSong(), initial_index=None)
+    except Exception:
+        pass
+
+    # The slot must still hold the original LiveSongAddPanel.
+    assert mw._live_side_panel is before
+    assert isinstance(mw._live_side_panel, LiveSongAddPanel)
