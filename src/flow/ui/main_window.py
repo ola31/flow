@@ -1841,6 +1841,42 @@ class MainWindow(QMainWindow):
         self._patch_splitter = None
         self._patch_original_index = -1
 
+    # === Live song-add panel ===
+
+    def _open_live_song_add_panel(self) -> None:
+        if not self._is_live or self._project is None or self._project_path is None:
+            return
+        if self._live_side_panel is not None:
+            self._statusbar.showMessage(
+                "긴급 수정 패널을 먼저 닫은 뒤 곡을 추가하세요.", 3000
+            )
+            return
+        from flow.ui.live.live_song_add_panel import LiveSongAddPanel
+
+        project_dir = self._project_path.parent
+        songs_dir = project_dir / "songs"
+        included = {s.name for s in self._project.selected_songs}
+        panel = LiveSongAddPanel(
+            songs_dir=songs_dir,
+            included_names=included,
+            parent=self.centralWidget(),
+            workspace=self._workspace,
+        )
+        panel.song_chosen.connect(self._on_live_add_song_chosen)
+        panel.close_requested.connect(self._unmount_live_side_panel)
+        self._mount_live_side_panel(panel)
+
+    def _on_live_add_song_chosen(self, name: str, source: str) -> None:
+        from flow.ui.live.live_song_add_panel import LiveSongAddPanel
+
+        if self._project is None:
+            return
+        self._song_list._add_existing_song(name, source)
+        self._save_project()
+        if isinstance(self._live_side_panel, LiveSongAddPanel):
+            self._live_side_panel.mark_added(name)
+        self._statusbar.showMessage(f"'{name}'을(를) 셋리스트에 추가했습니다.", 3000)
+
     def _patch_panel_target_width(self) -> int:
         """Pick a panel width that fits the current window state."""
         if self.windowState() & (
