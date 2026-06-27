@@ -117,6 +117,42 @@ class TestEnterSongEditModeBlocksLive:
         finally:
             mw.close()
 
+    def test_live_mode_disables_activity_navigation_buttons(self, qapp):
+        """라이브 모드에서는 좌측 프로젝트/라이브러리 이동도 비활성화."""
+        from flow.ui.main_window import MainWindow
+
+        mw = MainWindow()
+        try:
+            mw._set_project_editable(True)
+            assert mw._activity_bar._btn_projects.isEnabled()
+            assert mw._activity_bar._btn_library.isEnabled()
+
+            mw._set_project_editable(False)
+
+            assert not mw._activity_bar._btn_projects.isEnabled()
+            assert not mw._activity_bar._btn_library.isEnabled()
+            assert "라이브" in mw._activity_bar._btn_projects.toolTip()
+            assert "라이브" in mw._activity_bar._btn_library.toolTip()
+        finally:
+            mw.close()
+
+    def test_activity_navigation_methods_blocked_in_live(self, qapp):
+        """버튼이 아니라 메서드가 직접 호출되어도 라이브 중이면 이동하지 않음."""
+        from flow.ui.main_window import MainWindow
+
+        mw = MainWindow()
+        try:
+            mw._is_live = True
+            before = mw._stack.currentWidget()
+
+            mw._show_projects_screen()
+            assert mw._stack.currentWidget() is before
+
+            mw._show_library_screen()
+            assert mw._stack.currentWidget() is before
+        finally:
+            mw.close()
+
     def test_close_current_project_blocked_in_live(self, qapp):
         """키보드/API로 _close_current_project가 호출되어도 라이브면 차단."""
         from flow.ui.main_window import MainWindow

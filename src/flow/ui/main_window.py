@@ -303,8 +303,19 @@ class MainWindow(QMainWindow):
     def _show_launcher(self):
         self.show_home()
 
+    def _guard_activity_navigation_in_live(self) -> bool:
+        if not self._is_live:
+            return False
+        self._statusbar.showMessage(
+            "라이브 모드 중에는 화면을 이동할 수 없습니다. Esc로 먼저 종료하세요.",
+            3000,
+        )
+        return True
+
     def _show_library_screen(self) -> None:
         """ActivityBar의 라이브러리 버튼 → 곡 라이브러리 페이지."""
+        if self._guard_activity_navigation_in_live():
+            return
         if self._workspace is None:
             self.show_home()
             return
@@ -316,6 +327,8 @@ class MainWindow(QMainWindow):
 
     def _show_projects_screen(self) -> None:
         """ActivityBar의 프로젝트 버튼 → 프로젝트 페이지."""
+        if self._guard_activity_navigation_in_live():
+            return
         if self._workspace is None:
             self.show_home()
             return
@@ -831,8 +844,18 @@ class MainWindow(QMainWindow):
         # 1. 곡 이름 입력 받기
         from flow.ui.dialogs import flow_input_text
 
+        if self._project and not self._is_standalone:
+            prompt = (
+                "곡 제목을 입력하세요.\n"
+                "이 곡은 현재 프로젝트의 songs 폴더 안에 생성됩니다."
+            )
+        else:
+            prompt = "곡 제목을 입력하세요:"
+
         name, ok = flow_input_text(
-            self, "새 곡 생성", "곡 제목을 입력하세요:",
+            self,
+            "새 곡 생성",
+            prompt,
             placeholder="예: 새 곡 이름",
         )
         if not ok or not name:
@@ -876,8 +899,9 @@ class MainWindow(QMainWindow):
             if not self._check_unsaved_changes():
                 return
 
+            start_dir = self._workspace.root if self._workspace is not None else self._repo.base_path
             folder = QFileDialog.getExistingDirectory(
-                self, "곡 폴더를 생성할 위치 선택", str(self._repo.base_path)
+                self, "곡 폴더를 생성할 위치 선택", str(start_dir)
             )
             if not folder:
                 return
@@ -2175,7 +2199,7 @@ class MainWindow(QMainWindow):
         )
         # 활동바 홈 버튼도 동일 상태
         if hasattr(self, "_activity_bar"):
-            self._activity_bar.set_home_enabled(editable)
+            self._activity_bar.set_navigation_enabled(editable)
 
         # 편집 관련 액션만 제어
         self._undo_action.setEnabled(editable)
