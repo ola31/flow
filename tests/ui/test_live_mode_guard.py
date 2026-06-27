@@ -60,8 +60,9 @@ class TestSongListEditableCascade:
         assert card._btn_edit.toolTip() == ""
 
     def test_top_level_add_buttons_follow_editable(self, song_list_widget):
+        # "라이브러리에서 추가"는 라이브 중에도 항상 활성 (라이브 패널로 라우팅됨)
         song_list_widget.set_editable(False)
-        assert not song_list_widget._btn_add_lib.isEnabled()
+        assert song_list_widget._btn_add_lib.isEnabled()
         assert not song_list_widget._btn_new_song.isEnabled()
 
         song_list_widget.set_editable(True)

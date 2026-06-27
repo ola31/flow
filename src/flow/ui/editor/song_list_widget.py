@@ -1247,7 +1247,8 @@ class SongListWidget(QWidget):
 
     def set_editable(self, editable: bool) -> None:
         self._editable = editable
-        self._btn_add_lib.setEnabled(editable)
+        # 라이브 중에도 "라이브러리에서 추가"는 허용 (좌측 패널로 열림)
+        self._btn_add_lib.setEnabled(True)
         self._btn_new_song.setEnabled(editable)
         # 카드별 편집 버튼도 상태 반영 (라이브 중 편집 진입 차단)
         for card in self._cards:
@@ -1443,6 +1444,9 @@ class SongListWidget(QWidget):
     def _on_add_clicked(self) -> None:
         """라이브러리 브라우저 다이얼로그를 열어 곡 추가."""
         if not self._project or not self._main_window:
+            return
+        if getattr(self._main_window, "_is_live", False):
+            self._main_window._open_live_song_add_panel()
             return
 
         project_dir = self._main_window._project_path.parent
