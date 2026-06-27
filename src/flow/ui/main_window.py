@@ -106,6 +106,8 @@ class MainWindow(QMainWindow):
         self._patch_panel = None  # EmergencyPatchPanel | None
         self._patch_splitter = None  # QSplitter | None (unused — kept for API compat)
         self._patch_original_index = -1
+        # Generic left side-panel slot (patch, song-add, …)
+        self._live_side_panel = None
 
         self._apply_global_style()
         self._setup_ui()
@@ -1817,7 +1819,6 @@ class MainWindow(QMainWindow):
         # h_splitter. This keeps the panel completely separate from the
         # project_screen's toolbar / song_nav_bar, which the user found
         # visually confusing when both shared a top edge.
-        central_layout = self.centralWidget().layout()
         panel = EmergencyPatchPanel(
             spec=patched_spec,
             song_dir=md_path.parent,
@@ -1829,102 +1830,16 @@ class MainWindow(QMainWindow):
         )
         panel.close_requested.connect(self._close_emergency_patch_panel)
 
-        # Width reacts to discrete window state (maximized vs normal) only,
-        # not to continuous resize. This avoids the maximize-animation
-        # problem (gradual widening tied to the WM animation) while still
-        # adapting to window size: smaller windows get a narrower panel so
-        # project_screen isn't squished.
-        panel.setFixedWidth(self._patch_panel_target_width())
-
-        # central_layout is QHBoxLayout with [activity_bar, _stack].
-        # Insert panel between them: [activity_bar, patch_panel, _stack].
-        central_layout.insertWidget(1, panel)
-
         self._patch_panel = panel
-        # Application-level eventFilter to capture Tab regardless of which
-        # widget currently has focus. Qt would otherwise deliver Tab to the
-        # focused QPlainTextEdit (which uses setTabChangesFocus) instead of
-        # bubbling up to MainWindow.keyPressEvent.
-        from PySide6.QtWidgets import QApplication
-        QApplication.instance().installEventFilter(self)
-        # Track focus moves so we can highlight the active pane visually.
-        QApplication.instance().focusChanged.connect(
-            self._on_focus_changed_for_patch
-        )
-
-        # Focus the editor immediately so the operator can type right away.
-        try:
-            panel._editor.setFocus(Qt.FocusReason.OtherFocusReason)
-        except AttributeError:
-            pass
-        # Initial visual: panel is the freshly-focused pane, live area is dim.
-        panel.set_active(True)
-        self._project_screen.set_focus_active(False)
+        self._mount_live_side_panel(panel)
 
     def _close_emergency_patch_panel(self) -> None:
         if self._patch_panel is None:
             return
-        from PySide6.QtWidgets import QApplication
-        QApplication.instance().removeEventFilter(self)
-        try:
-            QApplication.instance().focusChanged.disconnect(
-                self._on_focus_changed_for_patch
-            )
-        except (TypeError, RuntimeError):
-            pass
-        # Remove from central_layout and let the QStackedWidget reclaim space.
-        central_layout = self.centralWidget().layout()
-        central_layout.removeWidget(self._patch_panel)
-        self._patch_panel.setParent(None)  # type: ignore[arg-type]
-        self._patch_panel.deleteLater()
+        self._unmount_live_side_panel()
         self._patch_panel = None
         self._patch_splitter = None
         self._patch_original_index = -1
-        # Clear the live-side highlight; the patch session is over.
-        try:
-            self._project_screen.set_focus_active(False)
-        except (RuntimeError, AttributeError):
-            pass
-
-    def _patch_panel_has_focus(self) -> bool:
-        """Return True when the emergency patch panel (or any child widget) has keyboard focus."""
-        if self._patch_panel is None:
-            return False
-        try:
-            return self._patch_panel.hasFocus() or self._patch_panel.isAncestorOf(
-                self.focusWidget()
-            )
-        except (RuntimeError, AttributeError):
-            return False
-
-    def _toggle_patch_focus(self) -> None:
-        """Toggle keyboard focus between the patch panel and the live canvas.
-
-        The panel itself has FocusPolicy.NoFocus by default, so calling
-        setFocus on the panel widget is a no-op. Focus the editor inside
-        instead — that's what should receive keystrokes.
-        """
-        if self._patch_panel is None:
-            return
-        if self._patch_panel_has_focus():
-            self._canvas.setFocus(Qt.FocusReason.TabFocusReason)
-        else:
-            try:
-                self._patch_panel._editor.setFocus(Qt.FocusReason.TabFocusReason)
-            except AttributeError:
-                self._patch_panel.setFocus(Qt.FocusReason.TabFocusReason)
-
-    def _on_focus_changed_for_patch(self, _old, _new) -> None:
-        """Update both panes' active highlight when focus moves so the
-        accent bar visibly travels from one side to the other."""
-        if self._patch_panel is None:
-            return
-        try:
-            panel_focused = self._patch_panel_has_focus()
-            self._patch_panel.set_active(panel_focused)
-            self._project_screen.set_focus_active(not panel_focused)
-        except (RuntimeError, AttributeError):
-            pass
 
     def _patch_panel_target_width(self) -> int:
         """Pick a panel width that fits the current window state."""
@@ -1934,6 +1849,79 @@ class MainWindow(QMainWindow):
             return 420
         return 320
 
+    # === Generic left side-panel helpers ===
+
+    def _mount_live_side_panel(self, panel) -> None:
+        """좌측 패널(패치/곡추가)을 중앙 레이아웃에 장착하고 Tab/포커스 배선."""
+        from PySide6.QtWidgets import QApplication
+        central_layout = self.centralWidget().layout()
+        panel.setFixedWidth(self._patch_panel_target_width())
+        central_layout.insertWidget(1, panel)
+        self._live_side_panel = panel
+        QApplication.instance().installEventFilter(self)
+        QApplication.instance().focusChanged.connect(
+            self._on_live_side_panel_focus_changed
+        )
+        try:
+            panel.focus_target().setFocus(Qt.FocusReason.OtherFocusReason)
+        except (AttributeError, RuntimeError):
+            pass
+        panel.set_active(True)
+        self._project_screen.set_focus_active(False)
+
+    def _unmount_live_side_panel(self) -> None:
+        from PySide6.QtWidgets import QApplication
+        if self._live_side_panel is None:
+            return
+        QApplication.instance().removeEventFilter(self)
+        try:
+            QApplication.instance().focusChanged.disconnect(
+                self._on_live_side_panel_focus_changed
+            )
+        except (TypeError, RuntimeError):
+            pass
+        central_layout = self.centralWidget().layout()
+        central_layout.removeWidget(self._live_side_panel)
+        self._live_side_panel.setParent(None)
+        self._live_side_panel.deleteLater()
+        self._live_side_panel = None
+        try:
+            self._project_screen.set_focus_active(False)
+        except (RuntimeError, AttributeError):
+            pass
+
+    def _live_side_panel_has_focus(self) -> bool:
+        p = self._live_side_panel
+        if p is None:
+            return False
+        try:
+            return p.hasFocus() or p.isAncestorOf(self.focusWidget())
+        except (RuntimeError, AttributeError):
+            return False
+
+    def _toggle_live_side_panel_focus(self) -> None:
+        p = self._live_side_panel
+        if p is None:
+            return
+        if self._live_side_panel_has_focus():
+            self._canvas.setFocus(Qt.FocusReason.TabFocusReason)
+        else:
+            try:
+                p.focus_target().setFocus(Qt.FocusReason.TabFocusReason)
+            except (AttributeError, RuntimeError):
+                p.setFocus(Qt.FocusReason.TabFocusReason)
+
+    def _on_live_side_panel_focus_changed(self, _old, _new) -> None:
+        p = self._live_side_panel
+        if p is None:
+            return
+        try:
+            focused = self._live_side_panel_has_focus()
+            p.set_active(focused)
+            self._project_screen.set_focus_active(not focused)
+        except (RuntimeError, AttributeError):
+            pass
+
     def changeEvent(self, event) -> None:  # noqa: N802 (Qt API)
         super().changeEvent(event)
         # React only to discrete state changes (maximize / restore /
@@ -1941,9 +1929,9 @@ class MainWindow(QMainWindow):
         # width snaps once per state transition rather than animating.
         if (
             event.type() == QEvent.Type.WindowStateChange
-            and self._patch_panel is not None
+            and self._live_side_panel is not None
         ):
-            self._patch_panel.setFixedWidth(self._patch_panel_target_width())
+            self._live_side_panel.setFixedWidth(self._patch_panel_target_width())
 
     def _on_patch_applied(self, song, payload: list) -> None:
         import uuid
@@ -2966,10 +2954,10 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, watched, event) -> bool:
         """자식 위젯(리스트 등)의 특정 키 이벤트를 메인 창에서 가로채기 위한 필터"""
-        # Tab toggle for emergency patch panel — installed app-wide while panel
+        # Tab toggle for live side-panel — installed app-wide while panel
         # is open so Tab is captured even when QPlainTextEdit has focus.
         if (
-            self._patch_panel is not None
+            self._live_side_panel is not None
             and event.type() == QEvent.Type.KeyPress
             and event.key() == Qt.Key.Key_Tab
             and not (event.modifiers() & Qt.KeyboardModifier.ControlModifier)
@@ -2979,7 +2967,7 @@ class MainWindow(QMainWindow):
             # (ConfirmDialog, etc. — they handle their own keyboard).
             modal = QApplication.activeModalWidget()
             if modal is None or modal is self:
-                self._toggle_patch_focus()
+                self._toggle_live_side_panel_focus()
                 return True
 
         if event.type() == QEvent.Type.KeyPress:
@@ -3007,15 +2995,15 @@ class MainWindow(QMainWindow):
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         """키보드 이벤트 핸들러"""
-        # Patch panel focused → don't dispatch live shortcuts; let normal Qt
+        # Side panel focused → don't dispatch live shortcuts; let normal Qt
         # event flow handle text editing inside the panel.
-        if self._patch_panel_has_focus():
+        if self._live_side_panel_has_focus():
             super().keyPressEvent(event)
             return
 
-        # Tab toggles between live and patch panel (only when panel is open)
-        if event.key() == Qt.Key.Key_Tab and self._patch_panel is not None:
-            self._toggle_patch_focus()
+        # Tab toggles between live and side panel (only when panel is open)
+        if event.key() == Qt.Key.Key_Tab and self._live_side_panel is not None:
+            self._toggle_live_side_panel_focus()
             event.accept()
             return
 

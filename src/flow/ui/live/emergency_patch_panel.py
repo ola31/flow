@@ -100,6 +100,10 @@ class EmergencyPatchPanel(QWidget):
     def set_text(self, text: str) -> None:
         self._editor.setPlainText(text)
 
+    def focus_target(self):
+        """Tab 으로 패널에 포커스를 줄 때 키 입력을 받을 내부 위젯."""
+        return self._editor
+
     def set_active(self, active: bool) -> None:
         """Visually indicate whether this panel currently has keyboard focus.
 
