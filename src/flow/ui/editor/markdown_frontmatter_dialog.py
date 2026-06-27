@@ -64,8 +64,8 @@ _FIELDS: tuple[tuple[str, str], ...] = (
     ("sub_weight", "서브 굵기 (100–900)"),
     ("sub_color", "서브 색"),
     ("background", "배경"),
-    ("background_3plus", "3줄 이상 배경"),
-    ("background_4plus", "4줄 이상 배경"),
+    ("background_3plus", "3줄 배경"),
+    ("background_4plus", "4줄 배경"),
     ("slide_inches", "슬라이드 크기 (inch)"),
     ("resolution", "해상도 (px)"),
 )

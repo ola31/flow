@@ -287,7 +287,7 @@ sub_color: "#CCCCCC"
 ---</pre>
 
 <h3>예시 5 — 긴 가사일 때만 다른 배경</h3>
-<p>가사가 3줄이면 <code>background_3plus</code>, 4줄 이상이면
+<p>가사가 3줄이면 <code>background_3plus</code>, 4줄이면
 <code>background_4plus</code> 배경을 씁니다. 줄 수에 맞춰 배경을 따로 정할 수
 있어요.</p>
 <pre>---
@@ -340,8 +340,8 @@ _PAGE_PRIORITY = _PAGE_STYLE + """
 <h3>배경</h3>
 <ul>
   <li>1순위: 슬라이드 <code>{background: ...}</code></li>
-  <li>2순위: 가사가 4줄 이상이면 Frontmatter <code>background_4plus</code></li>
-  <li>3순위: 가사가 3줄 이상이면 Frontmatter <code>background_3plus</code></li>
+  <li>2순위: 가사가 4줄이면 Frontmatter <code>background_4plus</code></li>
+  <li>3순위: 가사가 3줄이면 Frontmatter <code>background_3plus</code></li>
   <li>4순위: Frontmatter <code>background</code></li>
   <li>5순위: 시스템 기본값</li>
 </ul>
