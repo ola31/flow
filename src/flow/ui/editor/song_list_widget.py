@@ -124,12 +124,21 @@ class _LibrarySongCard(QFrame):
 
     add_clicked = Signal(str, str)  # (song name, source: "library" | "local")
 
-    def __init__(self, info: dict, workspace_mode: bool = False, parent=None) -> None:
+    def __init__(
+        self,
+        info: dict,
+        workspace_mode: bool = False,
+        added: bool = False,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("LibSongCard")
         self._name = info["name"]
         self._workspace_mode = workspace_mode
+        self._add_buttons: list[QPushButton] = []
+        self._added: bool = False
         self._setup_ui(info)
+        self.set_added(added)
 
     def _setup_ui(self, info: dict) -> None:
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -197,6 +206,17 @@ class _LibrarySongCard(QFrame):
 
         status_row.addStretch()
         left.addLayout(status_row)
+
+        # "이미 추가됨" 배지 — 기본 숨김, set_added(True) 시 표시
+        self._added_badge = QLabel("이미 추가됨")
+        self._added_badge.setStyleSheet(
+            f"font-size: {FONT_SM}px; font-weight: {FW_REGULAR}; color: {TEXT_TERTIARY};"
+            f" background: {SURFACE_SUBTLE}; border-radius: {RADIUS_SM}px;"
+            f" padding: 1px 6px;"
+        )
+        self._added_badge.setVisible(False)
+        left.addWidget(self._added_badge)
+
         root.addLayout(left, 1)
 
         # 오른쪽: 추가 버튼(들)
@@ -228,6 +248,7 @@ class _LibrarySongCard(QFrame):
             btn_ref.setStyleSheet(primary_css)
             btn_ref.clicked.connect(lambda: self.add_clicked.emit(self._name, "library"))
             root.addWidget(btn_ref)
+            self._add_buttons.append(btn_ref)
 
             btn_copy = QPushButton("복사")
             btn_copy.setFixedHeight(30)
@@ -238,6 +259,7 @@ class _LibrarySongCard(QFrame):
             btn_copy.setStyleSheet(secondary_css)
             btn_copy.clicked.connect(lambda: self.add_clicked.emit(self._name, "local"))
             root.addWidget(btn_copy)
+            self._add_buttons.append(btn_copy)
         else:
             # 레거시 모드: 단일 "추가" 버튼
             btn = QPushButton("추가")
@@ -248,6 +270,16 @@ class _LibrarySongCard(QFrame):
             btn.setStyleSheet(primary_css)
             btn.clicked.connect(lambda: self.add_clicked.emit(self._name, "local"))
             root.addWidget(btn)
+            self._add_buttons.append(btn)
+
+    def set_added(self, added: bool) -> None:
+        """이미 추가됨 상태를 토글한다."""
+        self._added = added
+        for btn in self._add_buttons:
+            btn.setEnabled(not added)
+        self._added_badge.setVisible(added)
+        cursor = Qt.CursorShape.ArrowCursor if added else Qt.CursorShape.PointingHandCursor
+        self.setCursor(cursor)
 
 
 class SongLibraryDialog(QDialog):
