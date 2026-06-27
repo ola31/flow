@@ -51,7 +51,9 @@ def _make_library(tmp_path: Path, names: list[str]) -> Path:
     for n in names:
         d = lib / n
         d.mkdir()
-        (d / "song.json").write_text(json.dumps({"name": n, "sheets": []}), encoding="utf-8")
+        (d / "song.json").write_text(
+            json.dumps({"name": n, "sheets": []}), encoding="utf-8"
+        )
     return lib
 
 
@@ -63,7 +65,9 @@ class _FakeWorkspace:
 def test_browser_shows_all_songs_included_marked(qtbot, tmp_path):
     lib = _make_library(tmp_path, ["곡A", "곡B"])
     ws = _FakeWorkspace(lib)
-    browser = SongLibraryBrowser(songs_dir=tmp_path, included_names={"곡A"}, workspace=ws)
+    browser = SongLibraryBrowser(
+        songs_dir=tmp_path, included_names={"곡A"}, workspace=ws
+    )
     qtbot.addWidget(browser)
     cards = {c._name: c for c in browser._cards}
     assert set(cards) == {"곡A", "곡B"}

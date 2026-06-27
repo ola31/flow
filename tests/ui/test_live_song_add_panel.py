@@ -17,7 +17,9 @@ def _make_library(tmp_path: Path, names: list[str]) -> Path:
     for n in names:
         d = lib / n
         d.mkdir()
-        (d / "song.json").write_text(json.dumps({"name": n, "sheets": []}), encoding="utf-8")
+        (d / "song.json").write_text(
+            json.dumps({"name": n, "sheets": []}), encoding="utf-8"
+        )
     return lib
 
 

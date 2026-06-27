@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -8,8 +7,8 @@ import pytest
 from flow.domain.project import Project
 from flow.domain.workspace import Workspace
 from flow.repository.project_repository import ProjectRepository
-from flow.ui.main_window import MainWindow
 from flow.ui.live.live_song_add_panel import LiveSongAddPanel
+from flow.ui.main_window import MainWindow
 
 
 def test_add_lib_button_enabled_during_live(qapp):
@@ -27,7 +26,7 @@ def test_add_lib_button_enabled_during_live(qapp):
 
 @pytest.fixture
 def live_mw(qapp, tmp_path: Path):
-    """Workspace with library song '새노래' + empty saved project, MainWindow in live."""
+    """Workspace with library song '새노래' + saved project, MainWindow live."""
     ws = Workspace.create(tmp_path / "ws")
 
     # Create library song "새노래" with a valid song.json

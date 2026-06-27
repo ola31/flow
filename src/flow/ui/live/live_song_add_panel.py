@@ -57,7 +57,8 @@ class LiveSongAddPanel(QWidget):
         self._btn_close.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._btn_close.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {TEXT_SECONDARY};"
-            f" border: 1px solid {BORDER}; border-radius: {RADIUS_MD}px; padding: 0 12px; }}"
+            f" border: 1px solid {BORDER}; border-radius: {RADIUS_MD}px;"
+            f" padding: 0 12px; }}"
         )
         self._btn_close.clicked.connect(self.close_requested)
         header.addWidget(self._btn_close)
