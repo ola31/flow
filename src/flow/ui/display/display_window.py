@@ -161,19 +161,25 @@ class DisplayWindow(QWidget):
         """
         if windowed:
             self.setWindowFlags(Qt.WindowType.Window)
-            self.resize(960, 540)
-            self.show()
             target_screen = screen
             if target_screen is None:
                 screens = QApplication.screens()
                 if screens:
                     target_screen = screens[0]
             if target_screen is not None:
+                handle = self.windowHandle()
+                if handle is not None:
+                    handle.setScreen(target_screen)
+            self.setWindowState(Qt.WindowState.WindowNoState)
+            self.resize(960, 540)
+            if target_screen is not None:
                 geo = target_screen.availableGeometry()
                 self.move(
                     geo.x() + geo.width() - self.width() - 20,
                     geo.y() + geo.height() - self.height() - 20,
                 )
+            self.showNormal()
+            self.raise_()
             return
 
         # 전체화면 모드
