@@ -108,8 +108,7 @@ def _scan_library_song(song_dir: Path) -> dict:
     if md_path.exists():
         try:
             text = md_path.read_text(encoding="utf-8")
-            body = re.sub(r"\A---\s*\n.*?\n---\s*\n", "", text, flags=re.DOTALL)
-            lyrics = body.lower()
+            lyrics = re.sub(r"\A---\s*\n.*?\n---\s*\n", "", text, flags=re.DOTALL)
         except Exception:
             lyrics = ""
     result["lyrics"] = lyrics
@@ -133,6 +132,31 @@ def _scan_library_song(song_dir: Path) -> dict:
     return result
 
 
+def _lyric_match_snippet(lyrics: str, q: str, max_len: int = 34) -> str:
+    """가사에서 검색어 q가 포함된 첫 줄을 잘라 반환한다 (없으면 빈 문자열).
+
+    매칭 위치 주변으로 잘라 검색어가 보이도록 한다. 마크다운 제목/절 기호(`#`)는
+    앞부분에서 제거한다.
+    """
+    if not q or not lyrics:
+        return ""
+    low = lyrics.lower()
+    idx = low.find(q)
+    if idx < 0:
+        return ""
+    start = lyrics.rfind("\n", 0, idx) + 1
+    end = lyrics.find("\n", idx)
+    if end < 0:
+        end = len(lyrics)
+    line = lyrics[start:end].lstrip("# ").strip()
+    if len(line) <= max_len:
+        return line
+    pos = line.lower().find(q)
+    head = max(0, pos - max_len // 3)
+    snippet = line[head:head + max_len]
+    return ("…" if head > 0 else "") + snippet + "…"
+
+
 class _LibrarySongCard(QFrame):
     """라이브러리 다이얼로그 안의 곡 카드."""
 
@@ -143,12 +167,14 @@ class _LibrarySongCard(QFrame):
         info: dict,
         workspace_mode: bool = False,
         added: bool = False,
+        match_snippet: str = "",
         parent=None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("LibSongCard")
         self._name = info["name"]
         self._workspace_mode = workspace_mode
+        self._match_snippet = match_snippet
         self._add_buttons: list[QPushButton] = []
         self._added: bool = False
         self._setup_ui(info)
@@ -230,6 +256,15 @@ class _LibrarySongCard(QFrame):
         )
         self._added_badge.setVisible(False)
         left.addWidget(self._added_badge)
+
+        # 가사 검색 매칭 줄 — 가사로 검색되어 매칭 줄이 있을 때만 표시.
+        if self._match_snippet:
+            snippet_lbl = QLabel(f"“{self._match_snippet}”")
+            snippet_lbl.setStyleSheet(
+                f"font-size: {FONT_SM}px; color: {TEXT_SECONDARY};"
+                f" background: transparent;"
+            )
+            left.addWidget(snippet_lbl)
 
         root.addLayout(left, 1)
 
@@ -405,11 +440,11 @@ class SongLibraryBrowser(QWidget):
             return
         filtered = [
             info for info in self._all_infos
-            if q in info["name"].lower() or q in info.get("lyrics", "")
+            if q in info["name"].lower() or q in info.get("lyrics", "").lower()
         ]
-        self._render(filtered)
+        self._render(filtered, q)
 
-    def _render(self, infos: list[dict]) -> None:
+    def _render(self, infos: list[dict], query: str = "") -> None:
         for card in self._cards:
             self._list_layout.removeWidget(card)
             card.deleteLater()
@@ -436,7 +471,14 @@ class SongLibraryBrowser(QWidget):
         workspace_mode = self._workspace is not None
         for info in infos:
             added = info["name"] in self._included
-            card = _LibrarySongCard(info, workspace_mode=workspace_mode, added=added)
+            # 제목이 아니라 가사로 매칭된 경우에만 매칭 줄을 카드에 표시
+            snippet = ""
+            if query and query not in info["name"].lower():
+                snippet = _lyric_match_snippet(info.get("lyrics", ""), query)
+            card = _LibrarySongCard(
+                info, workspace_mode=workspace_mode, added=added,
+                match_snippet=snippet,
+            )
             card.add_clicked.connect(self._on_song_added)
             self._cards.append(card)
             self._list_layout.insertWidget(self._list_layout.count() - 1, card)
