@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal, QEvent, QPoint
@@ -98,7 +99,20 @@ def _scan_library_song(song_dir: Path) -> dict:
 
     # PPT / 마크다운 확인
     result["has_ppt"] = (song_dir / "slides.pptx").exists()
-    result["has_md"] = (song_dir / "slides.md").exists()
+    md_path = song_dir / "slides.md"
+    result["has_md"] = md_path.exists()
+
+    # 가사 검색용 텍스트 — 선두 frontmatter(설정) 블록을 제외한 본문(소문자).
+    # PPT 곡 등 slides.md가 없으면 빈 문자열(제목으로만 검색).
+    lyrics = ""
+    if md_path.exists():
+        try:
+            text = md_path.read_text(encoding="utf-8")
+            body = re.sub(r"\A---\s*\n.*?\n---\s*\n", "", text, flags=re.DOTALL)
+            lyrics = body.lower()
+        except Exception:
+            lyrics = ""
+    result["lyrics"] = lyrics
 
     # song.json에서 핫스팟 수 확인
     total_hs, mapped_hs = 0, 0
@@ -389,7 +403,10 @@ class SongLibraryBrowser(QWidget):
         if not q:
             self._render(self._all_infos)
             return
-        filtered = [info for info in self._all_infos if q in info["name"].lower()]
+        filtered = [
+            info for info in self._all_infos
+            if q in info["name"].lower() or q in info.get("lyrics", "")
+        ]
         self._render(filtered)
 
     def _render(self, infos: list[dict]) -> None:

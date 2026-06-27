@@ -92,3 +92,38 @@ def test_browser_filter(qtbot, tmp_path):
     browser._search.setText("사랑")
     names = [c._name for c in browser._cards]
     assert names == ["사랑"]
+
+
+def _make_md_song(lib: Path, name: str, slides_md: str) -> None:
+    d = lib / name
+    d.mkdir()
+    (d / "song.json").write_text(
+        json.dumps({"name": name, "sheets": []}), encoding="utf-8"
+    )
+    (d / "slides.md").write_text(slides_md, encoding="utf-8")
+
+
+def test_browser_filter_matches_markdown_lyrics(qtbot, tmp_path):
+    lib = tmp_path / "library"
+    lib.mkdir()
+    _make_md_song(
+        lib, "첫째곡",
+        '---\nmain_size: 56\nbackground: "#000000"\n---\n\n'
+        "# 첫째곡\n\n주의 은혜로다\n",
+    )
+    _make_md_song(lib, "둘째곡", "---\n---\n\n# 둘째곡\n\n사랑합니다\n")
+    ws = _FakeWorkspace(lib)
+    browser = SongLibraryBrowser(songs_dir=tmp_path, included_names=set(), workspace=ws)
+    qtbot.addWidget(browser)
+
+    # 제목엔 없고 가사에만 있는 단어로 검색 → 해당 곡이 잡힘
+    browser._search.setText("은혜")
+    assert [c._name for c in browser._cards] == ["첫째곡"]
+
+    # frontmatter 설정값(background)은 검색에 걸리지 않음
+    browser._search.setText("background")
+    assert browser._cards == []
+
+    # 제목 검색은 그대로 동작
+    browser._search.setText("둘째")
+    assert [c._name for c in browser._cards] == ["둘째곡"]
