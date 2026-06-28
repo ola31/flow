@@ -432,9 +432,14 @@ def flow_select_screen(
 
         radio = QRadioButton(label_text)
         radio.setStyleSheet(
-            f"color: {TEXT_PRIMARY}; font-size: {FONT_MD}px; "
+            f"QRadioButton {{ color: {TEXT_PRIMARY}; font-size: {FONT_MD}px; "
             f"background: transparent; padding: {SP_SM}px 0; "
-            f"font-weight: {FW_MEDIUM};"
+            f"font-weight: {FW_MEDIUM}; spacing: 8px; }}"
+            f"QRadioButton::indicator {{ width: 14px; height: 14px; "
+            f"border-radius: 8px; border: 1.5px solid {BORDER_STANDARD_RGBA}; "
+            f"background: {BG_ELEVATED}; }}"
+            f"QRadioButton::indicator:checked {{ border: 4px solid {ACCENT}; "
+            f"background: {BG_DEEP}; }}"
         )
         if current_name and screen.name() == current_name:
             radio.setChecked(True)
