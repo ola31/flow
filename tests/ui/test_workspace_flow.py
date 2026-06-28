@@ -212,6 +212,121 @@ class TestWorkspaceProjectLauncher:
         launcher.refresh_workspace_items()
         assert len(launcher._proj_panel._cards) == 1
 
+    def test_new_song_in_workspace_project_creates_local_project_song(
+        self, qapp, workspace: Workspace, monkeypatch
+    ):
+        """프로젝트 화면의 새 곡은 library가 아니라 project/songs에 생성."""
+        from flow.domain.project import Project
+        from flow.repository.project_repository import ProjectRepository
+        from flow.ui.main_window import MainWindow
+
+        repo = ProjectRepository(workspace.projects_dir)
+        project = Project(name="프로젝트")
+        project_path = repo.save_to_workspace(project, workspace)
+
+        import flow.ui.dialogs as dialogs
+
+        monkeypatch.setattr(
+            dialogs,
+            "flow_input_text",
+            lambda *a, **k: ("새곡", True),
+        )
+        monkeypatch.setattr(
+            dialogs,
+            "flow_question",
+            lambda *a, **k: False,
+        )
+
+        mw = MainWindow(workspace=workspace)
+        try:
+            mw._project = project
+            mw._project_path = project_path
+            mw._is_standalone = False
+
+            mw._new_song()
+
+            assert not (workspace.library_song_dir("새곡") / "song.json").exists()
+            assert (
+                workspace.project_dir("프로젝트") / "songs" / "새곡" / "song.json"
+            ).exists()
+            assert project.selected_songs[0].source == "local"
+        finally:
+            mw._slide_manager.shutdown()
+            mw.close()
+
+    def test_new_song_prompt_explains_project_local_folder(
+        self, qapp, workspace: Workspace, monkeypatch
+    ):
+        """프로젝트 화면의 새 곡 입력창은 project/songs 생성 위치를 알려준다."""
+        from flow.domain.project import Project
+        from flow.repository.project_repository import ProjectRepository
+        from flow.ui.main_window import MainWindow
+
+        repo = ProjectRepository(workspace.projects_dir)
+        project = Project(name="프로젝트")
+        project_path = repo.save_to_workspace(project, workspace)
+        captured = {}
+
+        import flow.ui.dialogs as dialogs
+
+        def fake_input(_parent, title, message, **_kwargs):
+            captured["title"] = title
+            captured["message"] = message
+            return ("", False)
+
+        monkeypatch.setattr(dialogs, "flow_input_text", fake_input)
+
+        mw = MainWindow(workspace=workspace)
+        try:
+            mw._project = project
+            mw._project_path = project_path
+            mw._is_standalone = False
+
+            mw._new_song()
+
+            assert captured["title"] == "새 곡 생성"
+            assert "현재 프로젝트의 songs 폴더" in captured["message"]
+        finally:
+            mw._slide_manager.shutdown()
+            mw.close()
+
+    def test_new_song_from_workspace_home_starts_folder_picker_at_workspace_root(
+        self, qapp, workspace: Workspace, monkeypatch
+    ):
+        """홈/라이브러리의 새 곡 폴더 선택은 워크스페이스 루트에서 시작한다."""
+        from flow.ui.main_window import MainWindow, QFileDialog
+
+        import flow.ui.dialogs as dialogs
+
+        captured = {}
+
+        monkeypatch.setattr(
+            dialogs,
+            "flow_input_text",
+            lambda *a, **k: ("새곡", True),
+        )
+        monkeypatch.setattr(
+            QFileDialog,
+            "getExistingDirectory",
+            lambda _parent, _title, directory: captured.setdefault(
+                "directory", directory
+            )
+            and "",
+        )
+
+        mw = MainWindow(workspace=workspace)
+        try:
+            mw._project = None
+            mw._project_path = None
+            mw._is_standalone = False
+
+            mw._new_song()
+
+            assert captured["directory"] == str(workspace.root)
+        finally:
+            mw._slide_manager.shutdown()
+            mw.close()
+
 
 class TestProjectClone:
     """repo.clone_workspace_project 동작 검증 (Phase 4e)"""

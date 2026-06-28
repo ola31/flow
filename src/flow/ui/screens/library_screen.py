@@ -4,7 +4,6 @@
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -16,6 +15,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from flow.ui.screens._browser_widgets import (
+    SORT_NAME,
+    BrowserToolbar,
+    ItemCard,
+    sort_paths,
+)
 from flow.ui.styles import (
     BG_DEEP,
     BORDER_FOCUS,
@@ -24,12 +29,6 @@ from flow.ui.styles import (
     SP_MD,
     SP_SM,
     TEXT_TERTIARY,
-)
-from flow.ui.screens._browser_widgets import (
-    SORT_NAME,
-    BrowserToolbar,
-    ItemCard,
-    sort_paths,
 )
 
 
@@ -110,9 +109,21 @@ class LibraryScreen(QWidget):
             return
 
         paths = self._workspace.list_library_songs()
+        snippets: dict[Path, str] = {}
         if self._search_text:
+            from flow.services.markdown import lyric_snippet, read_song_lyrics
+
             q = self._search_text.lower()
-            paths = [p for p in paths if q in p.name.lower()]
+            matched = []
+            for p in paths:
+                if q in p.name.lower():
+                    matched.append(p)  # 제목 매칭 — 스니펫 없음
+                    continue
+                lyrics = read_song_lyrics(p)
+                if q in lyrics.lower():
+                    matched.append(p)
+                    snippets[p] = lyric_snippet(lyrics, q)
+            paths = matched
 
         paths = sort_paths(paths, self._sort_mode)
 
@@ -127,7 +138,10 @@ class LibraryScreen(QWidget):
 
         for path in paths:
             subtitle = self._build_subtitle(path)
-            card = ItemCard(path=str(path), title=path.name, subtitle=subtitle)
+            card = ItemCard(
+                path=str(path), title=path.name, subtitle=subtitle,
+                match_snippet=snippets.get(path, ""),
+            )
             card.clicked.connect(self.song_selected.emit)
             # Insert before the trailing stretch
             self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)

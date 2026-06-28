@@ -1,0 +1,490 @@
+"""Split-pane emergency patch editor for live mode.
+
+Architecture:
+    - Left pane of the live screen during emergency-patch sessions.
+    - One panel instance per session. Carries pending changes across slide
+      navigation in memory; commits all on Ctrl+Enter.
+    - Owns the markdown text editor, a preview, and the apply/revert/close
+      controls.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
+from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPlainTextEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from flow.services.markdown import SongSpec
+from flow.ui import styles
+
+
+@dataclass
+class _PendingState:
+    """In-memory edit state for one slide-position in this session."""
+
+    text: str
+    is_dirty: bool  # True if text != original loaded text
+
+
+class EmergencyPatchPanel(QWidget):
+    """The split-pane editor widget. See spec for behavior detail."""
+
+    # Emitted when user presses Ctrl+Enter / clicks 적용. Payload: list of
+    # (slot_key, text) tuples; slot_key is int (existing slide index) or
+    # str like "add:N" (append slot allocated this session).
+    applied = Signal(list)
+    close_requested = Signal()
+
+    def __init__(
+        self,
+        *,
+        spec: SongSpec,
+        song_dir: Path,
+        initial_index: int | None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._spec = spec
+        self._song_dir = song_dir
+
+        self._current_key: int | str
+        self._pending: dict[int | str, _PendingState] = {}
+        self._add_counter = 0  # next "add:N" suffix to allocate
+
+        # Preview rendering is expensive (full 1920×1080 QImage + QPainter
+        # text layout per call). Debounce it so fast typing doesn't trigger
+        # a full render per keystroke.
+        from PySide6.QtCore import QTimer
+        self._render_timer = QTimer(self)
+        self._render_timer.setSingleShot(True)
+        self._render_timer.setInterval(150)
+        self._render_timer.timeout.connect(self._render_preview)
+
+        self._build_ui()
+
+        if initial_index is None:
+            self._current_key = self._allocate_add_slot()
+        elif len(spec.slides) == 0:
+            # No existing slides — degrade to add mode
+            self._current_key = self._allocate_add_slot()
+        else:
+            # Clip out-of-range indices to a valid slide. Callers may pass
+            # stale or global indices; we'd rather show a working panel
+            # on the wrong slide than crash on open.
+            self._current_key = max(0, min(initial_index, len(spec.slides) - 1))
+
+        self._refresh_editor_for_current()
+
+    # --- Public API used by tests + main_window --------------------------
+
+    def current_text(self) -> str:
+        return self._editor.toPlainText()
+
+    def is_add_mode(self) -> bool:
+        return isinstance(self._current_key, str)
+
+    def has_pending_changes(self) -> bool:
+        # Sync current editor text into pending store, then check
+        self._sync_current_to_pending()
+        return any(s.is_dirty for s in self._pending.values())
+
+    def set_text(self, text: str) -> None:
+        self._editor.setPlainText(text)
+
+    def focus_target(self):
+        """Tab 으로 패널에 포커스를 줄 때 키 입력을 받을 내부 위젯."""
+        return self._editor
+
+    def set_active(self, active: bool) -> None:
+        """Visually indicate whether this panel currently has keyboard focus.
+
+        Active: full ACCENT outline + ELEVATED background tone.
+        Inactive: transparent border (same width, so layout stays put) +
+                  dimmer SURFACE background.
+        Scoped to #emergencyPatchPanel so child widgets keep their styles.
+        """
+        bg = styles.BG_ELEVATED if active else styles.BG_SURFACE
+        border_color = styles.ACCENT if active else "transparent"
+        self.setStyleSheet(
+            f"#emergencyPatchPanel {{ "
+            f"background-color: {bg}; "
+            f"border: 4px solid {border_color}; "
+            f"border-radius: 6px; "
+            f"}}"
+        )
+        # Boost title visibility when active so the operator can spot it
+        # at a glance even if the outline is partly clipped by chrome.
+        if hasattr(self, "_title_label"):
+            color = styles.AMBER if active else styles.TEXT_TERTIARY
+            self._title_label.setStyleSheet(
+                f"color: {color}; font-size: {styles.FONT_SM}px; "
+                "font-weight: 600;"
+            )
+
+    def can_go_prev(self) -> bool:
+        if isinstance(self._current_key, int):
+            return self._current_key > 0
+        # Add mode: prev goes back to the last existing slide.
+        return len(self._spec.slides) > 0
+
+    def can_go_next(self) -> bool:
+        if isinstance(self._current_key, int):
+            return self._current_key < len(self._spec.slides) - 1
+        # Add mode: next always offers "add another" (no hard limit)
+        return True
+
+    def go_prev(self) -> None:
+        if not self.can_go_prev():
+            return
+        self._sync_current_to_pending()
+        if isinstance(self._current_key, int):
+            self._current_key = self._current_key - 1
+        else:
+            # add mode → last existing slide
+            self._current_key = len(self._spec.slides) - 1
+        self._refresh_editor_for_current()
+
+    def go_next(self) -> None:
+        # Edit mode, not at last → just move forward
+        if isinstance(self._current_key, int):
+            if self._current_key < len(self._spec.slides) - 1:
+                self._sync_current_to_pending()
+                self._current_key = self._current_key + 1
+                self._refresh_editor_for_current()
+                return
+            # At last existing slide → ask
+            if self._ask_add_another():
+                self._sync_current_to_pending()
+                self._current_key = self._allocate_add_slot()
+                self._refresh_editor_for_current()
+            return
+        # Add mode → ask for another
+        if self._ask_add_another():
+            self._sync_current_to_pending()
+            self._current_key = self._allocate_add_slot()
+            self._refresh_editor_for_current()
+
+    def revert_current(self) -> None:
+        key = self._current_key
+        if isinstance(key, str):
+            # Add-mode: drop slot, return to last existing slide
+            self._pending.pop(key, None)
+            if len(self._spec.slides) > 0:
+                self._current_key = len(self._spec.slides) - 1
+                self._refresh_editor_for_current()
+            else:
+                # No existing slides — close
+                self.close_requested.emit()
+            return
+        # Edit-mode: clear pending so refresh seeds with original
+        self._pending.pop(key, None)
+        self._refresh_editor_for_current()
+
+    def apply_now(self) -> None:
+        self._sync_current_to_pending()
+        dirty = [
+            (key, state.text)
+            for key, state in self._pending.items()
+            if state.is_dirty
+        ]
+        self.applied.emit(dirty)
+
+    def attempt_close(self) -> None:
+        """Close the panel, prompting if there are pending changes."""
+        self._sync_current_to_pending()
+        dirty_count = sum(1 for s in self._pending.values() if s.is_dirty)
+        if dirty_count == 0:
+            self.close_requested.emit()
+            return
+        choice = self._ask_apply_or_discard()
+        if choice == "apply":
+            self.apply_now()
+            self.close_requested.emit()
+        elif choice == "discard":
+            self.close_requested.emit()
+        # else: None (dialog cancelled) → stay open
+
+    def _ask_apply_or_discard(self) -> str | None:
+        """Show 모두 적용 / 모두 버리기 dialog. Returns 'apply', 'discard', or None."""
+        from flow.ui.live.confirm_dialog import ConfirmDialog
+
+        dirty_count = sum(1 for s in self._pending.values() if s.is_dirty)
+        dlg = ConfirmDialog(
+            title="변경사항 처리",
+            message=(
+                f"누적된 변경사항 {dirty_count}건이 있습니다.\n"
+                "모두 적용할까요? 모두 버릴까요?"
+            ),
+            left_label="모두 적용",
+            right_label="모두 버리기",
+            parent=self,
+        )
+        dlg.exec()
+        if dlg.result_choice == "left":
+            return "apply"
+        if dlg.result_choice == "right":
+            return "discard"
+        return None
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
+        if event.key() == Qt.Key.Key_Escape:
+            self.attempt_close()
+            return
+        super().keyPressEvent(event)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """Intercept Ctrl+Return and Esc on the editor.
+
+        Must run before QPlainTextEdit handles the key event — otherwise
+        Ctrl+Enter inserts a newline and Esc does nothing.
+
+        Ctrl+←/→ is intentionally NOT intercepted — it stays as the
+        editor's default word-by-word cursor movement. Slide navigation
+        is via the ◀ ▶ header buttons.
+        """
+        if (
+            watched is self._editor
+            and event.type() == QEvent.Type.KeyPress
+        ):
+            key_event: QKeyEvent = event  # type: ignore[assignment]
+            ctrl = bool(
+                key_event.modifiers() & Qt.KeyboardModifier.ControlModifier
+            )
+            if (
+                key_event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+                and ctrl
+            ):
+                self.apply_now()
+                return True
+            if key_event.key() == Qt.Key.Key_Escape:
+                self.attempt_close()
+                return True
+        return super().eventFilter(watched, event)
+
+    def _ask_add_another(self) -> bool:
+        """Show 'add new slide?' popup, return True if user said yes."""
+        from flow.ui.live.confirm_dialog import ConfirmDialog
+
+        dlg = ConfirmDialog(
+            title="새 슬라이드 추가",
+            message="새 슬라이드를 추가하시겠습니까?",
+            left_label="예",
+            right_label="아니오",
+            parent=self,
+        )
+        dlg.exec()
+        return dlg.result_choice == "left"
+
+    # --- Internals --------------------------------------------------------
+
+    def _build_ui(self) -> None:
+        # Object name lets us scope the focus-state stylesheet to this widget
+        # only (so child QLabel / QPushButton aren't repainted by it).
+        self.setObjectName("emergencyPatchPanel")
+        # WA_StyledBackground tells Qt to actually paint the CSS background
+        # and border on a custom QWidget subclass — without it the
+        # set_active() stylesheet would silently render nothing.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.set_active(False)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(
+            styles.SP_MD, styles.SP_MD, styles.SP_MD, styles.SP_MD
+        )
+        layout.setSpacing(styles.SP_SM)
+
+        self._title_label = QLabel("긴급 수정")
+        self._title_label.setStyleSheet(
+            f"color: {styles.AMBER}; font-size: {styles.FONT_SM}px; font-weight: 600;"
+        )
+        # Slide nav buttons (◀ / ▶) flank the title.
+        _nav_btn_qss = (
+            f"QPushButton {{ background-color: transparent; "
+            f"color: {styles.TEXT_SECONDARY}; "
+            f"border: 1px solid {styles.BORDER_SUBTLE_RGBA}; "
+            f"border-radius: 4px; padding: 2px 8px; "
+            f"font-size: {styles.FONT_SM}px; min-width: 24px; }}"
+            f"QPushButton:hover {{ color: {styles.TEXT_PRIMARY}; "
+            f"border: 1px solid {styles.BORDER_STANDARD_RGBA}; }}"
+            f"QPushButton:disabled {{ color: {styles.TEXT_TERTIARY}; }}"
+        )
+        self._prev_btn = QPushButton("◀")
+        self._prev_btn.setStyleSheet(_nav_btn_qss)
+        self._prev_btn.setToolTip("이전 슬라이드")
+        self._prev_btn.clicked.connect(self.go_prev)
+        self._next_btn = QPushButton("▶")
+        self._next_btn.setStyleSheet(_nav_btn_qss)
+        self._next_btn.setToolTip("다음 슬라이드")
+        self._next_btn.clicked.connect(self.go_next)
+        header_row = QHBoxLayout()
+        header_row.setSpacing(styles.SP_SM)
+        header_row.addWidget(self._prev_btn)
+        header_row.addWidget(self._title_label, 1)
+        header_row.addWidget(self._next_btn)
+        header_row.addSpacing(styles.SP_SM)
+        self._revert_btn = QPushButton("원본으로 되돌리기")
+        self._revert_btn.setStyleSheet(
+            f"QPushButton {{ background-color: transparent; "
+            f"color: {styles.AMBER}; border: 1px solid {styles.AMBER}; "
+            f"border-radius: 4px; padding: 4px 8px; "
+            f"font-size: {styles.FONT_XS}px; }}"
+        )
+        self._revert_btn.clicked.connect(self.revert_current)
+        header_row.addWidget(self._revert_btn)
+        layout.addLayout(header_row)
+
+        self._editor = QPlainTextEdit()
+        self._editor.setStyleSheet(
+            f"QPlainTextEdit {{ background-color: {styles.BG_ELEVATED}; "
+            f"color: {styles.TEXT_PRIMARY}; border: none; "
+            f"padding: {styles.SP_MD}px; "
+            f"font-family: '{styles.FONT_FAMILY}'; "
+            f"font-size: {styles.FONT_MD}px; }}"
+        )
+        self._editor.setTabChangesFocus(True)
+        self._editor.textChanged.connect(self._on_text_changed)
+        layout.addWidget(self._editor, 1)
+
+
+        self._preview_label = QLabel()
+        self._preview_label.setMinimumHeight(120)
+        self._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._preview_label.setStyleSheet(
+            f"background-color: {styles.BG_DEEP}; "
+            f"border: 1px solid {styles.BG_ELEVATED};"
+        )
+        layout.addWidget(self._preview_label)
+
+        # Action row: 취소 + 적용. 적용 is the primary action (ACCENT),
+        # 취소 is the ghost-secondary action.
+        action_row = QHBoxLayout()
+        action_row.setSpacing(styles.SP_SM)
+        self._cancel_btn = QPushButton("취소 (Esc)")
+        self._cancel_btn.setStyleSheet(
+            f"QPushButton {{ background-color: transparent; "
+            f"color: {styles.TEXT_SECONDARY}; "
+            f"border: 1px solid {styles.BORDER_SUBTLE_RGBA}; "
+            f"border-radius: 6px; "
+            f"padding: {styles.SP_SM}px {styles.SP_LG}px; }}"
+            f"QPushButton:hover {{ color: {styles.TEXT_PRIMARY}; "
+            f"border: 1px solid {styles.BORDER_STANDARD_RGBA}; }}"
+        )
+        self._cancel_btn.clicked.connect(self.attempt_close)
+        action_row.addWidget(self._cancel_btn)
+
+        self._apply_btn = QPushButton("적용 (Ctrl+Enter)")
+        self._apply_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {styles.ACCENT}; color: white; "
+            f"border: none; border-radius: 6px; "
+            f"padding: {styles.SP_SM}px {styles.SP_LG}px; font-weight: 600; }}"
+        )
+        self._apply_btn.clicked.connect(self.apply_now)
+        action_row.addWidget(self._apply_btn, 1)
+        layout.addLayout(action_row)
+        # QPlainTextEdit consumes Ctrl+Return before window shortcuts fire,
+        # so intercept it via an event filter installed directly on the editor.
+        self._editor.installEventFilter(self)
+
+    def preview_pixmap(self):  # -> QPixmap | None
+        return self._preview_label.pixmap()
+
+    def _on_text_changed(self) -> None:
+        # Sync pending state immediately (cheap — just dict update + flag)
+        # so has_pending_changes() reflects the latest keystroke even if
+        # the panel is closed before the debounced render fires.
+        self._sync_current_to_pending()
+        # Debounce the preview render — restart the timer on every
+        # keystroke so render only fires when typing pauses.
+        self._render_timer.start()
+
+    def _render_preview(self) -> None:
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtGui import QPixmap
+
+        from flow.services.markdown import Slide, render_slide
+
+        text = self._editor.toPlainText()
+        slide = Slide(main=text, sub_override=None, section_sub_default=None)
+        try:
+            img = render_slide(self._spec, slide, song_dir=self._song_dir)
+        except Exception:
+            self._preview_label.setText("(미리보기 오류)")
+            return
+        pix = QPixmap.fromImage(img)
+        scaled = pix.scaled(
+            self._preview_label.width(),
+            self._preview_label.height(),
+            _Qt.AspectRatioMode.KeepAspectRatio,
+            _Qt.TransformationMode.SmoothTransformation,
+        )
+        self._preview_label.setPixmap(scaled)
+
+    def _allocate_add_slot(self) -> str:
+        slot = f"add:{self._add_counter}"
+        self._add_counter += 1
+        return slot
+
+    def _refresh_editor_for_current(self) -> None:
+        """Load `_current_key`'s text into the editor, recording original."""
+        key = self._current_key
+        if isinstance(key, int):
+            original = self._spec.slides[key].main
+        else:
+            original = ""  # add-mode start
+        # If we have a pending entry, prefer it; else seed with original.
+        existing = self._pending.get(key)
+        if existing is not None:
+            text = existing.text
+        else:
+            text = original
+            self._pending[key] = _PendingState(text=text, is_dirty=False)
+        self._editor.setPlainText(text)
+        self._update_title_label()
+        # Update slide-nav button enabled state to match current position.
+        # ◀ at first slide / ▶ at last existing slide get disabled.
+        # In add mode both stay enabled (◀ goes back to last existing,
+        # ▶ offers another add slot via popup).
+        try:
+            self._prev_btn.setEnabled(self.can_go_prev())
+            # In add-mode, can_go_next is True (popup will handle it),
+            # so the button stays enabled.
+            self._next_btn.setEnabled(self.can_go_next() or self.is_add_mode())
+        except AttributeError:
+            pass
+        # Defer the preview render so QLabel.width()/height() return the
+        # post-layout values, not the pre-show minimum. Without this the
+        # first render uses tiny dimensions and the slide gets clipped.
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, self._render_preview)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        # Re-render the preview at the new size so the slide always fits.
+        self._render_preview()
+
+    def _sync_current_to_pending(self) -> None:
+        """Store current editor text into pending and update dirty flag."""
+        key = self._current_key
+        text = self._editor.toPlainText()
+        if isinstance(key, int):
+            original = self._spec.slides[key].main
+        else:
+            original = ""
+        self._pending[key] = _PendingState(text=text, is_dirty=(text != original))
+
+    def _update_title_label(self) -> None:
+        key = self._current_key
+        if isinstance(key, int):
+            total = len(self._spec.slides)
+            self._title_label.setText(f"긴급 수정 — 슬라이드 #{key + 1} / {total}")
+        else:
+            self._title_label.setText("새 슬라이드 추가")

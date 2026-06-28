@@ -53,10 +53,52 @@ def test_render_image_background_used_when_file_exists(
     )
     img = render_slide(spec, spec.slides[0], song_dir=tmp_path)
     pixel = img.pixelColor(10, 10)
-    # Red dominates after cover-scaling 4x4 red image to 1920x1080
+    # Red dominates after cover-scaling 4x4 red image to the output canvas.
     assert pixel.red() > 200
     assert pixel.green() < 50
     assert pixel.blue() < 50
+
+
+def test_render_3_line_slide_uses_3plus_background(qapp, tmp_path: Path) -> None:
+    spec = SongSpec(
+        title="T",
+        frontmatter=Frontmatter(
+            background="#112233",
+            background_3plus="#445566",
+            background_4plus="#778899",
+        ),
+        slides=[
+            Slide(
+                main="one\ntwo\nthree",
+                sub_override=None,
+                section_sub_default=None,
+            )
+        ],
+    )
+    img = render_slide(spec, spec.slides[0], song_dir=tmp_path)
+    pixel = img.pixelColor(10, 10)
+    assert (pixel.red(), pixel.green(), pixel.blue()) == (0x44, 0x55, 0x66)
+
+
+def test_render_4_line_slide_uses_4plus_background(qapp, tmp_path: Path) -> None:
+    spec = SongSpec(
+        title="T",
+        frontmatter=Frontmatter(
+            background="#112233",
+            background_3plus="#445566",
+            background_4plus="#778899",
+        ),
+        slides=[
+            Slide(
+                main="one\ntwo\nthree\nfour",
+                sub_override=None,
+                section_sub_default=None,
+            )
+        ],
+    )
+    img = render_slide(spec, spec.slides[0], song_dir=tmp_path)
+    pixel = img.pixelColor(10, 10)
+    assert (pixel.red(), pixel.green(), pixel.blue()) == (0x77, 0x88, 0x99)
 
 
 def test_render_missing_image_falls_back_to_default_color(

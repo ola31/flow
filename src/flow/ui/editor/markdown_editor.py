@@ -6,6 +6,8 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
@@ -17,7 +19,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from flow.services.markdown import parse, render_all, render_slide
+from flow.services.markdown import PatchStore, parse, render_all, render_slide
+from flow.ui import styles
 from flow.ui.editor.markdown_frontmatter_dialog import (
     FrontmatterDialog,
     apply_frontmatter_to_text,
@@ -25,6 +28,7 @@ from flow.ui.editor.markdown_frontmatter_dialog import (
 )
 from flow.ui.editor.markdown_help_dialog import MarkdownHelpDialog
 from flow.ui.editor.markdown_highlighter import MarkdownHighlighter
+from flow.ui.icons import icon_qicon
 
 
 class MarkdownEditor(QWidget):
@@ -36,6 +40,12 @@ class MarkdownEditor(QWidget):
         self._original_text = (
             md_path.read_text(encoding="utf-8") if md_path.exists() else ""
         )
+        # Per-instance content-hash cache so re-renders (after save / nav)
+        # only repaint slides whose content actually changed.
+        self._slide_render_cache: dict[str, "QImage"] = {}
+        # Generation counter for the async thumbnail render chain so a new
+        # render request supersedes an in-flight one.
+        self._render_generation = 0
 
         # Toolbar
         toolbar = QToolBar()
@@ -81,6 +91,51 @@ class MarkdownEditor(QWidget):
         layout.addWidget(toolbar)
         layout.addWidget(splitter, 1)
 
+        # Patches notification bar (inserted at top in a moment)
+        self._patches_bar = QFrame()
+        self._patches_bar.setFrameShape(QFrame.Shape.NoFrame)
+        self._patches_bar.setStyleSheet(
+            "QFrame#PatchesBar {"
+            f"background-color: {styles.AMBER_MUTED}; "
+            "border: none; "
+            f"border-left: 3px solid {styles.AMBER};"
+            "}"
+        )
+        self._patches_bar.setObjectName("PatchesBar")
+        bar_layout = QHBoxLayout(self._patches_bar)
+        bar_layout.setContentsMargins(
+            styles.SP_MD, styles.SP_SM, styles.SP_MD, styles.SP_SM
+        )
+        self._patches_bar_label = QLabel(
+            "긴급 수정 0건이 .md 원본에 반영되지 않았습니다."
+        )
+        self._patches_bar_label.setStyleSheet(
+            f"color: {styles.AMBER}; font-size: {styles.FONT_SM}px; "
+            f"background-color: transparent;"
+        )
+        bar_layout.addWidget(self._patches_bar_label, 1)
+
+        for label, icon_name, slot in (
+            ("  원본에 반영", "save", self._on_patches_apply_to_source),
+            ("  폐기", "delete", self._on_patches_discard),
+            ("  자세히 보기", "view_list", self._on_patches_details),
+        ):
+            btn = QPushButton(label)
+            btn.setIcon(icon_qicon(icon_name, size=14, color=styles.AMBER))
+            btn.setIconSize(QSize(14, 14))
+            btn.setStyleSheet(
+                f"QPushButton {{ background-color: transparent; "
+                f"color: {styles.AMBER}; border: 1px solid {styles.AMBER}; "
+                f"border-radius: 4px; padding: 4px 8px; "
+                f"font-size: {styles.FONT_XS}px; }}"
+            )
+            btn.clicked.connect(slot)
+            bar_layout.addWidget(btn)
+
+        self._patches_bar.hide()
+        layout.insertWidget(0, self._patches_bar)
+        self._current_md_path: Path | None = None
+
         # Wire
         save_btn.clicked.connect(self.save)
         section_btn.clicked.connect(self._insert_section)
@@ -98,6 +153,9 @@ class MarkdownEditor(QWidget):
         # preview_label is still at minimumSize and the main preview comes out
         # too small until the user clicks the editor.
         QTimer.singleShot(0, self._render_preview)
+
+        # Show patches bar if unreconciled patches exist for this song.
+        self._refresh_patches_bar(md_path)
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -120,6 +178,64 @@ class MarkdownEditor(QWidget):
         self._md_path.write_text(text, encoding="utf-8")
         self._original_text = text
         self._render_preview()
+
+    def load_file(self, md_path: Path) -> None:
+        """Swap the editor to a different markdown file and refresh the patches bar."""
+        self._md_path = md_path
+        self._original_text = (
+            md_path.read_text(encoding="utf-8") if md_path.exists() else ""
+        )
+        self._text_edit.setPlainText(self._original_text)
+        self._refresh_patches_bar(md_path)
+
+    # Patches bar helpers
+
+    def _refresh_patches_bar(self, md_path: Path) -> None:
+        store = PatchStore(md_path.parent / ".patches.json")
+        n = len(store.patches)
+        if n == 0:
+            self._patches_bar.hide()
+            return
+        self._patches_bar_label.setText(
+            f"긴급 수정 {n}건이 .md 원본에 반영되지 않았습니다."
+        )
+        self._patches_bar.show()
+        self._current_md_path = md_path
+
+    def _on_patches_apply_to_source(self) -> None:
+        from flow.services.markdown import PatchStore, apply_patches_to_text
+
+        if self._current_md_path is None:
+            return
+        text = self._current_md_path.read_text(encoding="utf-8")
+        store = PatchStore(self._current_md_path.parent / ".patches.json")
+        new_text = apply_patches_to_text(text, store.patches)
+        self._current_md_path.write_text(new_text, encoding="utf-8")
+        store.clear()
+        store.save()
+        # Reload current view to reflect new .md content
+        self.load_file(self._current_md_path)
+
+    def _on_patches_discard(self) -> None:
+        if self._current_md_path is None:
+            return
+        store = PatchStore(self._current_md_path.parent / ".patches.json")
+        store.clear()
+        store.save()
+        self._refresh_patches_bar(self._current_md_path)
+
+    def _on_patches_details(self) -> None:
+        if self._current_md_path is None:
+            return
+        from flow.ui.editor.patch_details_dialog import PatchDetailsDialog
+
+        dlg = PatchDetailsDialog(self._current_md_path, parent=self)
+        dlg.patches_changed.connect(
+            lambda: self._refresh_patches_bar(self._current_md_path)
+        )
+        dlg.exec()
+        # Final refresh in case the user only used the close button
+        self._refresh_patches_bar(self._current_md_path)
 
     # Internals
     def _on_cursor_moved(self) -> None:
@@ -160,21 +276,58 @@ class MarkdownEditor(QWidget):
         return min(running_idx, len(slides) - 1)
 
     def _render_preview(self) -> None:
-        """Re-parse + render all slides; populate thumbnails + main preview."""
+        """Re-parse + render slides lazily.
+
+        Main preview (slide 0) renders synchronously so something appears
+        immediately. Thumbnails render one per event-loop iteration via
+        a chained QTimer.singleShot — keeps the UI responsive on large
+        songs. Re-renders hit a content-hash cache so unchanged slides
+        skip the render call entirely.
+        """
         text = self.text()
         spec = parse(text)
-        images = render_all(spec, song_dir=self._md_path.parent)
+        self._cached_spec = spec
         self._thumbs.clear()
-        for i, img in enumerate(images):
-            item = QListWidgetItem(f"{i + 1}")
-            pix = QPixmap.fromImage(img).scaled(
-                167, 93, Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            item.setIcon(QIcon(pix))
-            self._thumbs.addItem(item)
-        if images:
-            self._render_main_preview(0)
+        if not spec.slides:
+            return
+        # Render main preview now
+        self._render_main_preview(0)
+        # Bump generation so any in-flight chain stops; queue the new one.
+        self._render_generation += 1
+        gen = self._render_generation
+        QTimer.singleShot(0, lambda: self._render_thumb_async(0, gen))
+
+    def _render_thumb_async(self, idx: int, gen: int) -> None:
+        # Stop if a newer render request superseded this chain or the
+        # editor was torn down.
+        if gen != self._render_generation:
+            return
+        spec = getattr(self, "_cached_spec", None)
+        if spec is None or idx >= len(spec.slides):
+            return
+        slide = spec.slides[idx]
+        from flow.services.markdown import slide_hash as _slide_hash
+        key = _slide_hash(slide.main)
+        cached = self._slide_render_cache.get(key)
+        if cached is None:
+            try:
+                cached = render_slide(spec, slide, song_dir=self._md_path.parent)
+                self._slide_render_cache[key] = cached
+            except Exception:
+                # Skip on render failure, continue with the next thumb
+                QTimer.singleShot(
+                    0, lambda: self._render_thumb_async(idx + 1, gen)
+                )
+                return
+        item = QListWidgetItem(f"{idx + 1}")
+        pix = QPixmap.fromImage(cached).scaled(
+            167, 93, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        item.setIcon(QIcon(pix))
+        self._thumbs.addItem(item)
+        # Schedule next thumbnail
+        QTimer.singleShot(0, lambda: self._render_thumb_async(idx + 1, gen))
 
     def _render_main_preview(self, idx: int) -> None:
         text = self.text()

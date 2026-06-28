@@ -3,29 +3,29 @@
 악보 이미지를 표시하고 핫스팟을 생성/편집하는 UI
 """
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QScrollArea, QMenu
-from PySide6.QtGui import (
-    QPixmap,
-    QPainter,
-    QColor,
-    QPen,
-    QMouseEvent,
-    QAction,
-    QFont,
-    QDragEnterEvent,
-    QDropEvent,
-)
-from PySide6.QtCore import Signal, Qt, QPoint, QRect, QSize
-
 from pathlib import Path
 
-from flow.domain.score_sheet import ScoreSheet
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QDragEnterEvent,
+    QDropEvent,
+    QFont,
+    QMouseEvent,
+    QPainter,
+    QPen,
+    QPixmap,
+)
+from PySide6.QtWidgets import QMenu, QWidget
+
 from flow.domain.hotspot import Hotspot
+from flow.domain.score_sheet import ScoreSheet
 from flow.ui.editor.hotspot_popover import HotspotPopover
 from flow.ui.styles import (
     HOTSPOT_DEFAULT_FILL,
-    HOTSPOT_SELECTED_FILL,
     HOTSPOT_MAPPED_FILL,
+    HOTSPOT_SELECTED_FILL,
     HOTSPOT_UNMAPPED_BORDER,
 )
 
@@ -51,6 +51,7 @@ class ScoreCanvas(QWidget):
     popover_unmap_requested = Signal(object)
     slide_dropped_on_hotspot = Signal(object, int)
     live_hotspot_clicked = Signal(object)
+    emergency_patch_requested = Signal(object)  # Hotspot
 
     HOTSPOT_RADIUS = 15
     HOTSPOT_COLOR = QColor(*HOTSPOT_DEFAULT_FILL)
@@ -72,6 +73,7 @@ class ScoreCanvas(QWidget):
         self._offset_x = 0
         self._offset_y = 0
         self._verse_index = 0  # 현재 선택된 절 (UI 표시용)
+        self._live_emergency_enabled = False
 
         # UI 리소스 캐시
         self._font_main = QFont("Malgun Gothic", 10)
@@ -184,6 +186,11 @@ class ScoreCanvas(QWidget):
 
     def set_edit_mode(self, enabled: bool) -> None:
         self._edit_mode = enabled
+
+    def set_live_mode(self, *, is_live: bool, slide_source: str) -> None:
+        """Called by main_window on enter/exit live. slide_source is the
+        current song's source ('markdown' | 'pptx' | 'none')."""
+        self._live_emergency_enabled = is_live and slide_source == "markdown"
 
     def set_hotspot_editable(self, editable: bool) -> None:
         self._hotspot_editable = editable
@@ -745,13 +752,13 @@ class ScoreCanvas(QWidget):
             menu.addSeparator()
         else:
             # 순서 기반 삽입 기능 추가
-            insert_before = QAction(f"➕ 이 위치 앞에 삽입", self)
+            insert_before = QAction("➕ 이 위치 앞에 삽입", self)
             insert_before.triggered.connect(
                 lambda: self._insert_hotspot_at(hotspot, before=True)
             )
             menu.addAction(insert_before)
 
-            insert_after = QAction(f"➕ 이 위치 뒤에 삽입", self)
+            insert_after = QAction("➕ 이 위치 뒤에 삽입", self)
             insert_after.triggered.connect(
                 lambda: self._insert_hotspot_at(hotspot, before=False)
             )
@@ -771,6 +778,14 @@ class ScoreCanvas(QWidget):
                     lambda: self.hotspot_unmap_request.emit(hotspot)
                 )
                 menu.addAction(unmap_action)
+
+        if self._live_emergency_enabled:
+            menu.addSeparator()
+            emergency_action = QAction("긴급 수정", self)
+            emergency_action.triggered.connect(
+                lambda: self.emergency_patch_requested.emit(hotspot)
+            )
+            menu.addAction(emergency_action)
 
         menu.exec(self.mapToGlobal(pos))
 

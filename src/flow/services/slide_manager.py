@@ -241,6 +241,12 @@ class SlideManager(QObject):
             if worker is not None:
                 worker.abort_current_task()
 
+    def clear_caches(self) -> None:
+        """Clear cached converted slide images for all converter backends."""
+        if self._converter is not None:
+            self._converter.clear_cache()
+        self._markdown_converter.clear_cache()
+
     def is_watch_paused(self) -> bool:
         return self._watch_paused
 
@@ -486,6 +492,10 @@ class SlideManager(QObject):
                 w.stop()
         self._old_workers.clear()
 
+    def invalidate_markdown_cache(self, md_path: Path) -> None:
+        """Public hook to drop the markdown render cache for one song."""
+        self._markdown_converter.invalidate_cache(md_path)
+
     def global_to_local(self, global_index: int) -> tuple[str, int]:
         for song in self._songs:
             offset = self._slide_offsets.get(song.name, 0)
@@ -559,7 +569,5 @@ class SlideManager(QObject):
         if has_pptx and self._converter is None:
             self.engine_missing.emit()
             return
-        if self._converter is not None:
-            self._converter.clear_cache()
-        self._markdown_converter.clear_cache()
+        self.clear_caches()
         self.load_songs(self._songs)

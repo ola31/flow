@@ -1,8 +1,39 @@
 """Flow 애플리케이션 진입점"""
 
-import sys
-import signal
+from __future__ import annotations
+
 import faulthandler
+import os
+import signal
+import sys
+
+
+def _append_qt_logging_rules(*rules: str) -> None:
+    """Qt 로그 필터를 기존 사용자 설정을 보존하며 추가한다."""
+    existing = os.environ.get("QT_LOGGING_RULES", "").strip()
+    parts = [part.strip() for part in existing.split(";") if part.strip()]
+    for rule in rules:
+        if rule not in parts:
+            parts.append(rule)
+    if parts:
+        os.environ["QT_LOGGING_RULES"] = ";".join(parts)
+
+
+def _prefer_xcb_on_linux() -> None:
+    """Linux에서는 XWayland(xcb)를 기본 Qt 플랫폼으로 사용한다.
+
+    GNOME/Wayland + Qt 6.11 네이티브 Wayland 플러그인 조합에서, 프로젝트를 열어
+    에디터 표면이 렌더된 슬라이드로 채워진 직후 컴포지터(mutter)의 busy 스피너
+    커서가 표면에 멈춰 붙어 앱 프로세스가 끝난 뒤에도 한동안 남는 문제가 있다.
+    측정 결과 앱이 거는 커서(override=None)도, 자식 프로세스도, 메인 스레드
+    블로킹도 아니며 순수한 플랫폼 플러그인 이슈로, XWayland(xcb)에서는 재현되지
+    않는다. 사용자가 QT_QPA_PLATFORM을 명시한 경우에는 그 값을 존중한다.
+    """
+    if not sys.platform.startswith("linux"):
+        return
+    if os.environ.get("QT_QPA_PLATFORM"):
+        return
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
 
 
 def _prewarm_markdown_pipeline() -> None:
@@ -48,36 +79,41 @@ def _prewarm_markdown_pipeline() -> None:
 
 def main() -> int:
     """애플리케이션 메인 함수"""
+    # Wayland busy-cursor 회피를 위해 PySide 임포트 전에 플랫폼을 고정한다.
+    _prefer_xcb_on_linux()
+
     # Segfault 발생 시 C-level 스택 트레이스를 stderr에 출력
     faulthandler.enable()
 
+    _append_qt_logging_rules(
+        "qt.qpa.services.warning=false",
+        "qt.qpa.wayland.textinput.warning=false",
+    )
+
     # PySide6 임포트는 여기서 수행 (테스트 시 GUI 의존성 분리)
+    from PySide6.QtCore import Qt, QTimer
+    from PySide6.QtGui import QGuiApplication, QPixmap
     from PySide6.QtWidgets import QApplication, QSplashScreen
-    from PySide6.QtGui import QPixmap
-    from PySide6.QtCore import QTimer, Qt
 
     from flow.ui.main_window import MainWindow
+
+    # Wayland/X11 컴포지터에 desktop entry 식별자 등록 — startup-notification
+    # 타임아웃 동안 busy cursor가 길게 남는 현상을 줄여준다.
+    try:
+        QGuiApplication.setDesktopFileName("flow")
+    except Exception:
+        pass
 
     app = QApplication(sys.argv)
     app.setApplicationName("Flow")
     app.setApplicationVersion("0.1.0")
-    # Wayland/X11 컴포지터에 desktop entry 식별자 등록 — startup-notification
-    # 타임아웃 동안 busy cursor가 길게 남는 현상을 줄여준다.
-    try:
-        from PySide6.QtGui import QGuiApplication
-        QGuiApplication.setDesktopFileName("flow")
-    except Exception:
-        pass
 
     # Pretendard Variable 폰트 등록 — 한글+영문 통합 가변 폰트
     from flow.ui.styles import ensure_fonts_loaded
     ensure_fonts_loaded()
 
     # [추가] 로딩 화면(Splash Screen) 설정
-    import os
     import time
-
-    start_time = time.time()  # 시작 시간 기록
 
     if getattr(sys, "frozen", False):
         base_path = sys._MEIPASS
@@ -125,8 +161,8 @@ def main() -> int:
     timer.timeout.connect(lambda: None)
 
     # 워크스페이스 확인/선택
-    from flow.services.config_service import ConfigService
     from flow.domain.workspace import Workspace
+    from flow.services.config_service import ConfigService
 
     config = ConfigService()
     workspace: Workspace | None = None
@@ -174,14 +210,25 @@ def main() -> int:
     except Exception:
         pass
 
-    # [수정] 최소 1.5초 대기를 sleep 대신 이벤트 루프를 돌리며 수행 (화면 프리징 방지)
-    while time.time() - start_time < 1.5:
+    # 스플래시 최소 노출 시간. 무거운 MainWindow 생성·프리워밍 동안에는 이벤트
+    # 루프가 멈춰 xcb에서 스플래시가 실제로 그려지지 않으므로, 생성이 끝난
+    # '지금'을 기준으로 능동적으로 이벤트를 돌리며 1.8초를 보장한다.
+    splash_visible_seconds = 1.8
+    splash_floor_start = time.time()
+    while time.time() - splash_floor_start < splash_visible_seconds:
         app.processEvents()
         time.sleep(0.01)
 
+    # X11(xcb)은 클라이언트가 위치를 못 정하면 창을 좌측 상단에 붙인다. Wayland
+    # 에서 저장된 geometry의 위치도 신뢰할 수 없으므로, 저장된 크기는 유지하되
+    # 실행 시 항상 현재 화면 중앙에 배치한다. (show 전에 옮겨 WM 경쟁을 피함)
+    screen = app.primaryScreen()
+    if screen is not None:
+        frame = window.frameGeometry()
+        frame.moveCenter(screen.availableGeometry().center())
+        window.move(frame.topLeft())
+
     window.show()
-    # 컴포지터에 윈도우 활성 신호 — Wayland startup-notification cursor가
-    # 빨리 사라지도록 도움.
     window.activateWindow()
     window.raise_()
 

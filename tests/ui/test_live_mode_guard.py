@@ -60,8 +60,9 @@ class TestSongListEditableCascade:
         assert card._btn_edit.toolTip() == ""
 
     def test_top_level_add_buttons_follow_editable(self, song_list_widget):
+        # "라이브러리에서 추가"는 라이브 중에도 항상 활성 (라이브 패널로 라우팅됨)
         song_list_widget.set_editable(False)
-        assert not song_list_widget._btn_add_lib.isEnabled()
+        assert song_list_widget._btn_add_lib.isEnabled()
         assert not song_list_widget._btn_new_song.isEnabled()
 
         song_list_widget.set_editable(True)
@@ -114,6 +115,42 @@ class TestEnterSongEditModeBlocksLive:
             mw._set_project_editable(False)  # 라이브 진입 시 호출되는 것과 동일
             assert not mw._close_project_action.isEnabled()
             assert "라이브" in mw._close_project_action.toolTip()
+        finally:
+            mw.close()
+
+    def test_live_mode_disables_activity_navigation_buttons(self, qapp):
+        """라이브 모드에서는 좌측 프로젝트/라이브러리 이동도 비활성화."""
+        from flow.ui.main_window import MainWindow
+
+        mw = MainWindow()
+        try:
+            mw._set_project_editable(True)
+            assert mw._activity_bar._btn_projects.isEnabled()
+            assert mw._activity_bar._btn_library.isEnabled()
+
+            mw._set_project_editable(False)
+
+            assert not mw._activity_bar._btn_projects.isEnabled()
+            assert not mw._activity_bar._btn_library.isEnabled()
+            assert "라이브" in mw._activity_bar._btn_projects.toolTip()
+            assert "라이브" in mw._activity_bar._btn_library.toolTip()
+        finally:
+            mw.close()
+
+    def test_activity_navigation_methods_blocked_in_live(self, qapp):
+        """버튼이 아니라 메서드가 직접 호출되어도 라이브 중이면 이동하지 않음."""
+        from flow.ui.main_window import MainWindow
+
+        mw = MainWindow()
+        try:
+            mw._is_live = True
+            before = mw._stack.currentWidget()
+
+            mw._show_projects_screen()
+            assert mw._stack.currentWidget() is before
+
+            mw._show_library_screen()
+            assert mw._stack.currentWidget() is before
         finally:
             mw.close()
 

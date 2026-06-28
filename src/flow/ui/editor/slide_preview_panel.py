@@ -1,25 +1,55 @@
 """SlidePreviewPanel - PPT 슬라이드 목록을 썸네일로 표시하는 패널"""
 
+from PySide6.QtCore import QMimeData, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QDrag, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
     QHBoxLayout,
-    QScrollArea,
+    QLabel,
     QListWidget,
     QListWidgetItem,
-    QLabel,
-    QPushButton,
     QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtCore import Qt, Signal, QSize, QEvent, QMimeData
-from PySide6.QtGui import QPixmap, QIcon, QColor, QDrag
-from flow.services.slide_manager import SlideManager
 
+from flow.services.slide_manager import SlideManager
 
 SLIDE_MIME_TYPE = "application/x-flow-slide-index"
 
 
 class _DraggableSlideList(QListWidget):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._patched_indices: set[int] = set()
+
+    def set_patched_indices(self, indices: set[int]) -> None:
+        self._patched_indices = set(indices)
+        self.viewport().update()
+
+    def paintEvent(self, event):  # noqa: N802
+        super().paintEvent(event)
+        if not self._patched_indices:
+            return
+        from PySide6.QtCore import QRect
+        from PySide6.QtGui import QColor, QPainter
+
+        from flow.ui import styles
+
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(QColor(styles.AMBER))
+        painter.setPen(QColor(styles.AMBER))
+        for i in range(self.count()):
+            item = self.item(i)
+            idx = item.data(Qt.ItemDataRole.UserRole)
+            if idx not in self._patched_indices:
+                continue
+            rect = self.visualItemRect(item)
+            dot = QRect(rect.right() - 14, rect.top() + 4, 8, 8)
+            painter.drawEllipse(dot)
+        painter.end()
+
     def startDrag(self, supportedActions) -> None:
         item = self.currentItem()
         if not item:
@@ -40,23 +70,46 @@ class _DraggableSlideList(QListWidget):
 class SlidePreviewPanel(QWidget):
     slide_selected = Signal(int)
     slide_double_clicked = Signal(int)
-    slide_unlink_all_requested = Signal(int)
     reload_all_requested = Signal()
+    emergency_patch_requested = Signal(int)  # slide index
+    append_slide_requested = Signal()
+    # Fired after refresh_slides() finishes rebuilding the thumbnail list.
+    # Listeners (e.g. main_window) use this to recompute patch badges that
+    # depend on which slides are currently shown.
+    slides_refreshed = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._slide_manager = None
         self._editable = True  # [복구] 편집 가능 상태 보관
+        self._live_emergency_enabled = False
+        self._patched_indices: set[int] = set()
         self._setup_ui()
 
     def _setup_ui(self) -> None:
         from flow.ui.styles import (
-            BG_SURFACE, BG_ELEVATED, BG_DEEP, TEXT_PRIMARY, TEXT_SECONDARY,
-            TEXT_TERTIARY, ACCENT, ACCENT_INTER, ACCENT_HOVER,
-            BORDER_SUBTLE_RGBA, BORDER_STANDARD_RGBA,
-            SURFACE_GHOST, SURFACE_SUBTLE, SURFACE_RAISED,
-            FONT_XS, FONT_SM, FONT_MD, FONT_LG, FONT_TITLE, FW_MEDIUM, FW_SEMI,
-            RADIUS_SM, RADIUS_MD, RADIUS_LG, SP_XS, SP_SM,
+            ACCENT,
+            ACCENT_INTER,
+            BG_ELEVATED,
+            BG_SURFACE,
+            BORDER_STANDARD_RGBA,
+            BORDER_SUBTLE_RGBA,
+            FONT_LG,
+            FONT_SM,
+            FONT_TITLE,
+            FONT_XS,
+            FW_MEDIUM,
+            FW_SEMI,
+            RADIUS_LG,
+            RADIUS_MD,
+            RADIUS_SM,
+            SP_SM,
+            SP_XS,
+            SURFACE_GHOST,
+            SURFACE_RAISED,
+            TEXT_PRIMARY,
+            TEXT_SECONDARY,
+            TEXT_TERTIARY,
         )
 
         self.setStyleSheet(f"background-color: {BG_SURFACE};")
@@ -69,7 +122,8 @@ class SlidePreviewPanel(QWidget):
         header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(SP_XS, 0, SP_XS, 0)
 
-        from flow.ui.icons import icon_label as _icon_label, icon_qicon
+        from flow.ui.icons import icon_label as _icon_label
+        from flow.ui.icons import icon_qicon
         self._title_icon = _icon_label("slideshow", 14, TEXT_SECONDARY)
         header_layout.addWidget(self._title_icon)
 
@@ -81,7 +135,7 @@ class SlidePreviewPanel(QWidget):
 
         self._btn_reload = QPushButton("새로고침")
         self._btn_reload.setIcon(icon_qicon("refresh", 12, TEXT_SECONDARY))
-        self._btn_reload.setFixedHeight(26)
+        self._btn_reload.setFixedHeight(30)
         self._btn_reload.setMinimumWidth(70)
         self._btn_reload.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_reload.setToolTip("모든 곡의 슬라이드 새로고침")
@@ -297,6 +351,15 @@ class SlidePreviewPanel(QWidget):
 
         QApplication.processEvents()
 
+    def set_live_mode(self, *, is_live: bool, slide_source: str) -> None:
+        """라이브 모드 전환 및 긴급 패치 메뉴 활성 여부 설정"""
+        self._live_emergency_enabled = is_live and slide_source == "markdown"
+
+    def set_patched_indices(self, indices: set[int]) -> None:
+        """패치된 슬라이드 인덱스를 설정하고 썸네일에 AMBER 배지를 표시한다."""
+        self._patched_indices = set(indices)
+        self._list.set_patched_indices(indices)
+
     def set_editable(self, editable: bool) -> None:
         """편집 모드 활성/비활성 제어"""
         self._editable = editable
@@ -345,10 +408,25 @@ class SlidePreviewPanel(QWidget):
             if item.foreground().color() != target:
                 item.setForeground(target)
 
+    # Custom item role for stashing the source QImage on each thumbnail
+    # so refresh_slides can skip repainting items whose image didn't
+    # actually change between calls.
+    _SLIDE_IMAGE_ROLE = Qt.ItemDataRole.UserRole + 10
+
     def refresh_slides(self) -> None:
-        """목록 완전 갱신 (PPT가 바뀌었을 때만 호출 권장)"""
-        self._list.clear()
+        """슬라이드 목록 점진 갱신.
+
+        clear() 한 후 다시 채우면 모든 항목이 재렌더링되어 시각적으로
+        '전체 갱신'처럼 보임. 대신 다음과 같이 동작:
+          - count가 줄어들면 끝에서 잘라냄
+          - 각 인덱스에서 QImage가 같은 객체면 스킵 (변경 없음)
+          - 다른 객체면 in-place로 아이콘 교체
+          - count가 늘어나면 끝에 새 항목 append
+        MarkdownSlideConverter의 content-hash 캐시와 결합되어, 패치된
+        슬라이드 하나만 갱신할 때 다른 썸네일은 그대로 유지됨.
+        """
         if not self._slide_manager:
+            self._list.clear()
             return
 
         count = self._slide_manager.get_slide_count()
@@ -357,42 +435,69 @@ class SlidePreviewPanel(QWidget):
 
         self._title.setText(f"PPT 슬라이드 ({count})")
         self._title.setToolTip(f"{ppt_name}\n{str(ppt_path) if ppt_path else ''}")
-
-        # PPT가 없으면 닫기 버튼 비활성화
         self._btn_close.setEnabled(ppt_path is not None)
 
-        # 현재 매핑 정보 가져오기
         mapped_indices = getattr(self, "_mapped_indices", set())
+
+        # Truncate trailing items if the new count is smaller.
+        while self._list.count() > count:
+            self._list.takeItem(self._list.count() - 1)
+
+        from flow.ui.styles import ACCENT_INTER, TEXT_TERTIARY
 
         for i in range(count):
             try:
                 qimg = self._slide_manager.get_slide_image(i)
-                if qimg is None:
-                    continue
-                pixmap = QPixmap.fromImage(qimg)
             except Exception:
+                qimg = None
+            if qimg is None:
                 continue
 
             is_mapped = i in mapped_indices
-            label = f"Slide {i + 1}"
-            if is_mapped:
-                label += " ●"
+            label = f"Slide {i + 1}" + (" ●" if is_mapped else "")
+            target_color = QColor(ACCENT_INTER if is_mapped else TEXT_TERTIARY)
 
-            item = QListWidgetItem(label)
-            scaled_pixmap = pixmap.scaled(
-                192,
-                108,
+            existing_item = self._list.item(i) if i < self._list.count() else None
+            if existing_item is not None:
+                cached_img = existing_item.data(self._SLIDE_IMAGE_ROLE)
+                if cached_img is qimg:
+                    # No image change — only update label/foreground if needed.
+                    if existing_item.text() != label:
+                        existing_item.setText(label)
+                    if existing_item.foreground().color() != target_color:
+                        existing_item.setForeground(target_color)
+                    continue
+                # Image changed: rebuild icon in place.
+                pixmap = QPixmap.fromImage(qimg)
+                scaled = pixmap.scaled(
+                    192, 108,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                existing_item.setIcon(QIcon(scaled))
+                existing_item.setText(label)
+                existing_item.setForeground(target_color)
+                existing_item.setData(self._SLIDE_IMAGE_ROLE, qimg)
+                existing_item.setData(Qt.ItemDataRole.UserRole, i)
+                continue
+
+            # New item past previous end.
+            pixmap = QPixmap.fromImage(qimg)
+            scaled = pixmap.scaled(
+                192, 108,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
-            item.setIcon(QIcon(scaled_pixmap))
+            item = QListWidgetItem(label)
+            item.setIcon(QIcon(scaled))
             item.setData(Qt.ItemDataRole.UserRole, i)
-
-            if is_mapped:
-                from flow.ui.styles import ACCENT_INTER
-                item.setForeground(QColor(ACCENT_INTER))
-
+            item.setData(self._SLIDE_IMAGE_ROLE, qimg)
+            item.setForeground(target_color)
             self._list.addItem(item)
+
+        # Notify listeners that the thumbnail list has been rebuilt so
+        # they can recompute view-derived state (e.g. patch badges).
+        self.slides_refreshed.emit()
 
     def _on_current_item_changed(
         self, current: QListWidgetItem, previous: QListWidgetItem
@@ -407,21 +512,22 @@ class SlidePreviewPanel(QWidget):
 
     def _show_context_menu(self, pos) -> None:
         """우측 클릭 컨텍스트 메뉴 표시"""
-        if not self._editable:
-            return  # [복구] 비편집 모드 차단
         item = self._list.itemAt(pos)
-        if not item:
-            return
-
-        index = item.data(Qt.ItemDataRole.UserRole)
 
         from PySide6.QtWidgets import QMenu
-
         menu = QMenu(self)
 
-        unlink_action = menu.addAction("매핑 해제")
-        unlink_action.triggered.connect(
-            lambda: self.slide_unlink_all_requested.emit(index)
-        )
+        if self._live_emergency_enabled:
+            if item is not None:
+                index = item.data(Qt.ItemDataRole.UserRole)
+                emergency_action = menu.addAction("긴급 수정")
+                emergency_action.triggered.connect(
+                    lambda: self.emergency_patch_requested.emit(index)
+                )
+            append_action = menu.addAction("맨 끝에 슬라이드 추가")
+            append_action.triggered.connect(self.append_slide_requested.emit)
+            menu.exec(self._list.mapToGlobal(pos))
+            return
 
-        menu.exec(self._list.mapToGlobal(pos))
+        # Project (non-live) mode: no thumbnail context menu — mapping
+        # changes belong to the canvas / mapping panel, not here.

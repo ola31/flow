@@ -19,10 +19,14 @@ from PySide6.QtWidgets import (
 
 from flow.ui.icons import icon_qicon
 from flow.ui.styles import (
-    BG_DEEP, BG_SURFACE,
-    TEXT_TERTIARY, TEXT_PRIMARY,
-    BORDER_SUBTLE_RGBA, SURFACE_SUBTLE,
-    RADIUS_MD, SP_XS, SP_SM,
+    BG_DEEP,
+    BG_SURFACE,
+    BORDER_SUBTLE_RGBA,
+    RADIUS_MD,
+    SP_SM,
+    SP_XS,
+    SURFACE_SUBTLE,
+    TEXT_TERTIARY,
 )
 
 
@@ -105,3 +109,21 @@ class ActivityBar(QFrame):
             "홈으로 이동" if enabled
             else "라이브 모드 중에는 홈으로 이동할 수 없습니다"
         )
+
+    def set_navigation_enabled(self, enabled: bool) -> None:
+        """라이브 모드 등에서 화면 전환 액션을 비활성화."""
+        self.set_home_enabled(enabled)
+        for btn, enabled_tip, disabled_tip in (
+            (
+                self._btn_projects,
+                "프로젝트",
+                "라이브 모드 중에는 프로젝트 화면으로 이동할 수 없습니다",
+            ),
+            (
+                self._btn_library,
+                "곡 라이브러리",
+                "라이브 모드 중에는 라이브러리로 이동할 수 없습니다",
+            ),
+        ):
+            btn.setEnabled(enabled)
+            btn.setToolTip(enabled_tip if enabled else disabled_tip)

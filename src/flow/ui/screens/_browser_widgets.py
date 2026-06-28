@@ -146,10 +146,12 @@ class ItemCard(QFrame):
         title: str,
         subtitle: str = "",
         path_display: str | None = None,
+        match_snippet: str = "",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._path = path
+        self._match_snippet = match_snippet
         self.setObjectName("ItemCard")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(
@@ -176,6 +178,15 @@ class ItemCard(QFrame):
                 f"font-size: {FONT_SM}px;"
             )
             layout.addWidget(sub_lbl)
+
+        # 가사 검색 매칭 줄 — 가사로 검색되어 매칭 줄이 있을 때만 표시
+        if match_snippet:
+            snippet_lbl = QLabel(f"“{match_snippet}”")
+            snippet_lbl.setStyleSheet(
+                f"background: transparent; color: {TEXT_SECONDARY}; "
+                f"font-size: {FONT_SM}px;"
+            )
+            layout.addWidget(snippet_lbl)
 
         # path hint (사용자에게 보여줄 경로는 path_display로 별도 지정 가능)
         path_lbl = QLabel(path_display if path_display is not None else path)

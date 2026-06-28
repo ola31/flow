@@ -201,8 +201,6 @@ class LivePIP(QFrame):
 
 class ProjectScreen(QWidget):
     live_toggle_requested = Signal()
-    song_prev_requested = Signal()
-    song_next_requested = Signal()
     live_verse_changed = Signal(int)
 
     def __init__(
@@ -215,7 +213,26 @@ class ProjectScreen(QWidget):
         self._slide_manager = slide_manager
         self._config_service = config_service
         self._is_live = False
+        # Object name + WA_StyledBackground let MainWindow toggle a focus
+        # border on this screen without leaking into child widgets.
+        self.setObjectName("projectScreen")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._setup_ui()
+        self.set_focus_active(False)
+
+    def set_focus_active(self, active: bool) -> None:
+        """Show / hide a full ACCENT outline around this screen.
+
+        Used by MainWindow during emergency-patch sessions to indicate
+        that the live area (this screen) is the focused side rather than
+        the patch panel. The border width is reserved when inactive
+        (transparent color) so toggling doesn't shift the layout.
+        """
+        color = ACCENT if active else "transparent"
+        self.setStyleSheet(
+            f"#projectScreen {{ border: 4px solid {color}; "
+            f"border-radius: 6px; }}"
+        )
 
     @property
     def toolbar_container(self) -> QWidget:
@@ -290,7 +307,12 @@ class ProjectScreen(QWidget):
 
     def _setup_ui(self) -> None:
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        # Reserve 4px on every side so the focus-active border (drawn via
+        # set_focus_active) actually shows. Without this, child widgets
+        # like the toolbar paint over the border at the screen's edges.
+        # The 4px stays transparent when the screen is inactive, so the
+        # only visible difference between modes is the border color.
+        main_layout.setContentsMargins(4, 4, 4, 4)
         main_layout.setSpacing(0)
 
         self._toolbar = QWidget()
@@ -307,34 +329,14 @@ class ProjectScreen(QWidget):
         nav_layout.setContentsMargins(12, 0, 12, 0)
         nav_layout.setSpacing(8)
 
-        _nav_btn_style = f"""
-            QPushButton {{
-                background: #2a2a2a; color: #aaa; border: 1px solid #444;
-                border-radius: 4px; padding: 2px 10px; font-size: {FONT_XS}px; font-weight: {FW_MEDIUM};
-            }}
-            QPushButton:hover {{ background: #3a3a3a; color: white; }}
-        """
-
-        btn_prev = QPushButton("이전곡")
-        btn_prev.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        btn_prev.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_prev.setStyleSheet(_nav_btn_style)
-        btn_prev.clicked.connect(self.song_prev_requested)
-        nav_layout.addWidget(btn_prev)
-
+        # 이전곡 / 다음곡 버튼은 긴급 수정 패널 헤더로 이동.
+        # song name label 만 남김.
         self._nav_song_name = QLabel("")
         self._nav_song_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._nav_song_name.setStyleSheet(
             f"font-size: {FONT_MD}px; font-weight: {FW_MEDIUM}; color: {TEXT_PRIMARY};"
         )
         nav_layout.addWidget(self._nav_song_name, 1)
-
-        btn_next = QPushButton("다음곡")
-        btn_next.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        btn_next.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_next.setStyleSheet(_nav_btn_style)
-        btn_next.clicked.connect(self.song_next_requested)
-        nav_layout.addWidget(btn_next)
 
         nav_sep = QFrame()
         nav_sep.setFrameShape(QFrame.Shape.VLine)

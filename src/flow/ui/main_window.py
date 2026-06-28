@@ -36,7 +36,6 @@ from flow.ui.undo_commands import (
     RemoveHotspotCommand,
     MoveHotspotCommand,
     MapSlideCommand,
-    UnlinkAllSlidesCommand,
 )
 
 from flow.domain.project import Project
@@ -102,6 +101,13 @@ class MainWindow(QMainWindow):
 
         self._is_dirty = False
         self._in_transition = False
+
+        # Emergency patch panel state
+        self._patch_panel = None  # EmergencyPatchPanel | None
+        self._patch_splitter = None  # QSplitter | None (unused — kept for API compat)
+        self._patch_original_index = -1
+        # Generic left side-panel slot (patch, song-add, …)
+        self._live_side_panel = None
 
         self._apply_global_style()
         self._setup_ui()
@@ -299,8 +305,19 @@ class MainWindow(QMainWindow):
     def _show_launcher(self):
         self.show_home()
 
+    def _guard_activity_navigation_in_live(self) -> bool:
+        if not self._is_live:
+            return False
+        self._statusbar.showMessage(
+            "라이브 모드 중에는 화면을 이동할 수 없습니다. Esc로 먼저 종료하세요.",
+            3000,
+        )
+        return True
+
     def _show_library_screen(self) -> None:
         """ActivityBar의 라이브러리 버튼 → 곡 라이브러리 페이지."""
+        if self._guard_activity_navigation_in_live():
+            return
         if self._workspace is None:
             self.show_home()
             return
@@ -312,6 +329,8 @@ class MainWindow(QMainWindow):
 
     def _show_projects_screen(self) -> None:
         """ActivityBar의 프로젝트 버튼 → 프로젝트 페이지."""
+        if self._guard_activity_navigation_in_live():
+            return
         if self._workspace is None:
             self.show_home()
             return
@@ -409,9 +428,6 @@ class MainWindow(QMainWindow):
 
         self._slide_preview.slide_selected.connect(self._on_slide_selected)
         self._slide_preview.slide_double_clicked.connect(self._on_slide_double_clicked)
-        self._slide_preview.slide_unlink_all_requested.connect(
-            self._on_slide_unlink_all_requested
-        )
         self._slide_preview._list.installEventFilter(self)
         self._slide_preview.reload_all_requested.connect(self._on_reload_all_ppt)
         self._slide_preview._btn_close.clicked.connect(self._on_close_ppt)
@@ -681,6 +697,20 @@ class MainWindow(QMainWindow):
         self._canvas.popover_unmap_requested.connect(self._on_popover_unmap)
         self._canvas.slide_dropped_on_hotspot.connect(self._on_popover_mapping)
         self._canvas.live_hotspot_clicked.connect(self._on_live_hotspot_clicked)
+        self._canvas.emergency_patch_requested.connect(
+            self._on_canvas_emergency_patch_requested
+        )
+        self._slide_preview.emergency_patch_requested.connect(
+            self._on_preview_emergency_patch_requested
+        )
+        self._slide_preview.append_slide_requested.connect(
+            self._on_append_slide_requested
+        )
+        # Whenever the thumbnail list is rebuilt, recompute the AMBER patch
+        # badge set so existing patches show up immediately on song load.
+        self._slide_preview.slides_refreshed.connect(
+            self._recompute_patched_badges
+        )
 
         # 라이브 컨트롤러 시그널 - 메인 윈도우 및 송출창 업데이트
         self._live_controller.live_changed.connect(self._on_live_changed)
@@ -816,8 +846,18 @@ class MainWindow(QMainWindow):
         # 1. 곡 이름 입력 받기
         from flow.ui.dialogs import flow_input_text
 
+        if self._project and not self._is_standalone:
+            prompt = (
+                "곡 제목을 입력하세요.\n"
+                "이 곡은 현재 프로젝트의 songs 폴더 안에 생성됩니다."
+            )
+        else:
+            prompt = "곡 제목을 입력하세요:"
+
         name, ok = flow_input_text(
-            self, "새 곡 생성", "곡 제목을 입력하세요:",
+            self,
+            "새 곡 생성",
+            prompt,
             placeholder="예: 새 곡 이름",
         )
         if not ok or not name:
@@ -861,8 +901,9 @@ class MainWindow(QMainWindow):
             if not self._check_unsaved_changes():
                 return
 
+            start_dir = self._workspace.root if self._workspace is not None else self._repo.base_path
             folder = QFileDialog.getExistingDirectory(
-                self, "곡 폴더를 생성할 위치 선택", str(self._repo.base_path)
+                self, "곡 폴더를 생성할 위치 선택", str(start_dir)
             )
             if not folder:
                 return
@@ -1391,12 +1432,42 @@ class MainWindow(QMainWindow):
         """환경설정 다이얼로그 표시"""
         from flow.ui.settings_dialog import SettingsDialog
 
+        old_resolution = self._config_service.get_output_resolution()
         dialog = SettingsDialog(self._config_service, self)
         if dialog.exec():
+            new_resolution = self._config_service.get_output_resolution()
             # 설정 변경 시 버튼 갱신
             self._update_verse_buttons()
             self._sync_output_resolution()
-            self._statusbar.showMessage("설정이 저장되었습니다.", 2000)
+            if new_resolution != old_resolution:
+                self._reload_slides_after_output_resolution_change()
+            else:
+                self._statusbar.showMessage("설정이 저장되었습니다.", 2000)
+
+    def _reload_slides_after_output_resolution_change(self) -> None:
+        """Re-render loaded slides immediately after output resolution changes."""
+        self._slide_manager.clear_caches()
+
+        if self._project and self._project.selected_songs:
+            self._slide_manager.load_songs(self._project.selected_songs)
+            self._slide_preview.refresh_slides()
+            self._statusbar.showMessage(
+                "해상도 변경을 반영해 슬라이드를 다시 불러옵니다.",
+                3000,
+            )
+            return
+
+        current_path = self._slide_manager._pptx_path
+        if current_path is not None:
+            self._slide_manager.load_pptx(current_path)
+            self._slide_preview.refresh_slides()
+            self._statusbar.showMessage(
+                "해상도 변경을 반영해 슬라이드를 다시 불러옵니다.",
+                3000,
+            )
+            return
+
+        self._statusbar.showMessage("설정이 저장되었습니다.", 2000)
 
     def _sync_output_resolution(self) -> None:
         """Push the configured output resolution into the converter + md renderer.
@@ -1610,6 +1681,30 @@ class MainWindow(QMainWindow):
         self._statusbar.showMessage("라이브 — 핫스팟 클릭 → Enter로 송출  |  Esc로 종료")
         title = self.windowTitle().replace(" [LIVE]", "")
         self.setWindowTitle(title + " [LIVE]")
+        # Propagate live + slide_source to widgets that gate emergency patch
+        song = self._current_markdown_song()
+        if song is not None:
+            source = "markdown"
+        else:
+            try:
+                sheet = self._canvas.get_score_sheet()
+                actual_song = (
+                    next(
+                        (
+                            s
+                            for s in (self._project.selected_songs or [])
+                            if sheet and any(sh.id == sheet.id for sh in s.score_sheets)
+                        ),
+                        None,
+                    )
+                    if self._project
+                    else None
+                )
+                source = actual_song.slide_source if actual_song else "none"
+            except Exception:
+                source = "none"
+        self._canvas.set_live_mode(is_live=True, slide_source=source)
+        self._slide_preview.set_live_mode(is_live=True, slide_source=source)
 
     def _exit_live(self) -> None:
         self._is_live = False
@@ -1619,11 +1714,428 @@ class MainWindow(QMainWindow):
         if self._display_window and self._display_window.isVisible():
             self._toggle_display()
         self._display_action.setEnabled(False)
+        self._canvas.set_live_mode(is_live=False, slide_source="none")
+        self._slide_preview.set_live_mode(is_live=False, slide_source="none")
+        self._close_emergency_patch_panel()  # close patch panel if open
+        self._unmount_live_side_panel()  # tear down song-add panel if open
         self._project_screen.set_live_mode(False)
         self._update_toolbar_for_mode("default")
         self._statusbar.showMessage("편집 모드")
         title = self.windowTitle().replace(" [LIVE]", "")
         self.setWindowTitle(title)
+
+    # === 긴급 슬라이드 패치 (Emergency Patch Panel) ===
+
+    def _current_markdown_song(self):
+        """Return the active song iff its slide source is markdown, else None."""
+        if not self._project:
+            return None
+        sheet = self._canvas.get_score_sheet()
+        if sheet is None:
+            return None
+        song = next(
+            (
+                s
+                for s in (self._project.selected_songs or [])
+                if any(sh.id == sheet.id for sh in s.score_sheets)
+            ),
+            None,
+        )
+        if song is None:
+            return None
+        if song.slide_source != "markdown":
+            return None
+        return song
+
+    def _resolve_global_slide(self, global_index: int):
+        """Convert a project-global slide index to (song, local_index).
+
+        Returns (song, local_index) when the index resolves to a markdown
+        song, else (None, -1). The slide preview's thumbnail strip and
+        Hotspot.get_slide_index() both report GLOBAL indices across all
+        songs in the project.
+        """
+        try:
+            song_name, local_idx = self._slide_manager.global_to_local(global_index)
+        except (ValueError, AttributeError):
+            return (None, -1)
+        if not self._project:
+            return (None, -1)
+        song = next(
+            (s for s in (self._project.selected_songs or []) if s.name == song_name),
+            None,
+        )
+        if song is None or song.slide_source != "markdown":
+            return (None, -1)
+        return (song, local_idx)
+
+    def _on_canvas_emergency_patch_requested(self, hotspot) -> None:
+        if not self._is_live or not self._project:
+            return
+        verse_index = self._project.current_verse_index
+        global_slide = hotspot.get_slide_index(verse_index)
+        if global_slide < 0:
+            global_slide = hotspot.get_slide_index(5)  # fallback to chorus
+        if global_slide < 0:
+            return
+        song, local_idx = self._resolve_global_slide(global_slide)
+        if song is None:
+            return
+        self._open_emergency_patch_panel(song=song, initial_index=local_idx)
+
+    def _on_preview_emergency_patch_requested(self, slide_index: int) -> None:
+        if not self._is_live:
+            return
+        song, local_idx = self._resolve_global_slide(slide_index)
+        if song is None:
+            return
+        self._open_emergency_patch_panel(song=song, initial_index=local_idx)
+
+    def _on_append_slide_requested(self) -> None:
+        if not self._is_live:
+            return
+        # Append is anchored to the song that owns the canvas's current sheet
+        song = self._current_markdown_song()
+        if song is None:
+            return
+        self._open_emergency_patch_panel(song=song, initial_index=None)
+
+    def _open_emergency_patch_panel(self, *, song, initial_index) -> None:
+        from flow.services.markdown import PatchStore, apply_patches, parse
+        from flow.ui.live.emergency_patch_panel import EmergencyPatchPanel
+
+        if not self._is_live:
+            return
+        if self._live_side_panel is not None:
+            return  # patch or song-add panel already occupies the slot
+
+        md_path = song.markdown_path
+        text = md_path.read_text(encoding="utf-8")
+        spec = parse(text)
+        store = PatchStore(md_path.parent / ".patches.json")
+        patched_spec = apply_patches(spec, store.patches)
+
+        # Mount the panel as a sibling of the QStackedWidget at the
+        # MainWindow central layout level — NOT inside project_screen's
+        # h_splitter. This keeps the panel completely separate from the
+        # project_screen's toolbar / song_nav_bar, which the user found
+        # visually confusing when both shared a top edge.
+        panel = EmergencyPatchPanel(
+            spec=patched_spec,
+            song_dir=md_path.parent,
+            initial_index=initial_index,
+            parent=self.centralWidget(),
+        )
+        panel.applied.connect(
+            lambda payload: self._on_patch_applied(song, payload)
+        )
+        panel.close_requested.connect(self._close_emergency_patch_panel)
+
+        self._patch_panel = panel
+        self._mount_live_side_panel(panel)
+
+    def _close_emergency_patch_panel(self) -> None:
+        if self._patch_panel is None:
+            return
+        self._unmount_live_side_panel()
+        self._patch_panel = None
+        self._patch_splitter = None
+        self._patch_original_index = -1
+
+    # === Live song-add panel ===
+
+    def _open_live_song_add_panel(self) -> None:
+        if not self._is_live or self._project is None or self._project_path is None:
+            return
+        if self._live_side_panel is not None:
+            self._statusbar.showMessage(
+                "긴급 수정 패널을 먼저 닫은 뒤 곡을 추가하세요.", 3000
+            )
+            return
+        from flow.ui.live.live_song_add_panel import LiveSongAddPanel
+
+        project_dir = self._project_path.parent
+        songs_dir = project_dir / "songs"
+        included = {s.name for s in self._project.selected_songs}
+        panel = LiveSongAddPanel(
+            songs_dir=songs_dir,
+            included_names=included,
+            parent=self.centralWidget(),
+            workspace=self._workspace,
+        )
+        panel.song_chosen.connect(self._on_live_add_song_chosen)
+        panel.close_requested.connect(self._unmount_live_side_panel)
+        self._mount_live_side_panel(panel)
+
+    def _on_live_add_song_chosen(self, name: str, source: str) -> None:
+        from flow.ui.live.live_song_add_panel import LiveSongAddPanel
+
+        if self._project is None:
+            return
+        self._song_list._add_existing_song(name, source)
+        self._save_project()
+        if isinstance(self._live_side_panel, LiveSongAddPanel):
+            self._live_side_panel.mark_added(name)
+        self._statusbar.showMessage(f"'{name}'을(를) 셋리스트에 추가했습니다.", 3000)
+
+    def _patch_panel_target_width(self) -> int:
+        """Pick a panel width that fits the current window state."""
+        if self.windowState() & (
+            Qt.WindowState.WindowMaximized | Qt.WindowState.WindowFullScreen
+        ):
+            return 420
+        return 320
+
+    # === Generic left side-panel helpers ===
+
+    def _mount_live_side_panel(self, panel) -> None:
+        """좌측 패널(패치/곡추가)을 중앙 레이아웃에 장착하고 Tab/포커스 배선."""
+        from PySide6.QtWidgets import QApplication
+        central_layout = self.centralWidget().layout()
+        panel.setFixedWidth(self._patch_panel_target_width())
+        central_layout.insertWidget(1, panel)
+        self._live_side_panel = panel
+        QApplication.instance().installEventFilter(self)
+        QApplication.instance().focusChanged.connect(
+            self._on_live_side_panel_focus_changed
+        )
+        try:
+            panel.focus_target().setFocus(Qt.FocusReason.OtherFocusReason)
+        except (AttributeError, RuntimeError):
+            pass
+        panel.set_active(True)
+        self._project_screen.set_focus_active(False)
+
+    def _unmount_live_side_panel(self) -> None:
+        from PySide6.QtWidgets import QApplication
+        if self._live_side_panel is None:
+            return
+        QApplication.instance().removeEventFilter(self)
+        try:
+            QApplication.instance().focusChanged.disconnect(
+                self._on_live_side_panel_focus_changed
+            )
+        except (TypeError, RuntimeError):
+            pass
+        central_layout = self.centralWidget().layout()
+        central_layout.removeWidget(self._live_side_panel)
+        self._live_side_panel.setParent(None)
+        self._live_side_panel.deleteLater()
+        self._live_side_panel = None
+        try:
+            self._project_screen.set_focus_active(False)
+        except (RuntimeError, AttributeError):
+            pass
+
+    def _live_side_panel_has_focus(self) -> bool:
+        p = self._live_side_panel
+        if p is None:
+            return False
+        try:
+            return p.hasFocus() or p.isAncestorOf(self.focusWidget())
+        except (RuntimeError, AttributeError):
+            return False
+
+    def _toggle_live_side_panel_focus(self) -> None:
+        p = self._live_side_panel
+        if p is None:
+            return
+        if self._live_side_panel_has_focus():
+            self._canvas.setFocus(Qt.FocusReason.TabFocusReason)
+        else:
+            try:
+                p.focus_target().setFocus(Qt.FocusReason.TabFocusReason)
+            except (AttributeError, RuntimeError):
+                p.setFocus(Qt.FocusReason.TabFocusReason)
+
+    def _on_live_side_panel_focus_changed(self, _old, _new) -> None:
+        p = self._live_side_panel
+        if p is None:
+            return
+        try:
+            focused = self._live_side_panel_has_focus()
+            p.set_active(focused)
+            self._project_screen.set_focus_active(not focused)
+        except (RuntimeError, AttributeError):
+            pass
+
+    def changeEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        super().changeEvent(event)
+        # React only to discrete state changes (maximize / restore /
+        # fullscreen). Continuous resize never reaches here, so the panel
+        # width snaps once per state transition rather than animating.
+        if (
+            event.type() == QEvent.Type.WindowStateChange
+            and self._live_side_panel is not None
+        ):
+            self._live_side_panel.setFixedWidth(self._patch_panel_target_width())
+
+    def _on_patch_applied(self, song, payload: list) -> None:
+        import uuid
+        from datetime import datetime, timezone
+
+        from flow.services.markdown import (
+            PatchStore,
+            PatchType,
+            SlidePatch,
+            parse,
+            slide_hash,
+        )
+
+        md_path = song.markdown_path
+        spec = parse(md_path.read_text(encoding="utf-8"))
+        store = PatchStore(md_path.parent / ".patches.json")
+        now = datetime.now(timezone.utc).isoformat()
+
+        for key, text in payload:
+            if isinstance(key, int):
+                if 0 <= key < len(spec.slides):
+                    h = slide_hash(spec.slides[key].main)
+                else:
+                    h = None
+                store.add(
+                    SlidePatch(
+                        id=str(uuid.uuid4()),
+                        type=PatchType.EDIT,
+                        patched_main=text,
+                        slide_hash=h,
+                        slide_index=key,
+                        created_at=now,
+                        created_during="live",
+                    )
+                )
+            else:
+                store.add(
+                    SlidePatch(
+                        id=str(uuid.uuid4()),
+                        type=PatchType.APPEND,
+                        patched_main=text,
+                        slide_hash=None,
+                        slide_index=None,
+                        created_at=now,
+                        created_during="live",
+                    )
+                )
+        store.save()
+
+        # Update the song's slide count + project offsets synchronously so
+        # the next refresh_slides loop sees the new count. We avoid
+        # slide_manager.reload_song() because it dispatches to a worker
+        # thread and shows the "PPT 파일 읽기 중" loading UI — overkill
+        # for a markdown patch where the converter's content-hash cache
+        # already serves unchanged slides instantly.
+        try:
+            new_count = self._slide_manager._markdown_converter.get_slide_count(
+                md_path
+            )
+            song.set_slide_count(new_count)
+            self._slide_manager._recalculate_offsets()
+        except Exception:
+            # Fallback to the worker path if the in-process count fails.
+            self._slide_manager.reload_song(song)
+        else:
+            self._slide_preview.refresh_slides()
+        self._refresh_live_display_for_patched(song)
+        self._close_emergency_patch_panel()
+
+    def _recompute_patched_badges(self) -> None:
+        """Scan all markdown songs in the project and mark patched slides
+        on the global thumbnail strip.
+
+        Called from SlidePreviewPanel.slides_refreshed so badges re-appear
+        whenever the thumbnail list is rebuilt — including when a song
+        loads with patches from a previous session.
+        """
+        from flow.services.markdown import PatchStore, PatchType, parse
+
+        global_indices: set[int] = set()
+        if self._project is None:
+            try:
+                self._slide_preview.set_patched_indices(global_indices)
+            except AttributeError:
+                pass
+            return
+
+        for song in (self._project.selected_songs or []):
+            if getattr(song, "slide_source", None) != "markdown":
+                continue
+            md_path = song.markdown_path
+            try:
+                store = PatchStore(md_path.parent / ".patches.json")
+            except Exception:
+                continue
+            if not store.patches:
+                continue
+            try:
+                spec = parse(md_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            n_original = len(spec.slides)
+            try:
+                base = self._slide_manager.local_to_global(song.name, 0)
+            except (ValueError, AttributeError):
+                continue
+            for p in store.patches:
+                if p.type is PatchType.EDIT and p.slide_index is not None:
+                    if 0 <= p.slide_index < n_original:
+                        global_indices.add(base + p.slide_index)
+            n_appended = sum(
+                1 for p in store.patches if p.type is PatchType.APPEND
+            )
+            for i in range(n_appended):
+                global_indices.add(base + n_original + i)
+        try:
+            self._slide_preview.set_patched_indices(global_indices)
+        except AttributeError:
+            pass
+
+    def _refresh_live_display_for_patched(self, song) -> None:
+        """If the audience display is showing a slide that was just patched
+        for `song`, re-emit the (now-patched) image."""
+        if getattr(song, "slide_source", None) != "markdown":
+            return
+        from flow.services.markdown import PatchStore, PatchType, parse
+
+        md_path = song.markdown_path
+        try:
+            store = PatchStore(md_path.parent / ".patches.json")
+            spec = parse(md_path.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        n_original = len(spec.slides)
+        local_patched: set[int] = set()
+        for p in store.patches:
+            if p.type is PatchType.EDIT and p.slide_index is not None:
+                if 0 <= p.slide_index < n_original:
+                    local_patched.add(p.slide_index)
+        n_appended = sum(1 for p in store.patches if p.type is PatchType.APPEND)
+        for i in range(n_appended):
+            local_patched.add(n_original + i)
+
+        try:
+            lc = self._live_controller
+            live_global: int = -1
+            if lc._live_slide_index >= 0:
+                live_global = lc._live_slide_index
+            elif lc._live_hotspot is not None:
+                v_idx = self._project.current_verse_index if self._project else 0
+                slide_idx = lc._live_hotspot.get_slide_index(v_idx)
+                if slide_idx < 0:
+                    slide_idx = lc._live_hotspot.get_slide_index(5)
+                if slide_idx >= 0:
+                    live_global = slide_idx
+
+            if live_global >= 0:
+                try:
+                    _name, local_idx = self._slide_manager.global_to_local(
+                        live_global
+                    )
+                except Exception:
+                    local_idx = live_global
+                if local_idx in local_patched:
+                    lc.sync_live()
+        except Exception:
+            pass
 
     def _toggle_display(self) -> None:
         """송출 시작/중지 토글"""
@@ -1712,7 +2224,7 @@ class MainWindow(QMainWindow):
         )
         # 활동바 홈 버튼도 동일 상태
         if hasattr(self, "_activity_bar"):
-            self._activity_bar.set_home_enabled(editable)
+            self._activity_bar.set_navigation_enabled(editable)
 
         # 편집 관련 액션만 제어
         self._undo_action.setEnabled(editable)
@@ -2366,46 +2878,6 @@ class MainWindow(QMainWindow):
 
         return self._project.all_score_sheets
 
-    def _on_slide_unlink_all_requested(self, index: int) -> None:
-        """특정 슬라이드가 매핑된 모든 곳에서 해제 (Undo 지원)"""
-        if not self._project:
-            return
-
-        if self._is_live:
-            return
-
-        command = UnlinkAllSlidesCommand(
-            self._project,
-            index,
-            lambda: (
-                self._canvas.update(),
-                self._update_mapped_slides_ui(),
-                self._update_preview(self._canvas.get_selected_hotspot()),
-                self._update_verse_buttons_state(),
-                # 우측 매핑 패널도 동기화 (선택된 핫스팟이 있고 패널이 열려있으면)
-                self._mapping_panel.refresh(
-                    self._canvas.get_selected_hotspot(),
-                    self._project.current_verse_index,
-                    self._slide_manager.get_slide_image,
-                ) if (
-                    self._mapping_panel.isVisible()
-                    and self._canvas.get_selected_hotspot() is not None
-                ) else None,
-            ),
-        )
-        self._undo_stack.push(command)
-
-        count = len(command.affected_items)
-        if count > 0:
-            self.statusBar().showMessage(
-                f"해제 완료: {count}개의 핫스팟에서 슬라이드 {index + 1} 연결을 끊었습니다. (Ctrl+Z 가능)",
-                3000,
-            )
-        else:
-            self.statusBar().showMessage(
-                "해당 슬라이드가 매핑된 핫스팟이 없습니다.", 2000
-            )
-
     def _update_verse_buttons_state(self) -> None:
         if not self._project:
             return
@@ -2519,6 +2991,22 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, watched, event) -> bool:
         """자식 위젯(리스트 등)의 특정 키 이벤트를 메인 창에서 가로채기 위한 필터"""
+        # Tab toggle for live side-panel — installed app-wide while panel
+        # is open so Tab is captured even when QPlainTextEdit has focus.
+        if (
+            self._live_side_panel is not None
+            and event.type() == QEvent.Type.KeyPress
+            and event.key() == Qt.Key.Key_Tab
+            and not (event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        ):
+            from PySide6.QtWidgets import QApplication
+            # Don't hijack Tab inside modal dialogs spawned by the panel
+            # (ConfirmDialog, etc. — they handle their own keyboard).
+            modal = QApplication.activeModalWidget()
+            if modal is None or modal is self:
+                self._toggle_live_side_panel_focus()
+                return True
+
         if event.type() == QEvent.Type.KeyPress:
             # [수정] 뷰포트가 아닌 위젯 본체만 감시하여 이벤트 흐름 단일화 (중복 호출 차단)
             is_slide_list = watched == self._slide_preview._list
@@ -2544,6 +3032,18 @@ class MainWindow(QMainWindow):
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         """키보드 이벤트 핸들러"""
+        # Side panel focused → don't dispatch live shortcuts; let normal Qt
+        # event flow handle text editing inside the panel.
+        if self._live_side_panel_has_focus():
+            super().keyPressEvent(event)
+            return
+
+        # Tab toggles between live and side panel (only when panel is open)
+        if event.key() == Qt.Key.Key_Tab and self._live_side_panel is not None:
+            self._toggle_live_side_panel_focus()
+            event.accept()
+            return
+
         if not self._project:
             super().keyPressEvent(event)
             return

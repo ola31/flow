@@ -24,6 +24,8 @@ main_size: 56
 main_color: "#FFFFFF"
 sub_size: 18
 background: "bg.jpg"
+background_3plus: "bg_3.jpg"
+background_4plus: "bg_4.jpg"
 slide_inches: "13.333x7.5"
 resolution: "1920x1080"
 ---
@@ -37,6 +39,8 @@ resolution: "1920x1080"
     assert spec.frontmatter.main_color == "#FFFFFF"
     assert spec.frontmatter.sub_size == 18
     assert spec.frontmatter.background == "bg.jpg"
+    assert spec.frontmatter.background_3plus == "bg_3.jpg"
+    assert spec.frontmatter.background_4plus == "bg_4.jpg"
     assert spec.frontmatter.slide_inches == (13.333, 7.5)
     assert spec.frontmatter.resolution == (1920, 1080)
 
@@ -53,6 +57,8 @@ def test_frontmatter_defaults_when_missing() -> None:
     assert fm.sub_weight == 300
     assert fm.sub_color == "#F0F0F0"
     assert fm.background == "@app/default_bg.jpg"
+    assert fm.background_3plus == "@app/default_bg_3plus.jpg"
+    assert fm.background_4plus == "@app/default_bg_4plus.jpg"
     assert fm.slide_inches == (11.024, 6.201)
     assert fm.resolution == (1920, 1080)
 

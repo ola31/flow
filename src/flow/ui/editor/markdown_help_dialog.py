@@ -22,13 +22,11 @@ from flow.ui.styles import (
     BG_DEEP,
     BG_ELEVATED,
     BG_SURFACE,
-    BORDER_STANDARD_RGBA,
     BORDER_SUBTLE_RGBA,
     FONT_FAMILY,
     FONT_LG,
     FONT_MD,
     FONT_SM,
-    RADIUS_LG,
     RADIUS_MD,
     SP_LG,
     SP_MD,
@@ -226,10 +224,13 @@ _PAGE_PER_SLIDE = _PAGE_STYLE + """
 <ul>
   <li><code>main_size</code> — 메인 가사 크기 (숫자, 예: <code>72</code>)</li>
   <li><code>main_color</code> — 메인 가사 색 (예: <code>"#FFD700"</code>)</li>
-  <li><code>main_font</code> — 메인 가사 폰트 (기본: <code>"Pretendard Variable"</code>)</li>
+  <li><code>main_font</code> — 메인 가사 폰트
+  (기본: <code>"Pretendard Variable"</code>)</li>
   <li><code>main_weight</code> — 굵기 100~900 (300=Light, 500=Medium, 700=Bold)</li>
-  <li><code>sub_size</code>, <code>sub_color</code>, <code>sub_font</code>, <code>sub_weight</code> — 작은 글씨 쪽</li>
-  <li><code>background</code> — 배경 (이미지 파일명 또는 <code>"#000000"</code> 같은 색)</li>
+  <li><code>sub_size</code>, <code>sub_color</code>, <code>sub_font</code>,
+  <code>sub_weight</code> — 작은 글씨 쪽</li>
+  <li><code>background</code> — 배경
+  (이미지 파일명 또는 <code>"#000000"</code> 같은 색)</li>
 </ul>
 
 <div class="tip">
@@ -240,8 +241,10 @@ _PAGE_PER_SLIDE = _PAGE_STYLE + """
 _PAGE_FRONTMATTER = _PAGE_STYLE + """
 <h2>곡 전체 기본값 (Frontmatter)</h2>
 <p>곡 전체에 폰트, 색, 배경 등 기본값을 정하고 싶다면 파일 <b>맨 위에</b>
-<code>---</code> 두 줄로 감싼 블록을 두세요. 이 블록을 <b>Frontmatter</b>라고 부릅니다.</p>
-<p>툴바의 <b>"Frontmatter 편집"</b> 버튼을 누르면 폼으로 편하게 편집할 수도 있습니다.</p>
+<code>---</code> 두 줄로 감싼 블록을 두세요. 이 블록을
+<b>Frontmatter</b>라고 부릅니다.</p>
+<p>툴바의 <b>"Frontmatter 편집"</b> 버튼을 누르면 폼으로 편하게 편집할 수도
+있습니다.</p>
 
 <h3>예시 1 — 폰트 굵기 바꾸기</h3>
 <p>기본 폰트는 <b>Pretendard Variable</b> 이고, 굵기는 <code>main_weight</code>·
@@ -254,7 +257,8 @@ sub_weight: 300    # 작은 글씨는 Light
 # 곡 제목
 
 가사 …</pre>
-<p class="muted">자주 쓰이는 값: 300 = Light, 500 = Medium, 600 = SemiBold, 700 = Bold</p>
+<p class="muted">자주 쓰이는 값: 300 = Light, 500 = Medium,
+600 = SemiBold, 700 = Bold</p>
 
 <p>아래처럼 <b>익숙한 이름</b>으로 적어도 동일하게 동작합니다 — 자동으로
 같은 굵기의 Pretendard 로 변환되니 시스템에 별도 폰트가 설치되어 있지 않아도 됩니다.</p>
@@ -282,12 +286,14 @@ sub_size: 24
 sub_color: "#CCCCCC"
 ---</pre>
 
-<h3>예시 5 — 가사가 3줄 이상일 때만 다른 배경</h3>
-<p>가사가 길어지면(3줄 이상) 자동으로 <code>background_3plus</code> 배경을 씁니다.
-짧은 가사용 배경과 긴 가사용 배경을 따로 정할 수 있어요.</p>
+<h3>예시 5 — 긴 가사일 때만 다른 배경</h3>
+<p>가사가 3줄이면 <code>background_3plus</code>, 4줄이면
+<code>background_4plus</code> 배경을 씁니다. 줄 수에 맞춰 배경을 따로 정할 수
+있어요.</p>
 <pre>---
 background: bg_short.jpg
-background_3plus: bg_long.jpg
+background_3plus: bg_3lines.jpg
+background_4plus: bg_4lines.jpg
 ---</pre>
 
 <h3>예시 6 — 모든 옵션 한꺼번에</h3>
@@ -308,7 +314,8 @@ background: bg.jpg
 가사 …</pre>
 
 <div class="tip">
-적지 않은 항목은 자동으로 시스템 기본값이 적용되니, <b>바꾸고 싶은 것만</b> 적으면 됩니다.
+적지 않은 항목은 자동으로 시스템 기본값이 적용되니, <b>바꾸고 싶은 것만</b>
+적으면 됩니다.
 </div>
 """
 
@@ -333,9 +340,10 @@ _PAGE_PRIORITY = _PAGE_STYLE + """
 <h3>배경</h3>
 <ul>
   <li>1순위: 슬라이드 <code>{background: ...}</code></li>
-  <li>2순위: 가사가 3줄 이상이면 Frontmatter <code>background_3plus</code></li>
-  <li>3순위: Frontmatter <code>background</code></li>
-  <li>4순위: 시스템 기본값</li>
+  <li>2순위: 가사가 4줄이면 Frontmatter <code>background_4plus</code></li>
+  <li>3순위: 가사가 3줄이면 Frontmatter <code>background_3plus</code></li>
+  <li>4순위: Frontmatter <code>background</code></li>
+  <li>5순위: 시스템 기본값</li>
 </ul>
 
 <div class="tip">

@@ -4,11 +4,57 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import yaml
 
 logger = logging.getLogger(__name__)
+
+
+def strip_frontmatter(text: str) -> str:
+    """선두 `--- ... ---` frontmatter 블록을 제거한 본문(가사)을 반환한다."""
+    return _FRONTMATTER_RE.sub("", text, count=1)
+
+
+def read_song_lyrics(song_dir: Path) -> str:
+    """곡 폴더의 slides.md에서 frontmatter를 제외한 가사 본문을 반환한다.
+
+    slides.md가 없거나 읽기 실패 시 빈 문자열. 원문 대소문자를 유지하므로
+    검색용으로 쓸 때는 호출 측에서 lower()한다.
+    """
+    md = Path(song_dir) / "slides.md"
+    if not md.exists():
+        return ""
+    try:
+        return strip_frontmatter(md.read_text(encoding="utf-8"))
+    except OSError:
+        return ""
+
+
+def lyric_snippet(lyrics: str, query: str, max_len: int = 40) -> str:
+    """가사에서 query(소문자)가 포함된 첫 줄을 잘라 반환한다(없으면 "").
+
+    매칭 위치 주변으로 잘라 검색어가 보이도록 하며, 마크다운 제목/절 기호(`#`)는
+    앞부분에서 제거한다. query는 소문자로 전달한다.
+    """
+    if not query or not lyrics:
+        return ""
+    low = lyrics.lower()
+    idx = low.find(query)
+    if idx < 0:
+        return ""
+    start = lyrics.rfind("\n", 0, idx) + 1
+    end = lyrics.find("\n", idx)
+    if end < 0:
+        end = len(lyrics)
+    line = lyrics[start:end].lstrip("# ").strip()
+    if len(line) <= max_len:
+        return line
+    pos = line.lower().find(query)
+    head = max(0, pos - max_len // 3)
+    snippet = line[head:head + max_len]
+    return ("…" if head > 0 else "") + snippet + "…"
 
 
 @dataclass(frozen=True)
@@ -23,7 +69,9 @@ class Frontmatter:
     sub_weight: int = 300               # 300 = Light
     sub_color: str = "#F0F0F0"
     background: str = "@app/default_bg.jpg"
-    background_3plus: str = "@app/default_bg_3plus.jpg"  # auto-applied for 3+ line slides
+    # Auto-applied backgrounds for longer lyric slides.
+    background_3plus: str = "@app/default_bg_3plus.jpg"
+    background_4plus: str = "@app/default_bg_4plus.jpg"
     slide_inches: tuple[float, float] = (11.024, 6.201)  # 28 × 15.75 cm (16:9)
     resolution: tuple[int, int] = (1920, 1080)
     line_spacing: float = 1.3              # multiplier (1–2 line slides)
@@ -32,7 +80,10 @@ class Frontmatter:
     text_bottom_pct: float = 0.659         # baseline fraction (anchor=bottom, 1–2 line)
     line_spacing_3plus: float = 1.5        # multiplier (3+ line slides — PPT 2_기본값)
     text_bottom_pct_3plus: float = 0.736   # baseline fraction (3+ line slides)
+    line_spacing_4plus: float = 1.42       # multiplier (4+ line slides)
+    text_bottom_pct_4plus: float = 0.796   # baseline fraction (4+ line slides)
     multiline_threshold: int = 3           # line count that triggers _3plus values
+    multiline_4plus_threshold: int = 4     # line count that triggers _4plus values
 
 
 @dataclass(frozen=True)
@@ -132,6 +183,7 @@ def _build_frontmatter(raw: dict[str, Any] | None) -> Frontmatter:
         sub_color=_parse_str(raw.get("sub_color"), d.sub_color),
         background=_parse_str(raw.get("background"), d.background),
         background_3plus=_parse_str(raw.get("background_3plus"), d.background_3plus),
+        background_4plus=_parse_str(raw.get("background_4plus"), d.background_4plus),
         slide_inches=_parse_inches(raw.get("slide_inches"), d.slide_inches),
         resolution=_parse_resolution(raw.get("resolution"), d.resolution),
         line_spacing=_parse_float(raw.get("line_spacing"), d.line_spacing),
@@ -144,8 +196,17 @@ def _build_frontmatter(raw: dict[str, Any] | None) -> Frontmatter:
         text_bottom_pct_3plus=_parse_float(
             raw.get("text_bottom_pct_3plus"), d.text_bottom_pct_3plus
         ),
+        line_spacing_4plus=_parse_float(
+            raw.get("line_spacing_4plus"), d.line_spacing_4plus
+        ),
+        text_bottom_pct_4plus=_parse_float(
+            raw.get("text_bottom_pct_4plus"), d.text_bottom_pct_4plus
+        ),
         multiline_threshold=_parse_int(
             raw.get("multiline_threshold"), d.multiline_threshold
+        ),
+        multiline_4plus_threshold=_parse_int(
+            raw.get("multiline_4plus_threshold"), d.multiline_4plus_threshold
         ),
     )
 
