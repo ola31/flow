@@ -7,6 +7,8 @@ import os
 import signal
 import sys
 
+from flow import __version__
+
 
 def _append_qt_logging_rules(*rules: str) -> None:
     """Qt 로그 필터를 기존 사용자 설정을 보존하며 추가한다."""
@@ -137,7 +139,7 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName("Flow")
-    app.setApplicationVersion("0.1.0")
+    app.setApplicationVersion(__version__)
 
     # Pretendard Variable 폰트 등록 — 한글+영문 통합 가변 폰트
     from flow.ui.styles import ensure_fonts_loaded
