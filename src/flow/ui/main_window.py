@@ -68,6 +68,24 @@ from flow.ui.styles import (
 from flow.ui.dialogs import flow_show_install_guide
 
 
+def _default_song_markdown(name: str) -> str:
+    """새 곡의 초기 slides.md 템플릿.
+
+    formatter 설정(폰트 크기·색·배경)은 비워 두어 전부 디폴트를 사용한다.
+    빈 frontmatter 블록은 사용자가 나중에 설정을 추가할 자리로 남겨 둔다.
+    """
+    return (
+        "---\n"
+        "---\n"
+        "\n"
+        f"# {name}\n"
+        "\n"
+        "## 1절\n"
+        "\n"
+        "첫 슬라이드 가사\n"
+    )
+
+
 class MainWindow(QMainWindow):
     """Flow 메인 윈도우"""
 
@@ -962,19 +980,7 @@ class MainWindow(QMainWindow):
         if not use_markdown:
             return
 
-        template = (
-            "---\n"
-            "main_size: 56\n"
-            "sub_size: 18\n"
-            "background: \"#000000\"\n"
-            "---\n"
-            "\n"
-            f"# {song.name}\n"
-            "\n"
-            "## 1절\n"
-            "\n"
-            "첫 슬라이드 가사\n"
-        )
+        template = _default_song_markdown(song.name)
         try:
             song.markdown_path.write_text(template, encoding="utf-8")
         except Exception as e:
