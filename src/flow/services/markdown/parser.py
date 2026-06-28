@@ -4,11 +4,57 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import yaml
 
 logger = logging.getLogger(__name__)
+
+
+def strip_frontmatter(text: str) -> str:
+    """선두 `--- ... ---` frontmatter 블록을 제거한 본문(가사)을 반환한다."""
+    return _FRONTMATTER_RE.sub("", text, count=1)
+
+
+def read_song_lyrics(song_dir: Path) -> str:
+    """곡 폴더의 slides.md에서 frontmatter를 제외한 가사 본문을 반환한다.
+
+    slides.md가 없거나 읽기 실패 시 빈 문자열. 원문 대소문자를 유지하므로
+    검색용으로 쓸 때는 호출 측에서 lower()한다.
+    """
+    md = Path(song_dir) / "slides.md"
+    if not md.exists():
+        return ""
+    try:
+        return strip_frontmatter(md.read_text(encoding="utf-8"))
+    except OSError:
+        return ""
+
+
+def lyric_snippet(lyrics: str, query: str, max_len: int = 40) -> str:
+    """가사에서 query(소문자)가 포함된 첫 줄을 잘라 반환한다(없으면 "").
+
+    매칭 위치 주변으로 잘라 검색어가 보이도록 하며, 마크다운 제목/절 기호(`#`)는
+    앞부분에서 제거한다. query는 소문자로 전달한다.
+    """
+    if not query or not lyrics:
+        return ""
+    low = lyrics.lower()
+    idx = low.find(query)
+    if idx < 0:
+        return ""
+    start = lyrics.rfind("\n", 0, idx) + 1
+    end = lyrics.find("\n", idx)
+    if end < 0:
+        end = len(lyrics)
+    line = lyrics[start:end].lstrip("# ").strip()
+    if len(line) <= max_len:
+        return line
+    pos = line.lower().find(query)
+    head = max(0, pos - max_len // 3)
+    snippet = line[head:head + max_len]
+    return ("…" if head > 0 else "") + snippet + "…"
 
 
 @dataclass(frozen=True)

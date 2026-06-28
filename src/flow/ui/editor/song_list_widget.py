@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal, QEvent, QPoint
@@ -99,19 +98,13 @@ def _scan_library_song(song_dir: Path) -> dict:
 
     # PPT / 마크다운 확인
     result["has_ppt"] = (song_dir / "slides.pptx").exists()
-    md_path = song_dir / "slides.md"
-    result["has_md"] = md_path.exists()
+    result["has_md"] = (song_dir / "slides.md").exists()
 
-    # 가사 검색용 텍스트 — 선두 frontmatter(설정) 블록을 제외한 본문(소문자).
-    # PPT 곡 등 slides.md가 없으면 빈 문자열(제목으로만 검색).
-    lyrics = ""
-    if md_path.exists():
-        try:
-            text = md_path.read_text(encoding="utf-8")
-            lyrics = re.sub(r"\A---\s*\n.*?\n---\s*\n", "", text, flags=re.DOTALL)
-        except Exception:
-            lyrics = ""
-    result["lyrics"] = lyrics
+    # 가사 검색용 텍스트 — 선두 frontmatter(설정) 블록을 제외한 본문(원문).
+    # PPT 곡 등 slides.md가 없으면 빈 문자열(제목으로만 검색). 매칭 시 lower().
+    from flow.services.markdown import read_song_lyrics
+
+    result["lyrics"] = read_song_lyrics(song_dir)
 
     # song.json에서 핫스팟 수 확인
     total_hs, mapped_hs = 0, 0
@@ -132,29 +125,6 @@ def _scan_library_song(song_dir: Path) -> dict:
     return result
 
 
-def _lyric_match_snippet(lyrics: str, q: str, max_len: int = 34) -> str:
-    """가사에서 검색어 q가 포함된 첫 줄을 잘라 반환한다 (없으면 빈 문자열).
-
-    매칭 위치 주변으로 잘라 검색어가 보이도록 한다. 마크다운 제목/절 기호(`#`)는
-    앞부분에서 제거한다.
-    """
-    if not q or not lyrics:
-        return ""
-    low = lyrics.lower()
-    idx = low.find(q)
-    if idx < 0:
-        return ""
-    start = lyrics.rfind("\n", 0, idx) + 1
-    end = lyrics.find("\n", idx)
-    if end < 0:
-        end = len(lyrics)
-    line = lyrics[start:end].lstrip("# ").strip()
-    if len(line) <= max_len:
-        return line
-    pos = line.lower().find(q)
-    head = max(0, pos - max_len // 3)
-    snippet = line[head:head + max_len]
-    return ("…" if head > 0 else "") + snippet + "…"
 
 
 class _LibrarySongCard(QFrame):
@@ -474,7 +444,9 @@ class SongLibraryBrowser(QWidget):
             # 제목이 아니라 가사로 매칭된 경우에만 매칭 줄을 카드에 표시
             snippet = ""
             if query and query not in info["name"].lower():
-                snippet = _lyric_match_snippet(info.get("lyrics", ""), query)
+                from flow.services.markdown import lyric_snippet
+
+                snippet = lyric_snippet(info.get("lyrics", ""), query)
             card = _LibrarySongCard(
                 info, workspace_mode=workspace_mode, added=added,
                 match_snippet=snippet,

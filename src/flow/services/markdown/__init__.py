@@ -6,8 +6,11 @@ from flow.services.markdown.parser import (
     ResolvedAttrs,
     Slide,
     SongSpec,
+    lyric_snippet,
     parse,
+    read_song_lyrics,
     resolve_attrs,
+    strip_frontmatter,
 )
 from flow.services.markdown.patches import (
     PatchStore,
@@ -29,9 +32,12 @@ __all__ = [
     "SongSpec",
     "apply_patches",
     "apply_patches_to_text",
+    "lyric_snippet",
     "parse",
+    "read_song_lyrics",
     "render_all",
     "render_slide",
     "resolve_attrs",
     "slide_hash",
+    "strip_frontmatter",
 ]
