@@ -1872,7 +1872,8 @@ class MainWindow(QMainWindow):
 
         if self._project is None:
             return
-        self._song_list._add_existing_song(name, source)
+        # 송출 무중단: 슬라이드 reload는 하지 않고(broadcast 영향 X) 목록만 갱신.
+        self._song_list._add_existing_song(name, source, reload_slides=False)
         self._save_project()
         if isinstance(self._live_side_panel, LiveSongAddPanel):
             self._live_side_panel.mark_added(name)

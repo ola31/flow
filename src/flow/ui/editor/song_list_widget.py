@@ -1492,11 +1492,15 @@ class SongListWidget(QWidget):
         dlg.song_chosen.connect(self._add_existing_song)
         dlg.exec()
 
-    def _add_existing_song(self, name: str, source: str = "local") -> None:
+    def _add_existing_song(
+        self, name: str, source: str = "local", reload_slides: bool = True
+    ) -> None:
         """라이브러리 다이얼로그에서 선택한 곡을 프로젝트에 추가.
 
         source = "library": workspace/library/{name}에서 참조로 로드
         source = "local": 필요하면 workspace/library → project/songs 복사 후 로드
+        reload_slides: True면 _on_songs_changed로 슬라이드 미리보기를 즉시 갱신.
+            라이브 중 추가는 송출 무중단을 위해 False로 호출(호출 측이 저장 처리).
         """
         if not self._project or not self._main_window:
             return
@@ -1529,7 +1533,13 @@ class SongListWidget(QWidget):
         if name not in self._project.song_order:
             self._project.song_order.append(name)
         self.refresh_list()
-        if self._main_window:
+        if not self._main_window:
+            return
+        if reload_slides:
+            # 저장 + 인덱스 로컬화 + load_songs로 슬라이드 미리보기를 즉시 갱신
+            # (재열기 없이도 새 곡 슬라이드가 보이도록).
+            self._main_window._on_songs_changed()
+        else:
             self._main_window._mark_dirty()
 
     def _load_song_from_folder(self, name: str, project_dir: Path) -> Song | None:

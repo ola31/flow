@@ -121,3 +121,28 @@ def test_patch_open_blocked_while_song_add_panel_open(live_mw, tmp_path):
     # The slot must still hold the original LiveSongAddPanel.
     assert mw._live_side_panel is before
     assert isinstance(mw._live_side_panel, LiveSongAddPanel)
+
+
+def test_normal_add_reloads_slides_via_songs_changed(live_mw, monkeypatch):
+    """일반(비라이브) 곡 추가는 _on_songs_changed를 거쳐 슬라이드 미리보기를
+    즉시 갱신해야 한다 (재열기 없이도 슬라이드가 떠야 함)."""
+    mw, ws, project, path = live_mw
+    calls = []
+    monkeypatch.setattr(mw, "_on_songs_changed", lambda: calls.append(1))
+
+    mw._song_list._add_existing_song("새노래", "library")  # 기본 reload_slides=True
+
+    assert calls == [1]
+    assert any(s.name == "새노래" for s in project.selected_songs)
+
+
+def test_live_add_skips_songs_changed(live_mw, monkeypatch):
+    """라이브 추가(reload_slides=False)는 송출 무중단을 위해 _on_songs_changed를
+    호출하지 않는다."""
+    mw, ws, project, path = live_mw
+    calls = []
+    monkeypatch.setattr(mw, "_on_songs_changed", lambda: calls.append(1))
+
+    mw._song_list._add_existing_song("새노래", "library", reload_slides=False)
+
+    assert calls == []
