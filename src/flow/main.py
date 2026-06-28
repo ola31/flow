@@ -36,6 +36,32 @@ def _prefer_xcb_on_linux() -> None:
     os.environ["QT_QPA_PLATFORM"] = "xcb"
 
 
+def _harden_std_streams() -> None:
+    """PyInstaller --windowed(특히 Windows) 빌드에선 콘솔이 없어 sys.stdout/
+    stderr가 None이다. 그 상태로 print()나 faulthandler.enable()을 호출하면
+    'sys.stderr is None'으로 크래시하므로, None인 표준 스트림을 안전한 로그
+    파일(실패 시 os.devnull)로 대체한다. 로그 파일은 실제 fileno를 가지므로
+    faulthandler도 정상 동작한다.
+    """
+    if sys.stdout is not None and sys.stderr is not None:
+        return
+    import tempfile
+
+    stream = None
+    try:
+        log_path = os.path.join(tempfile.gettempdir(), "flow.log")
+        stream = open(log_path, "a", encoding="utf-8", buffering=1)
+    except OSError:
+        try:
+            stream = open(os.devnull, "w")
+        except OSError:
+            return
+    if sys.stdout is None:
+        sys.stdout = stream
+    if sys.stderr is None:
+        sys.stderr = stream
+
+
 def _prewarm_markdown_pipeline() -> None:
     """첫 곡 열기의 cold-start 비용을 splash 동안 미리 지불한다.
 
@@ -79,11 +105,16 @@ def _prewarm_markdown_pipeline() -> None:
 
 def main() -> int:
     """애플리케이션 메인 함수"""
+    # windowed 빌드(콘솔 없음)에서 None인 표준 스트림을 가장 먼저 보강한다.
+    # 그래야 이후의 print()·faulthandler가 'sys.stderr is None'으로 죽지 않는다.
+    _harden_std_streams()
+
     # Wayland busy-cursor 회피를 위해 PySide 임포트 전에 플랫폼을 고정한다.
     _prefer_xcb_on_linux()
 
     # Segfault 발생 시 C-level 스택 트레이스를 stderr에 출력
-    faulthandler.enable()
+    if sys.stderr is not None:
+        faulthandler.enable()
 
     _append_qt_logging_rules(
         "qt.qpa.services.warning=false",
