@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -117,8 +118,14 @@ class SlidePreviewPanel(QWidget):
         layout.setContentsMargins(SP_SM, SP_XS, SP_SM, SP_XS)
         layout.setSpacing(SP_XS)
 
-        # 제목 및 버튼 레이아웃
+        # 제목 및 버튼 레이아웃 — 세로는 Fixed로 고정해, 아래 목록이 고정
+        # 높이라 남는 세로 공간이 생겨도 헤더가 그 공간을 흡수해 늘어나지
+        # 않도록 한다 (레이아웃에 다른 확장 위젯이 없으면 Preferred 위젯이
+        # 잉여 공간을 떠안는 Qt 기본 동작 때문에 헤더가 비정상적으로 커졌었음).
         header_widget = QWidget()
+        header_widget.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+        )
         header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(SP_XS, 0, SP_XS, 0)
 
