@@ -134,7 +134,7 @@ class SlidePreviewPanel(QWidget):
         self._title_icon = _icon_label("slideshow", 14, TEXT_SECONDARY)
         header_layout.addWidget(self._title_icon)
 
-        self._title = QLabel("PPT 슬라이드 (0)")
+        self._title = QLabel("슬라이드 (0)")
         self._title.setStyleSheet(
             f"font-size: {FONT_TITLE}px; color: {TEXT_PRIMARY}; font-weight: {FW_SEMI};"
         )
@@ -440,7 +440,7 @@ class SlidePreviewPanel(QWidget):
         ppt_path = self._slide_manager._pptx_path
         ppt_name = ppt_path.name if ppt_path else "로드된 PPT 없음"
 
-        self._title.setText(f"PPT 슬라이드 ({count})")
+        self._title.setText(f"슬라이드 ({count})")
         self._title.setToolTip(f"{ppt_name}\n{str(ppt_path) if ppt_path else ''}")
         self._btn_close.setEnabled(ppt_path is not None)
 

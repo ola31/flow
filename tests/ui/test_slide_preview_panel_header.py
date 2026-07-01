@@ -6,7 +6,7 @@ from flow.ui.editor.slide_preview_panel import SlidePreviewPanel
 
 
 def test_header_does_not_stretch_to_fill_panel(qtbot):
-    """헤더("PPT 슬라이드 (n)" + 새로고침 버튼) 영역은 세로 확장 정책이 아니어야
+    """헤더("슬라이드 (n)" + 새로고침 버튼) 영역은 세로 확장 정책이 아니어야
     하며, 패널을 크게 늘려도 헤더가 잉여 공간을 흡수해 늘어나선 안 된다."""
     panel = SlidePreviewPanel()
     qtbot.addWidget(panel)
