@@ -112,7 +112,7 @@ class LivePIP(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("LivePIP")
-        self.setFixedWidth(260)
+        self.setFixedWidth(320)
 
         from flow.ui.styles import (
             BG_SURFACE, BORDER_SUBTLE_RGBA, ACCENT_INTER, RED
@@ -290,7 +290,7 @@ class ProjectScreen(QWidget):
         )
         if live:
             self._mapping_panel.hide()
-            self._h_splitter.setSizes([240, 800, 280, 0])
+            self._h_splitter.setSizes([240, 800, 320, 0])
         else:
             self._pip.hide()
             # mapping panel visibility managed by MainWindow
