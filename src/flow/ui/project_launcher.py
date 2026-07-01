@@ -442,7 +442,9 @@ class ProjectLauncher(QWidget):
         root.addSpacing(SP_LG)
 
         # 푸터
-        footer = QLabel("v1.0.0")
+        from flow import __version__
+
+        footer = QLabel(f"v{__version__}")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         footer.setStyleSheet(f"font-size: 10px; color: {TEXT_TERTIARY};")
         root.addWidget(footer)
