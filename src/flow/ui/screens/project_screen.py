@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QPoint, QPointF, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
@@ -136,19 +136,15 @@ class LivePIP(QFrame):
 
         root.addWidget(self._preview_pane, 1)
 
-        self._separator = QFrame()
-        self._separator.setFrameShape(QFrame.Shape.HLine)
-        self._separator.setStyleSheet(
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(
             f"background: {BORDER_SUBTLE_RGBA}; max-height: 1px;"
         )
-        root.addWidget(self._separator)
+        root.addWidget(sep)
 
         root.addWidget(self._live_pane, 1)
         self.hide()
-
-    def separator_center_y(self) -> int:
-        """구분선(PREVIEW/LIVE 사이)의 세로 중앙 y좌표 (self 좌표계 기준)."""
-        return self._separator.y() + self._separator.height() // 2
 
     def set_live(self, live: bool) -> None:
         self.setStyleSheet(self._live_style if live else self._idle_style)
@@ -201,97 +197,6 @@ class LivePIP(QFrame):
     def mousePressEvent(self, event) -> None:
         self.clicked.emit()
         super().mousePressEvent(event)
-
-
-class _PipResizeGrip(QWidget):
-    """PREVIEW/LIVE 구분선과 스플리터 경계가 만나는 지점의 드래그 손잡이.
-
-    가는 스플리터 핸들보다 훨씬 잡기 쉬운 원형 그립을 그 위에 겹쳐 놓고,
-    직접 드래그를 처리해 옆 두 패널의 폭을 조절한다.
-    """
-
-    _SIZE = 20
-
-    def __init__(
-        self, splitter: QSplitter, pip: LivePIP, parent: QWidget | None = None
-    ) -> None:
-        super().__init__(parent)
-        self._splitter = splitter
-        self._pip = pip
-        self._drag_start_x: int | None = None
-        self._drag_start_sizes: list[int] | None = None
-        self.setFixedSize(self._SIZE, self._SIZE)
-        self.setCursor(Qt.CursorShape.SizeHorCursor)
-        self.hide()
-
-    def _handle_index(self) -> int:
-        return self._splitter.indexOf(self._pip)
-
-    def compute_resized_sizes(self, sizes: list[int], dx: int) -> list[int]:
-        """dx(px)만큼 경계를 옮겼을 때의 splitter sizes.
-
-        PIP 패널은 minimumWidth 밑으로 줄어들 수 없고, 그만큼 옆 패널(가운데
-        캔버스 영역)이 대신 늘어난다.
-        """
-        idx = self._handle_index()
-        new_sizes = list(sizes)
-        new_right = sizes[idx] - dx
-        min_right = self._pip.minimumWidth()
-        if new_right < min_right:
-            new_right = min_right
-        new_left = sizes[idx - 1] + (sizes[idx] - new_right)
-        new_sizes[idx - 1] = max(0, new_left)
-        new_sizes[idx] = new_right
-        return new_sizes
-
-    def reposition(self) -> None:
-        if not self._pip.isVisible():
-            self.hide()
-            return
-        handle = self._splitter.handle(self._handle_index())
-        if handle is None:
-            self.hide()
-            return
-        anchor = self.parentWidget()
-        handle_center = handle.mapTo(anchor, handle.rect().center())
-        sep_point = self._pip.mapTo(anchor, QPoint(0, self._pip.separator_center_y()))
-        self.move(handle_center.x() - self._SIZE // 2, sep_point.y() - self._SIZE // 2)
-        self.raise_()
-        self.show()
-
-    def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_start_x = event.globalPosition().toPoint().x()
-            self._drag_start_sizes = list(self._splitter.sizes())
-
-    def mouseMoveEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        if self._drag_start_x is None or self._drag_start_sizes is None:
-            return
-        dx = event.globalPosition().toPoint().x() - self._drag_start_x
-        self._splitter.setSizes(
-            self.compute_resized_sizes(self._drag_start_sizes, dx)
-        )
-        self.reposition()
-
-    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        self._drag_start_x = None
-        self._drag_start_sizes = None
-
-    def paintEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        from PySide6.QtGui import QColor, QPainter
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setBrush(QColor(BG_SURFACE))
-        painter.setPen(QColor(BORDER_SUBTLE_RGBA))
-        painter.drawEllipse(self.rect().adjusted(1, 1, -1, -1))
-
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(TEXT_SECONDARY))
-        cx = self.width() / 2
-        cy = self.height() / 2
-        for dy in (-5, 0, 5):
-            painter.drawEllipse(QPointF(cx, cy + dy), 1.4, 1.4)
 
 
 class ProjectScreen(QWidget):
@@ -391,11 +296,6 @@ class ProjectScreen(QWidget):
             # mapping panel visibility managed by MainWindow
             cur_map = self._h_splitter.sizes()[3] if len(self._h_splitter.sizes()) > 3 else 0
             self._h_splitter.setSizes([240, 800, 0, cur_map])
-        self._pip_grip.reposition()
-
-    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        super().resizeEvent(event)
-        self._pip_grip.reposition()
 
     def sync_nav_verse(self, verse_index: int) -> None:
         btn = self._nav_verse_group.button(verse_index)
@@ -578,8 +478,5 @@ class ProjectScreen(QWidget):
         self._h_splitter.setStretchFactor(2, 0)
         self._h_splitter.setStretchFactor(3, 0)
         self._h_splitter.setSizes([240, 800, 0, 0])
-
-        self._pip_grip = _PipResizeGrip(self._h_splitter, self._pip, parent=self)
-        self._h_splitter.splitterMoved.connect(lambda *_: self._pip_grip.reposition())
 
         main_layout.addWidget(self._h_splitter)
