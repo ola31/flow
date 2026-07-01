@@ -151,16 +151,12 @@ class LivePIP(QFrame):
 
     def set_preview_image(self, pixmap: QPixmap | None) -> None:
         self._preview_pane.set_image(pixmap)
-        if not self.isVisible():
-            self.show()
 
     def set_preview_text(self, text: str) -> None:
         self._preview_pane.set_text(text)
 
     def set_live_image(self, pixmap: QPixmap | None) -> None:
         self._live_pane.set_image(pixmap)
-        if not self.isVisible():
-            self.show()
 
     def set_live_text(self, text: str) -> None:
         self._live_pane.set_text(text)

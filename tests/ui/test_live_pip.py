@@ -43,17 +43,19 @@ class TestLivePIPInitial:
 
 
 class TestLivePIPDualContent:
-    def test_set_preview_image_shows_widget(self, pip):
+    def test_set_preview_image_does_not_force_visible(self, pip):
+        """PIP 표시 여부는 ProjectScreen.set_live_mode가 전담해야 하며,
+        에디터(비라이브) 화면에서 핫스팟 선택만으로 나타나면 안 된다."""
         pip.set_preview_image(QPixmap(100, 100))
-        assert pip.isVisible()
+        assert not pip.isVisible()
 
     def test_set_preview_text(self, pip):
         pip.set_preview_text("Next")
         assert pip._preview_pane._text.text() == "Next"
 
-    def test_set_live_image_shows_widget(self, pip):
+    def test_set_live_image_does_not_force_visible(self, pip):
         pip.set_live_image(QPixmap(100, 100))
-        assert pip.isVisible()
+        assert not pip.isVisible()
 
     def test_set_live_text(self, pip):
         pip.set_live_text("Current")
