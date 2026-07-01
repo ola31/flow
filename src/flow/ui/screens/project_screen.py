@@ -112,7 +112,7 @@ class LivePIP(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("LivePIP")
-        self.setFixedWidth(420)
+        self.setMinimumWidth(220)
 
         from flow.ui.styles import (
             BG_SURFACE, BORDER_SUBTLE_RGBA, ACCENT_INTER, RED

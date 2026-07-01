@@ -36,8 +36,10 @@ class TestLivePIPInitial:
     def test_live_badge_says_live(self, pip):
         assert "LIVE" in pip._live_pane._badge.text()
 
-    def test_fixed_width(self, pip):
-        assert pip.width() == 420
+    def test_width_is_resizable_not_fixed(self, pip):
+        from PySide6.QtWidgets import QSizePolicy
+        assert pip.sizePolicy().horizontalPolicy() != QSizePolicy.Policy.Fixed
+        assert pip.minimumWidth() == 220
 
 
 class TestLivePIPDualContent:
