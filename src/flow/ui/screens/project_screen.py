@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QPointF, Signal
+from PySide6.QtCore import Qt, QPoint, QPointF, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
@@ -252,9 +252,10 @@ class _PipResizeGrip(QWidget):
         if handle is None:
             self.hide()
             return
-        x = handle.geometry().center().x() - self._SIZE // 2
-        y = self._pip.y() + self._pip.separator_center_y() - self._SIZE // 2
-        self.move(x, y)
+        anchor = self.parentWidget()
+        handle_center = handle.mapTo(anchor, handle.rect().center())
+        sep_point = self._pip.mapTo(anchor, QPoint(0, self._pip.separator_center_y()))
+        self.move(handle_center.x() - self._SIZE // 2, sep_point.y() - self._SIZE // 2)
         self.raise_()
         self.show()
 
@@ -578,7 +579,7 @@ class ProjectScreen(QWidget):
         self._h_splitter.setStretchFactor(3, 0)
         self._h_splitter.setSizes([240, 800, 0, 0])
 
-        self._pip_grip = _PipResizeGrip(self._h_splitter, self._pip, parent=self._h_splitter)
+        self._pip_grip = _PipResizeGrip(self._h_splitter, self._pip, parent=self)
         self._h_splitter.splitterMoved.connect(lambda *_: self._pip_grip.reposition())
 
         main_layout.addWidget(self._h_splitter)
