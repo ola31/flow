@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Flow</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    background: #0a0e14;
+    overflow: hidden;
+  }
+
+  #root {
+    position: fixed;
+    inset: 0;
+    height: 100dvh;
+    width: 100vw;
+    overflow: hidden;
+    background: #0a0e14;
+    font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic",
+      -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  /* markdown 배경 이미지: 화면을 꽉 채우고 위/아래는 잘려도 무방 */
+  #bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: none;
+  }
+
+  /* PPT 슬라이드: 전체가 항상 보이도록, 레터박스 허용 */
+  #slide {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: none;
+  }
+
+  #text-layer {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4vmin;
+    text-align: center;
+  }
+
+  #main-text {
+    color: #f0f0f0;
+    font-weight: 500;
+    white-space: pre-wrap;
+    line-height: 1.4;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.75), 0 0 4px rgba(0, 0, 0, 0.6);
+    max-width: 100%;
+  }
+
+  #sub-text {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 4vmin;
+    text-align: center;
+    color: #b8bcc4;
+    font-size: 3vmin;
+    font-weight: 300;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.75);
+    white-space: pre-wrap;
+  }
+
+  #status {
+    position: fixed;
+    left: 50%;
+    bottom: 16px;
+    transform: translateX(-50%);
+    color: #6b7280;
+    font-size: 12px;
+    font-weight: 300;
+    letter-spacing: 0.02em;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  #status.visible {
+    opacity: 1;
+  }
+</style>
+</head>
+<body>
+<div id="root">
+  <img id="bg" alt="">
+  <img id="slide" alt="">
+  <div id="text-layer">
+    <div id="main-text"></div>
+  </div>
+  <div id="sub-text"></div>
+  <div id="status">연결 대기 중…</div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var root = document.getElementById("root");
+  var bg = document.getElementById("bg");
+  var slide = document.getElementById("slide");
+  var textLayer = document.getElementById("text-layer");
+  var mainText = document.getElementById("main-text");
+  var subText = document.getElementById("sub-text");
+  var status = document.getElementById("status");
+
+  var MIN_FONT_VMIN = 3;
+
+  function baseFontVmin() {
+    return window.innerHeight >= window.innerWidth ? 8 : 9;
+  }
+
+  // 텍스트가 화면을 넘치지 않을 때까지 폰트 크기를 줄여가며 맞춘다.
+  function fitText() {
+    var size = baseFontVmin();
+    mainText.style.fontSize = size + "vmin";
+    // 강제 레이아웃 계산 후 overflow 체크를 반복
+    var guard = 0;
+    while (
+      guard < 60 &&
+      size > MIN_FONT_VMIN &&
+      (textLayer.scrollWidth > textLayer.clientWidth ||
+        textLayer.scrollHeight > textLayer.clientHeight)
+    ) {
+      size = size * 0.95;
+      mainText.style.fontSize = size + "vmin";
+      guard += 1;
+    }
+  }
+
+  function showClear() {
+    bg.style.display = "none";
+    slide.style.display = "none";
+    textLayer.style.display = "none";
+    subText.style.display = "none";
+    mainText.textContent = "";
+    subText.textContent = "";
+    root.style.backgroundColor = "#0a0e14";
+  }
+
+  function showMarkdown(msg) {
+    slide.style.display = "none";
+
+    if (msg.background_color) {
+      bg.style.display = "none";
+      root.style.backgroundColor = msg.background_color;
+    } else {
+      root.style.backgroundColor = "#0a0e14";
+      if (msg.changed_background && msg.background_url) {
+        bg.src = msg.background_url;
+      }
+      bg.style.display = "block";
+    }
+
+    mainText.textContent = msg.main_text || "";
+    textLayer.style.display = "flex";
+    fitText();
+
+    if (msg.sub_text) {
+      subText.textContent = msg.sub_text;
+      subText.style.display = "block";
+    } else {
+      subText.textContent = "";
+      subText.style.display = "none";
+    }
+  }
+
+  function showImage(msg) {
+    bg.style.display = "none";
+    textLayer.style.display = "none";
+    subText.style.display = "none";
+    mainText.textContent = "";
+    subText.textContent = "";
+    root.style.backgroundColor = "#0a0e14";
+    slide.src = msg.data_url;
+    slide.style.display = "block";
+  }
+
+  function handleMessage(raw) {
+    var msg;
+    try {
+      msg = JSON.parse(raw);
+    } catch (e) {
+      return;
+    }
+    switch (msg.type) {
+      case "markdown":
+        showMarkdown(msg);
+        break;
+      case "image":
+        showImage(msg);
+        break;
+      case "clear":
+        showClear();
+        break;
+      default:
+        break;
+    }
+  }
+
+  var socket = null;
+
+  function setConnected(connected) {
+    if (connected) {
+      status.classList.remove("visible");
+    } else {
+      status.classList.add("visible");
+    }
+  }
+
+  function connect() {
+    var url = "ws://" + location.hostname + ":{{WS_PORT}}";
+    socket = new WebSocket(url);
+
+    socket.onopen = function () {
+      setConnected(true);
+    };
+
+    socket.onmessage = function (event) {
+      handleMessage(event.data);
+    };
+
+    socket.onclose = function () {
+      setConnected(false);
+      setTimeout(connect, 2000);
+    };
+
+    socket.onerror = function () {
+      setConnected(false);
+      try {
+        socket.close();
+      } catch (e) {
+        // no-op: onclose will retry
+      }
+    };
+  }
+
+  setConnected(false);
+  connect();
+
+  var resizeTimer = null;
+  window.addEventListener("resize", function () {
+    if (resizeTimer) {
+      window.cancelAnimationFrame(resizeTimer);
+    }
+    resizeTimer = window.requestAnimationFrame(fitText);
+  });
+})();
+</script>
+</body>
+</html>

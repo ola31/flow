@@ -69,6 +69,22 @@ def test_server_start_stop_and_http_serves_page(qapp, qtbot):
     assert not srv.is_running()
 
 
+def test_http_serves_real_index_html(qapp):
+    srv = WebBroadcastServer()
+    srv.start()
+    try:
+        resp = urllib.request.urlopen(
+            f"http://127.0.0.1:{srv._http_port}/", timeout=3
+        )
+        body = resp.read().decode("utf-8")
+        assert "100dvh" in body
+        assert "object-fit" in body
+        assert "WebSocket" in body
+        assert "{{WS_PORT}}" not in body
+    finally:
+        srv.stop()
+
+
 def test_websocket_receives_last_payload_on_connect(qapp, qtbot):
     from PySide6.QtGui import QImage
     srv = WebBroadcastServer()
