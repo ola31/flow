@@ -1,0 +1,19 @@
+#!/bin/bash
+# NetworkManager dispatcher: toggle port-80 -> 8777 redirect for Flow's
+# captive portal when the hotspot interface (gateway 10.42.0.1) comes up/down.
+# $1 = interface name, $2 = action
+IFACE="$1"
+ACTION="$2"
+
+case "$ACTION" in
+  up)
+    if ip addr show "$IFACE" 2>/dev/null | grep -q "10.42.0.1"; then
+      nft add table ip flow_captive 2>/dev/null || true
+      nft 'add chain ip flow_captive prerouting { type nat hook prerouting priority -100 ; }' 2>/dev/null || true
+      nft add rule ip flow_captive prerouting iifname "$IFACE" tcp dport 80 redirect to :8777 2>/dev/null || true
+    fi
+    ;;
+  down)
+    nft delete table ip flow_captive 2>/dev/null || true
+    ;;
+esac

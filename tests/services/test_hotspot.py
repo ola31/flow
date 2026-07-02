@@ -129,6 +129,15 @@ def test_linux_captive_install_command():
     assert cmd[-1].endswith("install_captive.sh")
 
 
+def test_captive_install_script_exists_on_disk():
+    from flow.services.hotspot import _LinuxHotspot
+    import os
+
+    be = _LinuxHotspot(run=lambda a, **k: None, which=lambda n: "/usr/bin/nmcli")
+    cmd = be.captive_portal_install_command()
+    assert os.path.exists(cmd[-1]), cmd[-1]
+
+
 def test_windows_backend_unsupported_without_winsdk():
     from flow.services.hotspot import _WindowsHotspot
 
