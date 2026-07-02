@@ -106,6 +106,7 @@ class MainWindow(QMainWindow):
         # 송출 관련
         self._display_window: DisplayWindow | None = None
         self._web_broadcast = None
+        self._hotspot = None
         self._slide_manager = SlideManager()
         self._engine_dialog_shown = False
         self._slide_manager.engine_missing.connect(self._on_engine_missing)
@@ -351,6 +352,8 @@ class MainWindow(QMainWindow):
         if self._guard_activity_navigation_in_live():
             return
         self._web_broadcast_screen.set_server(self._web_broadcast)
+        self._web_broadcast_screen.set_hotspot(self._get_hotspot())
+        self._refresh_hotspot_credentials()
         self._stack.setCurrentWidget(self._web_broadcast_screen)
         self._toolbar.hide()
         self._statusbar.hide()
@@ -369,6 +372,67 @@ class MainWindow(QMainWindow):
             self._live_controller.sync_live()
             self._display_action.setText("송출 중지")
         self._web_broadcast_screen.set_server(self._web_broadcast)
+
+    def _get_hotspot(self):
+        """HotspotManager를 지연 생성해 반환."""
+        if self._hotspot is None:
+            from flow.services.hotspot import HotspotManager
+
+            self._hotspot = HotspotManager()
+        return self._hotspot
+
+    def _refresh_hotspot_credentials(self) -> None:
+        ssid = self._config_service.get_hotspot_ssid()
+        pw = self._config_service.get_hotspot_password()
+        if ssid:
+            self._web_broadcast_screen.set_hotspot_credentials(ssid, pw)
+
+    def _on_hotspot_toggle(self) -> None:
+        hs = self._get_hotspot()
+        if hs.is_active():
+            hs.stop()
+        else:
+            from flow.ui.dialogs import flow_question
+
+            if not flow_question(
+                self,
+                "핫스팟 켜기",
+                "핫스팟을 켜면 이 노트북의 인터넷 연결이 끊어집니다. 계속할까요?",
+            ):
+                return
+            ssid = self._config_service.get_hotspot_ssid()
+            pw = self._config_service.get_hotspot_password()
+            if not ssid:
+                from flow.services.hotspot import (
+                    generate_default_password,
+                    generate_default_ssid,
+                )
+
+                ssid = generate_default_ssid()
+                pw = generate_default_password()
+                self._config_service.set_hotspot_ssid(ssid)
+                self._config_service.set_hotspot_password(pw)
+            if not hs.start(ssid, pw):
+                from flow.ui.dialogs import flow_warning
+
+                flow_warning(
+                    self, "핫스팟", f"핫스팟을 켤 수 없습니다:\n{hs.last_error()}"
+                )
+        self._refresh_hotspot_credentials()
+        self._web_broadcast_screen.refresh_hotspot()
+
+    def _on_captive_install(self) -> None:
+        hs = self._get_hotspot()
+        cmd = hs.captive_portal_install_command()
+        if not cmd:
+            return
+        import subprocess
+
+        try:
+            subprocess.run(cmd, check=False)
+        except Exception:
+            pass
+        self._web_broadcast_screen.refresh_hotspot()
 
     def _show_projects_screen(self) -> None:
         """ActivityBar의 프로젝트 버튼 → 프로젝트 페이지."""
@@ -465,6 +529,12 @@ class MainWindow(QMainWindow):
         self._web_broadcast_screen = WebBroadcastScreen()
         self._web_broadcast_screen.toggle_requested.connect(
             self._on_web_broadcast_toggle
+        )
+        self._web_broadcast_screen.hotspot_toggle_requested.connect(
+            self._on_hotspot_toggle
+        )
+        self._web_broadcast_screen.captive_install_requested.connect(
+            self._on_captive_install
         )
         self._stack.addWidget(self._web_broadcast_screen)
 
@@ -2350,6 +2420,11 @@ class MainWindow(QMainWindow):
                 self._web_broadcast.stop()
             except Exception:
                 pass  # 앱 종료 시 웹 송출 정리 실패가 종료를 막으면 안 됨
+        if self._hotspot is not None:
+            try:
+                self._hotspot.stop()
+            except Exception:
+                pass
         event.accept()
 
     def _close_current_project(self) -> None:

@@ -110,3 +110,117 @@ def test_slide_cleared_pushes_clear(qapp, monkeypatch):
         assert pushes == [(None, -1, None)]
     finally:
         mw.close()
+
+
+def test_hotspot_toggle_starts_when_confirmed(qapp, monkeypatch):
+    import flow.ui.dialogs as dialogs
+    from flow.ui.main_window import MainWindow
+
+    mw = MainWindow()
+    try:
+        started = {}
+
+        class _FakeHS:
+            def is_active(self):
+                return started.get("on", False)
+
+            def start(self, ssid, pw):
+                started["on"] = True
+                started["args"] = (ssid, pw)
+                return True
+
+            def stop(self):
+                started["on"] = False
+
+            def last_error(self):
+                return ""
+
+            def is_supported(self):
+                return True
+
+            def support_message(self):
+                return ""
+
+            def captive_portal_installed(self):
+                return False
+
+        mw._hotspot = _FakeHS()
+        monkeypatch.setattr(dialogs, "flow_question", lambda *a, **k: True)
+        mw._on_hotspot_toggle()
+        assert started.get("on") is True
+        assert started["args"][0]  # ssid auto-generated + non-empty
+    finally:
+        mw.close()
+
+
+def test_hotspot_toggle_cancel_does_not_start(qapp, monkeypatch):
+    import flow.ui.dialogs as dialogs
+    from flow.ui.main_window import MainWindow
+
+    mw = MainWindow()
+    try:
+        started = {}
+
+        class _FakeHS:
+            def is_active(self):
+                return False
+
+            def start(self, ssid, pw):
+                started["on"] = True
+                return True
+
+            def stop(self):
+                pass
+
+            def is_supported(self):
+                return True
+
+            def support_message(self):
+                return ""
+
+            def captive_portal_installed(self):
+                return False
+
+        mw._hotspot = _FakeHS()
+        monkeypatch.setattr(dialogs, "flow_question", lambda *a, **k: False)
+        mw._on_hotspot_toggle()
+        assert "on" not in started
+    finally:
+        mw.close()
+
+
+def test_hotspot_toggle_stops_when_active(qapp):
+    from flow.ui.main_window import MainWindow
+
+    mw = MainWindow()
+    try:
+        state = {"on": True}
+
+        class _FakeHS:
+            def is_active(self):
+                return state["on"]
+
+            def start(self, ssid, pw):
+                state["on"] = True
+                return True
+
+            def stop(self):
+                state["on"] = False
+
+            def last_error(self):
+                return ""
+
+            def is_supported(self):
+                return True
+
+            def support_message(self):
+                return ""
+
+            def captive_portal_installed(self):
+                return False
+
+        mw._hotspot = _FakeHS()
+        mw._on_hotspot_toggle()
+        assert state["on"] is False
+    finally:
+        mw.close()
