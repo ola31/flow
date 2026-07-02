@@ -216,3 +216,12 @@ def test_render_all_returns_one_image_per_slide(qapp, tmp_path: Path) -> None:
     images = render_all(spec, song_dir=tmp_path)
     assert len(images) == 3
     assert all(isinstance(img, QImage) for img in images)
+
+
+def test_effective_background_is_public():
+    from flow.services.markdown import effective_background, parse, resolve_attrs
+    spec = parse("---\n---\n\n# 곡\n\n한 줄 가사\n")
+    slide = spec.slides[0]
+    attrs = resolve_attrs(spec, slide)
+    bg = effective_background(spec, slide, attrs)
+    assert bg == spec.frontmatter.background  # 1줄이므로 기본 배경
