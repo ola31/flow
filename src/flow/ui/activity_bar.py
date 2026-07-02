@@ -41,6 +41,7 @@ class ActivityBar(QFrame):
     home_requested = Signal()
     library_requested = Signal()
     projects_requested = Signal()
+    web_broadcast_requested = Signal()
     settings_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -70,6 +71,10 @@ class ActivityBar(QFrame):
         self._btn_library = self._make_button("library_music", "곡 라이브러리")
         self._btn_library.clicked.connect(self.library_requested.emit)
         layout.addWidget(self._btn_library)
+
+        self._btn_web_broadcast = self._make_button("tv", "웹 송출")
+        self._btn_web_broadcast.clicked.connect(self.web_broadcast_requested.emit)
+        layout.addWidget(self._btn_web_broadcast)
 
         layout.addStretch()
 
@@ -123,6 +128,11 @@ class ActivityBar(QFrame):
                 self._btn_library,
                 "곡 라이브러리",
                 "라이브 모드 중에는 라이브러리로 이동할 수 없습니다",
+            ),
+            (
+                self._btn_web_broadcast,
+                "웹 송출",
+                "라이브 모드 중에는 이동할 수 없습니다",
             ),
         ):
             btn.setEnabled(enabled)

@@ -346,6 +346,29 @@ class MainWindow(QMainWindow):
         self._statusbar.hide()
         self.setWindowTitle("Flow - 라이브러리")
 
+    def _show_web_broadcast_screen(self) -> None:
+        """ActivityBar의 웹 송출 버튼 → 웹 송출 상태 페이지."""
+        if self._guard_activity_navigation_in_live():
+            return
+        self._web_broadcast_screen.set_server(self._web_broadcast)
+        self._stack.setCurrentWidget(self._web_broadcast_screen)
+        self._toolbar.hide()
+        self._statusbar.hide()
+        self.setWindowTitle("Flow - 웹 송출")
+
+    def _on_web_broadcast_toggle(self) -> None:
+        """웹 송출 화면의 켜기/끄기 버튼."""
+        if self._web_broadcast is not None and self._web_broadcast.is_running():
+            self._stop_web_broadcast()
+        else:
+            from flow.services.web_broadcast import WebBroadcastServer
+
+            if self._web_broadcast is None:
+                self._web_broadcast = WebBroadcastServer()
+            self._web_broadcast.start()
+            self._live_controller.sync_live()
+        self._web_broadcast_screen.set_server(self._web_broadcast)
+
     def _show_projects_screen(self) -> None:
         """ActivityBar의 프로젝트 버튼 → 프로젝트 페이지."""
         if self._guard_activity_navigation_in_live():
@@ -399,6 +422,9 @@ class MainWindow(QMainWindow):
         self._activity_bar.settings_requested.connect(self._show_settings)
         self._activity_bar.library_requested.connect(self._show_library_screen)
         self._activity_bar.projects_requested.connect(self._show_projects_screen)
+        self._activity_bar.web_broadcast_requested.connect(
+            self._show_web_broadcast_screen
+        )
         central_layout.addWidget(self._activity_bar)
 
         self._stack = QStackedWidget()
@@ -433,6 +459,13 @@ class MainWindow(QMainWindow):
             lambda: self._launcher.new_project_requested.emit()
         )
         self._stack.addWidget(self._projects_screen)
+
+        from flow.ui.screens.web_broadcast_screen import WebBroadcastScreen
+        self._web_broadcast_screen = WebBroadcastScreen()
+        self._web_broadcast_screen.toggle_requested.connect(
+            self._on_web_broadcast_toggle
+        )
+        self._stack.addWidget(self._web_broadcast_screen)
 
         self._launcher = self._home_screen.launcher
         self._toolbar = self._project_screen.toolbar_container
