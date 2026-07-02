@@ -56,6 +56,43 @@ def test_slide_changed_pushes_to_web(qapp, monkeypatch):
         mw.close()
 
 
+def test_web_broadcast_toggle_updates_display_action_text(qapp):
+    """FIX-I2: F11 action text must track web-broadcast start/stop, and the
+    web-broadcast screen must reflect the stopped server too."""
+    mw = MainWindow()
+    try:
+        assert mw._display_action.text() == "송출 시작"
+
+        mw._on_web_broadcast_toggle()
+        assert mw._web_broadcast.is_running()
+        assert mw._display_action.text() == "송출 중지"
+
+        mw._stop_web_broadcast()
+        assert not mw._web_broadcast.is_running()
+        assert mw._display_action.text() == "송출 시작"
+        assert mw._web_broadcast_screen._server is mw._web_broadcast
+    finally:
+        mw.close()
+
+
+def test_display_closed_keeps_stop_text_while_web_broadcast_running(qapp):
+    """FIX-I2: closing the (unrelated) physical display window must not
+    reset the F11 label to "송출 시작" while web broadcast is still live."""
+    from flow.services.web_broadcast import WebBroadcastServer
+
+    mw = MainWindow()
+    try:
+        mw._web_broadcast = WebBroadcastServer()
+        mw._web_broadcast.start()
+        mw._display_action.setText("송출 중지")
+
+        mw._on_display_closed()
+
+        assert mw._display_action.text() == "송출 중지"
+    finally:
+        mw.close()
+
+
 def test_slide_cleared_pushes_clear(qapp, monkeypatch):
     mw = MainWindow()
     try:

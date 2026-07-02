@@ -367,6 +367,7 @@ class MainWindow(QMainWindow):
                 self._web_broadcast = WebBroadcastServer()
             self._web_broadcast.start()
             self._live_controller.sync_live()
+            self._display_action.setText("송출 중지")
         self._web_broadcast_screen.set_server(self._web_broadcast)
 
     def _show_projects_screen(self) -> None:
@@ -2276,7 +2277,10 @@ class MainWindow(QMainWindow):
 
     def _on_display_closed(self) -> None:
         """송출창이 닫혔을 때 (ESC로 닫거나 버튼으로 닫혔을 때 공통)"""
-        self._display_action.setText("송출 시작")
+        # 웹 송출이 계속 진행 중이면 F11 액션 텍스트를 되돌리지 않는다 —
+        # 물리 송출창만 닫혔을 뿐 송출 자체는 끝난 게 아니다.
+        if not (self._web_broadcast is not None and self._web_broadcast.is_running()):
+            self._display_action.setText("송출 시작")
         self._statusbar.showMessage("송출이 중지되었습니다")
 
     def _stop_web_broadcast(self) -> None:
@@ -2284,6 +2288,7 @@ class MainWindow(QMainWindow):
         if self._web_broadcast is not None:
             self._web_broadcast.stop()
         self._display_action.setText("송출 시작")
+        self._web_broadcast_screen.set_server(self._web_broadcast)
         self._statusbar.showMessage("웹 송출이 중지되었습니다")
 
     def _set_project_editable(self, editable: bool) -> None:

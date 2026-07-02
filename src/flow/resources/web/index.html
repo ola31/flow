@@ -163,7 +163,12 @@
       root.style.backgroundColor = msg.background_color;
     } else {
       root.style.backgroundColor = "#0a0e14";
-      if (msg.changed_background && msg.background_url) {
+      // The "?v=N" cache-buster in background_url encodes identity, so
+      // comparing it directly both dedupes (skip if unchanged) and
+      // reloads correctly (set if changed) — including on first paint
+      // for late joiners / page reloads, where the replayed last payload
+      // carries no other "did it change" signal.
+      if (msg.background_url && !bg.src.endsWith(msg.background_url)) {
         bg.src = msg.background_url;
       }
       bg.style.display = "block";

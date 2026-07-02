@@ -19,7 +19,14 @@ from PySide6.QtCore import QBuffer, QIODevice, QObject, Signal
 from PySide6.QtNetwork import QAbstractSocket, QHostAddress, QNetworkInterface
 from PySide6.QtWebSockets import QWebSocketServer
 
-from flow.services.markdown import effective_background, parse, resolve_attrs
+from flow.services.markdown import (
+    PatchStore,
+    apply_patches,
+    effective_background,
+    parse,
+    resolve_attrs,
+)
+from flow.services.markdown.parser import SongSpec
 from flow.services.markdown.renderer import _app_assets_dir
 
 logger = logging.getLogger(__name__)
@@ -49,15 +56,20 @@ def detect_local_ips() -> list[str]:
 
 
 def build_markdown_payload(
-    md_text: str, local_index: int, song_dir: Path, last_bg: str | None
+    spec: SongSpec, local_index: int, song_dir: Path, last_bg: str | None
 ) -> tuple[dict, str | None]:
     """Build the WS payload for a markdown song slide.
 
-    Returns (payload, bg) where bg is the raw background identifier string
-    (hex color / "@app/<name>" / path) used as the comparison key for the
-    next call's ``last_bg``.
+    ``spec`` must already be parsed (and patched, if applicable) by the
+    caller — this function stays pure and does no file I/O.
+
+    Returns (payload, bg_key) where bg_key is the comparison key used for
+    the next call's ``last_bg``: a hex color string as-is, or the resolved
+    absolute path of the background file (falling back to the raw
+    identifier string when the file can't be resolved). Resolving to an
+    absolute path avoids collisions between different songs that happen to
+    use the same relative background filename (e.g. "bg.jpg").
     """
-    spec = parse(md_text)
     slide = spec.slides[local_index]  # IndexError propagates to caller
     attrs = resolve_attrs(spec, slide)
     bg = effective_background(spec, slide, attrs)
@@ -68,10 +80,12 @@ def build_markdown_payload(
         "sub_text": attrs.sub_text,
     }
     if bg.startswith("#"):
+        bg_key: str | None = bg
         payload["background_color"] = bg
     else:
-        payload["changed_background"] = bg != last_bg
-    return payload, bg
+        resolved = resolve_background_file(bg, song_dir)
+        bg_key = str(resolved) if resolved is not None else bg
+    return payload, bg_key
 
 
 def resolve_background_file(bg: str, song_dir: Path) -> Path | None:
@@ -125,13 +139,14 @@ class _WebBroadcastRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if path == "/bg":
-            data = owner._current_bg_bytes
-            if data is None:
+            current_bg = owner._current_bg
+            if current_bg is None:
                 self.send_response(404)
                 self.end_headers()
                 return
+            data, content_type = current_bg
             self.send_response(200)
-            self.send_header("Content-Type", owner._current_bg_ctype)
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -155,15 +170,24 @@ class WebBroadcastServer(QObject):
         self._clients: list[Any] = []
         self._last_payload_json: str | None = None
         self._last_bg_key: str | None = None
-        self._current_bg_bytes: bytes | None = None
-        self._current_bg_ctype: str = "image/png"
+        self._current_bg: tuple[bytes, str] | None = None
         self._bg_version: int = 0
 
     # -- lifecycle ---------------------------------------------------
 
     def start(self) -> str | None:
-        self._start_http()
+        if self.is_running():
+            urls = self.local_urls()
+            if urls:
+                return urls[0]
+            if self._http_port is not None:
+                return f"http://127.0.0.1:{self._http_port}"
+            return None
+
+        # WS must be listening before the first page is served, otherwise
+        # the served index.html could embed a not-yet-real {{WS_PORT}}.
         self._start_ws()
+        self._start_http()
 
         urls = self.local_urls()
         if urls:
@@ -211,12 +235,13 @@ class WebBroadcastServer(QObject):
 
         if self._ws_server is not None:
             self._ws_server.close()
+            self._ws_server.deleteLater()
         self._ws_server = None
         self._ws_port = None
 
         self._last_payload_json = None
         self._last_bg_key = None
-        self._current_bg_bytes = None
+        self._current_bg = None
         self._bg_version = 0
 
     def is_running(self) -> bool:
@@ -271,20 +296,16 @@ class WebBroadcastServer(QObject):
 
     def _push_current_slide(self, song: Any, local_index: int, image: Any) -> None:
         if song is not None and getattr(song, "slide_source", None) == "markdown":
-            md_text = song.markdown_path.read_text(encoding="utf-8")
-            payload, bg = build_markdown_payload(
-                md_text, local_index, song.abs_folder, self._last_bg_key
-            )
-            if "background_color" not in payload:
-                if payload.get("changed_background"):
-                    bg_path = resolve_background_file(bg, song.abs_folder)
-                    if bg_path is not None:
-                        self._current_bg_bytes = bg_path.read_bytes()
-                        self._current_bg_ctype = _bg_content_type(bg_path)
-                        self._bg_version += 1
-                if self._current_bg_bytes is not None:
-                    payload["background_url"] = f"/bg?v={self._bg_version}"
-            self._last_bg_key = bg
+            try:
+                payload = self._build_markdown_slide_payload(song, local_index)
+            except Exception:
+                logger.debug(
+                    "markdown payload build failed, falling back to image",
+                    exc_info=True,
+                )
+                if image is None:
+                    raise
+                payload = encode_image_payload(image)
         elif image is not None:
             payload = encode_image_payload(image)
         elif image is None and song is None:
@@ -295,3 +316,35 @@ class WebBroadcastServer(QObject):
         self._last_payload_json = json.dumps(payload)
         for client in self._clients:
             client.sendTextMessage(self._last_payload_json)
+
+    def _build_markdown_slide_payload(self, song: Any, local_index: int) -> dict:
+        """Parse the song's markdown, apply any emergency-edit patches (same
+        pipeline the desktop editor uses), and build the WS payload.
+
+        Applying patches here keeps EDIT patches from showing stale text on
+        the web viewer, and lets ``build_markdown_payload``'s IndexError (on
+        a stale index vs. a freshly-APPENDed slide) propagate to the caller,
+        which falls back to the projector image instead of freezing.
+        """
+        md_text = song.markdown_path.read_text(encoding="utf-8")
+        spec = parse(md_text)
+        store = PatchStore(song.markdown_path.parent / ".patches.json")
+        if store.patches:
+            spec = apply_patches(spec, store.patches)
+
+        payload, bg_key = build_markdown_payload(
+            spec, local_index, song.abs_folder, self._last_bg_key
+        )
+        if "background_color" not in payload:
+            if bg_key != self._last_bg_key:
+                bg_path = Path(bg_key) if bg_key is not None else None
+                if bg_path is not None and bg_path.exists():
+                    self._current_bg = (
+                        bg_path.read_bytes(),
+                        _bg_content_type(bg_path),
+                    )
+                    self._bg_version += 1
+            if self._current_bg is not None:
+                payload["background_url"] = f"/bg?v={self._bg_version}"
+        self._last_bg_key = bg_key
+        return payload
