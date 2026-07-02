@@ -20,6 +20,7 @@ dependencies = [
     "pdf2image",
     "pymupdf",
     "pyyaml>=6.0",
+    "qrcode",
 ]
 
 [project.optional-dependencies]
