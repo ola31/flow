@@ -68,3 +68,67 @@ def test_main_window_navigates_to_web_screen(qapp):
         assert mw._stack.currentWidget() is mw._web_broadcast_screen
     finally:
         mw.close()
+
+
+class _FakeHotspot:
+    def __init__(self, supported=True, active=False, captive=False):
+        self._sup, self._active, self._captive = supported, active, captive
+
+        class _Sig:
+            def connect(self, *_): pass
+            def disconnect(self, *_): pass
+
+        self.state_changed = _Sig()
+
+    def is_supported(self): return self._sup
+    def is_active(self): return self._active
+    def support_message(self): return "" if self._sup else "미지원 메시지"
+    def captive_portal_installed(self): return self._captive
+
+
+def test_hotspot_section_unsupported_hides_toggle(qtbot):
+    from flow.ui.screens.web_broadcast_screen import WebBroadcastScreen
+    s = WebBroadcastScreen()
+    qtbot.addWidget(s)
+    s.set_hotspot(_FakeHotspot(supported=False))
+    assert not s._hotspot_toggle_btn.isVisibleTo(s)
+    assert "미지원" in s._hotspot_info_label.text()
+
+
+def test_hotspot_toggle_emits(qtbot):
+    from flow.ui.screens.web_broadcast_screen import WebBroadcastScreen
+    s = WebBroadcastScreen()
+    qtbot.addWidget(s)
+    s.set_hotspot(_FakeHotspot(supported=True, active=False))
+    fired = []
+    s.hotspot_toggle_requested.connect(lambda: fired.append(1))
+    s._hotspot_toggle_btn.click()
+    assert fired == [1]
+    assert s._hotspot_toggle_btn.text() == "핫스팟 켜기"
+
+
+def test_captive_button_shown_when_active_and_not_installed(qtbot):
+    from flow.ui.screens.web_broadcast_screen import WebBroadcastScreen
+    s = WebBroadcastScreen()
+    qtbot.addWidget(s)
+    s.set_hotspot(_FakeHotspot(supported=True, active=True, captive=False))
+    assert s._captive_btn.isVisibleTo(s)
+
+
+def test_captive_hidden_when_installed(qtbot):
+    from flow.ui.screens.web_broadcast_screen import WebBroadcastScreen
+    s = WebBroadcastScreen()
+    qtbot.addWidget(s)
+    s.set_hotspot(_FakeHotspot(supported=True, active=True, captive=True))
+    assert not s._captive_btn.isVisibleTo(s)
+    assert "켜짐" in s._captive_status_label.text()
+
+
+def test_set_hotspot_credentials_shown_when_active(qtbot):
+    from flow.ui.screens.web_broadcast_screen import WebBroadcastScreen
+    s = WebBroadcastScreen()
+    qtbot.addWidget(s)
+    s.set_hotspot(_FakeHotspot(supported=True, active=True))
+    s.set_hotspot_credentials("Flow-0001", "pw123456")
+    assert "Flow-0001" in s._hotspot_info_label.text()
+    assert "pw123456" in s._hotspot_info_label.text()
