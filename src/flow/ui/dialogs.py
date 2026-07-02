@@ -21,6 +21,7 @@ OS 기본 다이얼로그(QMessageBox, QInputDialog)는 타이틀바 글자 잘�
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 
 from PySide6.QtCore import Qt, QPoint, QSize
 from PySide6.QtGui import QMouseEvent
@@ -377,6 +378,15 @@ def flow_save_changes(
 # ─── 모니터 선택 다이얼로그 ────────────────────────────────────────────────
 
 
+@dataclass
+class DisplayTarget:
+    """송출 대상 — 물리 모니터 또는 웹 브라우저."""
+
+    mode: str  # "screen" | "web"
+    screen: object | None = None  # QScreen (mode == "screen"일 때만)
+    windowed: bool = False
+
+
 def flow_select_screen(
     parent,
     screens: list,
@@ -384,12 +394,12 @@ def flow_select_screen(
     current_name: str = "",
     default_windowed: bool | None = None,
     title: str = "송출 모니터 선택",
-) -> tuple[object | None, bool] | None:
-    """송출에 사용할 QScreen + 윈도우 모드 여부 선택.
+) -> DisplayTarget | None:
+    """송출에 사용할 대상(모니터 또는 웹) + 윈도우 모드 여부 선택.
 
     Returns:
-        (screen, windowed) 튜플 — screen은 선택된 QScreen, windowed는
-        True면 fullscreen 대신 윈도우 모드로 송출. 사용자 취소 시 None 반환.
+        DisplayTarget — mode가 "web"이면 웹 송출, "screen"이면 screen/windowed
+        필드가 채워진다. 사용자 취소 시 None 반환.
     """
     from PySide6.QtWidgets import QButtonGroup, QRadioButton, QCheckBox
 
@@ -449,7 +459,23 @@ def flow_select_screen(
         radios.append((radio, screen))
         body.addWidget(radio)
 
-    if not any(r.isChecked() for r, _ in radios):
+    radio_web = QRadioButton("웹으로 송출  ·  같은 네트워크의 브라우저로 접속")
+    radio_web.setStyleSheet(
+        f"QRadioButton {{ color: {TEXT_PRIMARY}; font-size: {FONT_MD}px; "
+        f"background: transparent; padding: {SP_SM}px 0; "
+        f"font-weight: {FW_MEDIUM}; spacing: 8px; }}"
+        f"QRadioButton::indicator {{ width: 14px; height: 14px; "
+        f"border-radius: 8px; border: 1.5px solid {BORDER_STANDARD_RGBA}; "
+        f"background: {BG_ELEVATED}; }}"
+        f"QRadioButton::indicator:checked {{ border: 4px solid {ACCENT}; "
+        f"background: {BG_DEEP}; }}"
+    )
+    if current_name == "__web__":
+        radio_web.setChecked(True)
+    group.addButton(radio_web, len(screens))
+    body.addWidget(radio_web)
+
+    if not any(r.isChecked() for r, _ in radios) and not radio_web.isChecked():
         radios[0][0].setChecked(True)
 
     # 윈도우 모드 체크박스 — 단일 모니터 환경의 기본 옵션, 다중 모니터에서도 선택 가능
@@ -477,12 +503,17 @@ def flow_select_screen(
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return None
 
+    if radio_web.isChecked():
+        return DisplayTarget(mode="web")
+
     chosen_screen = None
     for radio, screen in radios:
         if radio.isChecked():
             chosen_screen = screen
             break
-    return (chosen_screen, chk_windowed.isChecked())
+    return DisplayTarget(
+        mode="screen", screen=chosen_screen, windowed=chk_windowed.isChecked()
+    )
 
 
 # ─── 텍스트 입력 다이얼로그 (QInputDialog.getText 대체) ────────────────────

@@ -2154,7 +2154,13 @@ class MainWindow(QMainWindow):
         result = self._pick_display_screen()
         if result is None:
             return  # 사용자 취소
-        screen, windowed = result
+
+        target = result
+        if target.mode == "web":
+            # 웹 송출 연결은 다음 태스크에서 배선 — 스텁
+            self._statusbar.showMessage("웹 송출은 곧 지원됩니다", 3000)
+            return
+        screen, windowed = target.screen, target.windowed
 
         if self._display_window is None:
             self._display_window = DisplayWindow()
@@ -2173,7 +2179,7 @@ class MainWindow(QMainWindow):
         )
 
     def _pick_display_screen(self):
-        """송출 모니터/모드 결정. (screen, windowed) 튜플 또는 None(취소).
+        """송출 대상/모드 결정. DisplayTarget 또는 None(취소).
 
         매번 다이얼로그를 띄워 사용자가 확인하도록 한다. 이전에 저장된
         선택은 기본값으로 미리 체크되어 있어 Enter 한 번이면 바로 진행.
@@ -2187,8 +2193,12 @@ class MainWindow(QMainWindow):
         saved_name = self._config_service.get_display_screen_name()
         saved_windowed = self._config_service.get_display_windowed_mode()
 
-        # 저장된 모니터가 더 이상 없으면 안내
-        if saved_name and not any(s.name() == saved_name for s in screens):
+        # 저장된 모니터가 더 이상 없으면 안내 (웹 송출은 목록에 없으므로 제외)
+        if (
+            saved_name
+            and saved_name != "__web__"
+            and not any(s.name() == saved_name for s in screens)
+        ):
             self._statusbar.showMessage(
                 f"이전 송출 모니터('{saved_name}')를 찾을 수 없습니다. 다시 선택해 주세요.",
                 4000,
@@ -2197,20 +2207,22 @@ class MainWindow(QMainWindow):
 
         # 매 송출마다 확인 다이얼로그 (저장된 선택은 미리 체크됨)
         from flow.ui.dialogs import flow_select_screen
-        result = flow_select_screen(
+        target = flow_select_screen(
             self, screens,
             current_name=saved_name,
             default_windowed=saved_windowed,
         )
-        if result is None:
+        if target is None:
             return None  # 사용자 취소
 
-        screen, windowed = result
         # 다음 송출의 기본값으로 저장
-        if screen is not None:
-            self._config_service.set_display_screen_name(screen.name())
-        self._config_service.set_display_windowed_mode(windowed)
-        return (screen, windowed)
+        if target.mode == "web":
+            self._config_service.set_display_screen_name("__web__")
+        else:
+            if target.screen is not None:
+                self._config_service.set_display_screen_name(target.screen.name())
+            self._config_service.set_display_windowed_mode(target.windowed)
+        return target
 
     def _on_display_closed(self) -> None:
         """송출창이 닫혔을 때 (ESC로 닫거나 버튼으로 닫혔을 때 공통)"""
