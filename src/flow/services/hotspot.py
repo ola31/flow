@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import secrets
+import shutil
 import string
+import subprocess
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
@@ -54,35 +57,137 @@ class _UnsupportedHotspot:
         return []
 
 
+_CAPTIVE_MARKER_PATH = Path(
+    "/etc/NetworkManager/dnsmasq-shared.d/flow-captive.conf"
+)
+
+
 class _LinuxHotspot:
-    """Linux hotspot backend (stub — implemented in a later task)."""
+    """Linux hotspot backend driven by ``nmcli``."""
+
+    def __init__(self, run=subprocess.run, which=shutil.which) -> None:
+        self._run = run
+        self._which = which
+        self._last_error = ""
+
+    def _wifi_device(self) -> str | None:
+        try:
+            result = self._run(
+                ["nmcli", "-t", "-f", "DEVICE,TYPE", "device"],
+                capture_output=True,
+                text=True,
+            )
+        except Exception:
+            return None
+        stdout = getattr(result, "stdout", "") or ""
+        for line in stdout.splitlines():
+            parts = line.split(":")
+            if len(parts) >= 2 and parts[1] == "wifi":
+                return parts[0]
+        return None
 
     def is_supported(self) -> bool:
-        return False
-
-    def is_active(self) -> bool:
-        return False
+        return self._which("nmcli") is not None and self._wifi_device() is not None
 
     def start(self, ssid: str, password: str) -> bool:
+        dev = self._wifi_device()
+        if dev is None:
+            self._last_error = "Wi-Fi 어댑터를 찾을 수 없습니다."
+            return False
+        try:
+            result = self._run(
+                [
+                    "nmcli",
+                    "device",
+                    "wifi",
+                    "hotspot",
+                    "ifname",
+                    dev,
+                    "ssid",
+                    ssid,
+                    "password",
+                    password,
+                ],
+                capture_output=True,
+                text=True,
+            )
+        except Exception as e:
+            self._last_error = str(e)
+            return False
+        if result.returncode == 0:
+            return True
+        self._last_error = (result.stderr or "").strip()
         return False
 
     def stop(self) -> None:
-        return None
+        try:
+            self._run(
+                ["nmcli", "connection", "down", "Hotspot"],
+                capture_output=True,
+                text=True,
+            )
+        except Exception:
+            pass
 
-    def last_error(self) -> str:
-        return ""
-
-    def gateway_ip(self) -> str | None:
-        return None
-
-    def support_message(self) -> str:
-        return _UNSUPPORTED_MESSAGE
-
-    def captive_portal_installed(self) -> bool:
+    def is_active(self) -> bool:
+        try:
+            result = self._run(
+                ["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show", "--active"],
+                capture_output=True,
+                text=True,
+            )
+        except Exception:
+            return False
+        stdout = getattr(result, "stdout", "") or ""
+        for line in stdout.splitlines():
+            parts = line.split(":")
+            if parts and parts[0] == "Hotspot":
+                return True
         return False
 
+    def gateway_ip(self) -> str | None:
+        if not self.is_active():
+            return None
+        try:
+            dev = self._wifi_device()
+            result = self._run(
+                ["nmcli", "-t", "-f", "IP4.ADDRESS", "device", "show", dev],
+                capture_output=True,
+                text=True,
+            )
+            stdout = getattr(result, "stdout", "") or ""
+            for line in stdout.splitlines():
+                if line.startswith("IP4.ADDRESS"):
+                    _, _, value = line.partition(":")
+                    return value.split("/")[0].strip()
+        except Exception:
+            pass
+        return "10.42.0.1"
+
+    def last_error(self) -> str:
+        return self._last_error
+
+    def support_message(self) -> str:
+        if self.is_supported():
+            return ""
+        return (
+            "nmcli를 찾을 수 없거나 Wi-Fi 어댑터가 핫스팟(AP) 모드를 지원하지 "
+            "않습니다."
+        )
+
+    def _captive_script_path(self) -> Path:
+        return (
+            Path(__file__).resolve().parents[1]
+            / "resources"
+            / "captive"
+            / "install_captive.sh"
+        )
+
+    def captive_portal_installed(self) -> bool:
+        return _CAPTIVE_MARKER_PATH.exists()
+
     def captive_portal_install_command(self) -> list[str]:
-        return []
+        return ["pkexec", "bash", str(self._captive_script_path())]
 
 
 class _WindowsHotspot:

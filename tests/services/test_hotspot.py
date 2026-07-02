@@ -73,3 +73,57 @@ def test_manager_default_backend_on_this_os(qapp):
     assert isinstance(mgr.is_supported(), bool)
     assert isinstance(mgr.support_message(), str)
     assert isinstance(mgr.captive_portal_installed(), bool)
+
+
+def test_linux_start_builds_nmcli_command():
+    from flow.services.hotspot import _LinuxHotspot
+
+    calls = []
+
+    class R:
+        returncode = 0
+        stdout = "wld0:wifi\n"
+        stderr = ""
+
+    def fake_run(args, **kw):
+        calls.append(args)
+        return R()
+
+    be = _LinuxHotspot(run=fake_run, which=lambda n: "/usr/bin/nmcli")
+    assert be.start("Flow-0001", "pw123456") is True
+    hotspot_calls = [c for c in calls if "hotspot" in c]
+    assert hotspot_calls, calls
+    args = hotspot_calls[0]
+    assert args[:4] == ["nmcli", "device", "wifi", "hotspot"]
+    assert "Flow-0001" in args and "pw123456" in args
+
+
+def test_linux_start_failure_sets_error():
+    from flow.services.hotspot import _LinuxHotspot
+
+    class R:
+        returncode = 1
+        stdout = "wld0:wifi\n"
+        stderr = "Wi-Fi adapter busy"
+
+    # _wifi_device needs a wifi line; same R works (stdout has wld0:wifi)
+    be = _LinuxHotspot(run=lambda a, **k: R(), which=lambda n: "/usr/bin/nmcli")
+    assert be.start("s", "p12345678") is False
+    assert "busy" in be.last_error()
+
+
+def test_linux_not_supported_without_nmcli():
+    from flow.services.hotspot import _LinuxHotspot
+
+    be = _LinuxHotspot(run=lambda a, **k: None, which=lambda n: None)
+    assert be.is_supported() is False
+    assert be.support_message() != ""
+
+
+def test_linux_captive_install_command():
+    from flow.services.hotspot import _LinuxHotspot
+
+    be = _LinuxHotspot(run=lambda a, **k: None, which=lambda n: "/usr/bin/nmcli")
+    cmd = be.captive_portal_install_command()
+    assert cmd[0] == "pkexec" and cmd[1] == "bash"
+    assert cmd[-1].endswith("install_captive.sh")
