@@ -196,3 +196,21 @@ def test_push_current_slide_falls_back_to_image_on_markdown_error(qapp):
 
     payload = json.loads(srv._last_payload_json)
     assert payload["type"] == "image"
+
+
+def test_captive_check_routes(qapp):
+    srv = WebBroadcastServer()
+    srv.start()
+    try:
+        port = srv._http_port
+        r204 = urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/generate_204", timeout=3
+        )
+        assert r204.status == 204
+        rios = urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/hotspot-detect.html", timeout=3
+        )
+        assert rios.status == 200
+        assert b"Success" in rios.read()
+    finally:
+        srv.stop()
