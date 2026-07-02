@@ -105,6 +105,7 @@ class MainWindow(QMainWindow):
 
         # 송출 관련
         self._display_window: DisplayWindow | None = None
+        self._web_broadcast = None
         self._slide_manager = SlideManager()
         self._engine_dialog_shown = False
         self._slide_manager.engine_missing.connect(self._on_engine_missing)
@@ -2150,6 +2151,10 @@ class MainWindow(QMainWindow):
             self._display_window.close()
             return
 
+        if self._web_broadcast is not None and self._web_broadcast.is_running():
+            self._stop_web_broadcast()
+            return
+
         # 송출 시작 — 모니터 선택 먼저 (사용자가 취소하면 송출 안 함)
         result = self._pick_display_screen()
         if result is None:
@@ -2157,8 +2162,20 @@ class MainWindow(QMainWindow):
 
         target = result
         if target.mode == "web":
-            # 웹 송출 연결은 다음 태스크에서 배선 — 스텁
-            self._statusbar.showMessage("웹 송출은 곧 지원됩니다", 3000)
+            from flow.services.web_broadcast import WebBroadcastServer
+
+            if self._web_broadcast is None:
+                self._web_broadcast = WebBroadcastServer()
+            url = self._web_broadcast.start()
+            if not self._web_broadcast.local_urls():
+                self._statusbar.showMessage(
+                    "네트워크에 연결되어 있지 않습니다 — "
+                    "같은 기기에서만 접속 가능합니다",
+                    5000,
+                )
+            self._live_controller.sync_live()
+            self._display_action.setText("송출 중지")
+            self._statusbar.showMessage(f"웹 송출 시작: {url} (F11로 중지)")
             return
         screen, windowed = target.screen, target.windowed
 
@@ -2229,6 +2246,13 @@ class MainWindow(QMainWindow):
         self._display_action.setText("송출 시작")
         self._statusbar.showMessage("송출이 중지되었습니다")
 
+    def _stop_web_broadcast(self) -> None:
+        """웹 송출 서버 중지."""
+        if self._web_broadcast is not None:
+            self._web_broadcast.stop()
+        self._display_action.setText("송출 시작")
+        self._statusbar.showMessage("웹 송출이 중지되었습니다")
+
     def _set_project_editable(self, editable: bool) -> None:
         """프로젝트 편집 관련 UI 요소들 활성/비활성 제어"""
         # 툴바 액션 - 파일 관리 관련은 항상 활성화
@@ -2283,6 +2307,11 @@ class MainWindow(QMainWindow):
 
         if self._display_window:
             self._display_window.close()
+        if self._web_broadcast is not None:
+            try:
+                self._web_broadcast.stop()
+            except Exception:
+                pass  # 앱 종료 시 웹 송출 정리 실패가 종료를 막으면 안 됨
         event.accept()
 
     def _close_current_project(self) -> None:
@@ -2657,6 +2686,28 @@ class MainWindow(QMainWindow):
 
         if self._display_window and self._display_window.isVisible():
             self._display_window.show_image(image)
+
+        if self._web_broadcast is not None and self._web_broadcast.is_running():
+            try:
+                idx = self._live_controller.live_slide_index
+                if image is None or idx < 0:
+                    self._web_broadcast.push_current_slide(None, -1, None)
+                else:
+                    song = None
+                    local_idx = idx
+                    if self._project and self._project.selected_songs:
+                        name, local_idx = self._slide_manager.global_to_local(idx)
+                        song = next(
+                            (
+                                s
+                                for s in self._project.selected_songs
+                                if s.name == name
+                            ),
+                            None,
+                        )
+                    self._web_broadcast.push_current_slide(song, local_idx, image)
+            except Exception:
+                pass  # 웹 송출 실패가 물리 송출을 방해하면 안 됨
 
     def _on_load_ppt(self) -> None:
         """PPTX 파일 로드 핸들러 - 프로젝트 폴더 우선 탐색"""
