@@ -127,3 +127,14 @@ def test_linux_captive_install_command():
     cmd = be.captive_portal_install_command()
     assert cmd[0] == "pkexec" and cmd[1] == "bash"
     assert cmd[-1].endswith("install_captive.sh")
+
+
+def test_windows_backend_unsupported_without_winsdk():
+    from flow.services.hotspot import _WindowsHotspot
+
+    be = _WindowsHotspot()
+    # On this Linux machine winsdk isn't importable and sys.platform != win32
+    assert be.is_supported() is False
+    assert "Windows" in be.support_message()
+    assert be.captive_portal_installed() is False
+    assert be.captive_portal_install_command() == []

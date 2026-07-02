@@ -190,35 +190,105 @@ class _LinuxHotspot:
         return ["pkexec", "bash", str(self._captive_script_path())]
 
 
+_WINDOWS_CAPTIVE_MESSAGE = (
+    "Windows에서는 폰 튕김 방지(캡티브 포털)를 자동 설정할 수 없습니다. "
+    "폰에 '인터넷 없음' 경고가 떠도 접속을 유지하세요."
+)
+_WINDOWS_UNSUPPORTED_MESSAGE = (
+    "Windows 모바일 핫스팟을 사용할 수 없습니다 (winsdk 미설치 또는 지원되지 "
+    "않는 환경)."
+)
+
+
 class _WindowsHotspot:
-    """Windows hotspot backend (stub — implemented in a later task)."""
+    """Windows hotspot backend using the WinRT NetworkOperatorTetheringManager.
+
+    All ``winsdk`` imports happen lazily inside methods so importing this
+    module on non-Windows platforms (where winsdk is not installed) never
+    fails.
+    """
+
+    def __init__(self) -> None:
+        self._last_error = ""
+
+    def _manager(self):
+        try:
+            from winsdk.windows.networking.connectivity import (
+                NetworkInformation,
+            )
+            from winsdk.windows.networking.networkoperators import (
+                NetworkOperatorTetheringManager,
+            )
+
+            profile = NetworkInformation.get_internet_connection_profile()
+            if profile is None:
+                return None
+            return NetworkOperatorTetheringManager.create_from_connection_profile(
+                profile
+            )
+        except Exception as e:
+            self._last_error = str(e)
+            return None
 
     def is_supported(self) -> bool:
-        return False
-
-    def is_active(self) -> bool:
-        return False
+        return sys.platform == "win32" and self._manager() is not None
 
     def start(self, ssid: str, password: str) -> bool:
-        return False
+        manager = self._manager()
+        if manager is None:
+            self._last_error = self._last_error or "핫스팟 관리자를 찾을 수 없습니다."
+            return False
+        try:
+            config = manager.get_current_access_point_configuration()
+            config.ssid = ssid
+            config.passphrase = password
+            manager.configure_access_point_async(config).get()
+
+            from winsdk.windows.networking.networkoperators import (
+                TetheringOperationStatus,
+            )
+
+            result = manager.start_tethering_async().get()
+            return bool(result.status == TetheringOperationStatus.SUCCESS)
+        except Exception as e:
+            self._last_error = str(e)
+            return False
 
     def stop(self) -> None:
-        return None
+        try:
+            self._manager().stop_tethering_async().get()
+        except Exception:
+            pass
 
-    def last_error(self) -> str:
-        return ""
+    def is_active(self) -> bool:
+        try:
+            from winsdk.windows.networking.networkoperators import (
+                TetheringOperationalState,
+            )
+
+            return bool(
+                self._manager().tethering_operational_state
+                == TetheringOperationalState.ON
+            )
+        except Exception:
+            return False
 
     def gateway_ip(self) -> str | None:
         return None
 
     def support_message(self) -> str:
-        return _UNSUPPORTED_MESSAGE
+        if self.is_supported():
+            return _WINDOWS_CAPTIVE_MESSAGE
+        return _WINDOWS_UNSUPPORTED_MESSAGE
 
     def captive_portal_installed(self) -> bool:
         return False
 
     def captive_portal_install_command(self) -> list[str]:
         return []
+
+    def last_error(self) -> str:
+        return self._last_error
 
 
 class HotspotManager(QObject):
