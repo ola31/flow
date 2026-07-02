@@ -214,6 +214,26 @@ class ConfigService:
         self._config["display_windowed_mode"] = bool(windowed)
         self.save()
 
+    # ==== 핫스팟 ====
+
+    def get_hotspot_ssid(self) -> str:
+        self.load()
+        return self._config.get("hotspot_ssid", "")
+
+    def set_hotspot_ssid(self, ssid: str) -> None:
+        self.load()
+        self._config["hotspot_ssid"] = ssid or ""
+        self.save()
+
+    def get_hotspot_password(self) -> str:
+        self.load()
+        return self._config.get("hotspot_password", "")
+
+    def set_hotspot_password(self, password: str) -> None:
+        self.load()
+        self._config["hotspot_password"] = password or ""
+        self.save()
+
     # ==== 출력 해상도 ====
 
     def get_output_resolution(self) -> tuple[int, int]:
