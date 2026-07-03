@@ -30,7 +30,12 @@ __init__.py 의 __version__ 수정 → git commit → git tag v0.X.Y → git pus
 | Windows | `Flow-Setup-{ver}.exe` | 더블클릭 → 마법사로 설치 (Program Files 등록, 시작 메뉴, 제어판 삭제 가능) |
 | Windows | `Flow-portable-{ver}.zip` | 압축 해제 → `Flow.exe` 실행. 설치/레지스트리 사용 안 함 |
 | macOS (Apple Silicon) | `Flow-macOS-{ver}.zip` | 압축 해제 → `Flow.app` 더블클릭. **첫 실행은 우클릭 → 열기** (미서명) |
-| Linux (x86_64) | `Flow-{ver}-x86_64.AppImage` | `chmod +x` 후 실행. 어느 배포판에서나 동작 |
+| Linux (x86_64) | `Flow-{ver}-x86_64.AppImage.tar.gz` | 압축 해제 → AppImage 더블클릭. 어느 배포판에서나 동작 |
+| Linux (ARM64) | `Flow-{ver}-aarch64.AppImage.tar.gz` | 압축 해제 → AppImage 더블클릭 (Asahi, RPi 등) |
+
+> Linux 를 tar.gz 로 감싸는 이유: 브라우저 다운로드는 실행 권한을 잃어버려서,
+> 그 상태로 AppImage 를 더블클릭하면 GNOME 이 디스크 이미지로 착각해 "디스크에
+> 복원" 창을 띄움 (잘못 누르면 디스크가 덮어써짐). tar 는 권한을 보존함.
 
 ## 미리 알아둘 점
 

@@ -136,6 +136,14 @@ jobs:
           ARCH=$ARCH ./squashfs-root/AppRun \
             "$APPDIR" "dist/Flow-${VER}-${ARCH}.AppImage"
 
+          # tar.gz 로 감싸서 배포 — 브라우저 다운로드는 실행 권한(+x)을
+          # 잃어버리는데, 그 상태로 더블클릭하면 GNOME 이 AppImage 를 디스크
+          # 이미지로 착각해 "디스크에 복원" 창을 띄운다(잘못 누르면 디스크가
+          # 통째로 덮어써짐). tar 는 권한을 보존하므로 압축 해제만 하면
+          # chmod 없이 바로 실행된다.
+          tar -czf "dist/Flow-${VER}-${ARCH}.AppImage.tar.gz" \
+            -C dist "Flow-${VER}-${ARCH}.AppImage"
+
       # ─── Upload artifacts (per OS) ─────────────────────────────────────────
       - name: Upload Windows artifacts
         if: runner.os == 'Windows'
@@ -160,7 +168,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact-name }}
-          path: dist/Flow-*.AppImage
+          path: dist/Flow-*.AppImage.tar.gz
           if-no-files-found: error
 
   release:
@@ -189,5 +197,5 @@ jobs:
             | Windows (installer) | `Flow-Setup-*.exe` |
             | Windows (portable) | `Flow-portable-*.zip` |
             | macOS (Apple Silicon) | `Flow-macOS-*.zip` — right-click → Open on first launch |
-            | Linux x86_64 (Intel/AMD) | `Flow-*-x86_64.AppImage` |
-            | Linux ARM64 (Asahi, RPi, Graviton) | `Flow-*-aarch64.AppImage` |
+            | Linux x86_64 (Intel/AMD) | `Flow-*-x86_64.AppImage.tar.gz` — extract, then run |
+            | Linux ARM64 (Asahi, RPi, Graviton) | `Flow-*-aarch64.AppImage.tar.gz` — extract, then run |
