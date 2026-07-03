@@ -206,8 +206,9 @@ class WebBroadcastScreen(QWidget):
         self._url_label.setText("\n".join(urls))
         self._url_label.setVisible(bool(urls))
 
-        if urls:
-            self._qr_label.setPixmap(self._build_qr_pixmap(urls[0]))
+        pixmap = self._build_qr_pixmap(urls[0]) if urls else None
+        if pixmap is not None:
+            self._qr_label.setPixmap(pixmap)
             self._qr_label.show()
         else:
             self._qr_label.hide()
@@ -215,15 +216,19 @@ class WebBroadcastScreen(QWidget):
         self._clients_label.setText(f"접속: {self._server.client_count()}명")
         self._clients_label.show()
 
-    def _build_qr_pixmap(self, url: str) -> QPixmap:
-        import qrcode
+    def _build_qr_pixmap(self, url: str) -> QPixmap | None:
+        """QR 픽스맵 생성. qrcode 미설치 등 실패 시 None (화면은 URL만 표시)."""
+        try:
+            import qrcode
 
-        img = qrcode.make(url)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        pixmap = QPixmap()
-        pixmap.loadFromData(buf.getvalue())
-        return pixmap
+            img = qrcode.make(url)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            pixmap = QPixmap()
+            pixmap.loadFromData(buf.getvalue())
+            return pixmap
+        except Exception:
+            return None
 
     def _on_client_count(self, n: int) -> None:
         self._clients_label.setText(f"접속: {n}명")
