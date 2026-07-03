@@ -279,18 +279,24 @@ class WebBroadcastScreen(QWidget):
         else:
             self._hotspot_info_label.setVisible(False)
 
-        if active:
-            installed = self._hotspot.captive_portal_installed()
-            if installed:
-                self._captive_btn.setVisible(False)
-                self._captive_status_label.setText("폰 튕김 방지 켜짐")
-                self._captive_status_label.setVisible(True)
-            else:
-                self._captive_btn.setVisible(True)
-                self._captive_status_label.setText(
-                    "폰이 자동으로 끊길 수 있습니다. 폰 튕김 방지를 설정하세요."
-                )
-                self._captive_status_label.setVisible(True)
+        installed = self._hotspot.captive_portal_installed()
+        if not installed:
+            self._captive_btn.setVisible(True)
+            self._captive_status_label.setText(
+                "폰이 자동으로 끊길 수 있습니다. 폰 튕김 방지를 설정하세요."
+            )
+            self._captive_status_label.setVisible(True)
         else:
             self._captive_btn.setVisible(False)
-            self._captive_status_label.setVisible(False)
+            status = "폰 튕김 방지 켜짐"
+            if active:
+                srv = self._server
+                if srv is None or not srv.is_running():
+                    status = "폰 튕김 방지 켜짐 — 웹 송출을 켜야 동작합니다"
+                elif srv.http_port() != 8777:
+                    status = (
+                        "경고: 웹 송출이 8777 포트가 아니라 폰 튕김 방지가 "
+                        "동작하지 않습니다"
+                    )
+            self._captive_status_label.setText(status)
+            self._captive_status_label.setVisible(True)

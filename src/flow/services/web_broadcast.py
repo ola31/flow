@@ -267,6 +267,10 @@ class WebBroadcastServer(QObject):
     def is_running(self) -> bool:
         return self._http_server is not None and self._ws_server is not None
 
+    def http_port(self) -> int | None:
+        """The HTTP port actually bound to, or ``None`` if not running."""
+        return self._http_port if self.is_running() else None
+
     def local_urls(self) -> list[str]:
         if self._http_port is None:
             return []

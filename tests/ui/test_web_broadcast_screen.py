@@ -12,8 +12,9 @@ class _FakeSignal:
 
 
 class _FakeServer:
-    def __init__(self, running=True):
+    def __init__(self, running=True, http_port_value=8777):
         self._running = running
+        self._http_port_value = http_port_value
         self.client_count_changed = _FakeSignal()
 
     def is_running(self):
@@ -24,6 +25,9 @@ class _FakeServer:
 
     def client_count(self):
         return 2
+
+    def http_port(self):
+        return self._http_port_value
 
 
 def test_screen_idle_state(qtbot):
@@ -132,3 +136,33 @@ def test_set_hotspot_credentials_shown_when_active(qtbot):
     s.set_hotspot_credentials("Flow-0001", "pw123456")
     assert "Flow-0001" in s._hotspot_info_label.text()
     assert "pw123456" in s._hotspot_info_label.text()
+
+
+def test_captive_button_shown_even_when_hotspot_inactive(qtbot):
+    """FIX-5 (C1): the install button must be reachable before the hotspot
+    is ever turned on, not just while it's active."""
+    from flow.ui.screens.web_broadcast_screen import WebBroadcastScreen
+    s = WebBroadcastScreen()
+    qtbot.addWidget(s)
+    s.set_hotspot(_FakeHotspot(supported=True, active=False, captive=False))
+    assert s._captive_btn.isVisibleTo(s)
+
+
+def test_captive_status_warns_on_port_mismatch(qtbot):
+    """FIX-7 (C2): captive redirect targets :8777 — if the web server is
+    actually listening elsewhere, the redirect silently does nothing."""
+    from flow.ui.screens.web_broadcast_screen import WebBroadcastScreen
+    s = WebBroadcastScreen()
+    qtbot.addWidget(s)
+    s.set_server(_FakeServer(running=True, http_port_value=9000))
+    s.set_hotspot(_FakeHotspot(supported=True, active=True, captive=True))
+    assert "8777" in s._captive_status_label.text()
+
+
+def test_captive_status_prompts_to_start_web_broadcast_when_no_server(qtbot):
+    from flow.ui.screens.web_broadcast_screen import WebBroadcastScreen
+    s = WebBroadcastScreen()
+    qtbot.addWidget(s)
+    s.set_server(None)
+    s.set_hotspot(_FakeHotspot(supported=True, active=True, captive=True))
+    assert "웹 송출" in s._captive_status_label.text()

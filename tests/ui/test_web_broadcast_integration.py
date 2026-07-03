@@ -189,6 +189,55 @@ def test_hotspot_toggle_cancel_does_not_start(qapp, monkeypatch):
         mw.close()
 
 
+def test_captive_install_finished_failure_shows_warning(qapp, monkeypatch):
+    """FIX-6 (I1): a non-zero pkexec exit (e.g. permission denied = 126) must
+    surface a user-visible warning, not fail silently."""
+    import flow.ui.dialogs as dialogs
+    from flow.ui.main_window import MainWindow
+
+    mw = MainWindow()
+    try:
+        warned = []
+        monkeypatch.setattr(
+            dialogs, "flow_warning", lambda *a, **k: warned.append(a)
+        )
+        mw._on_captive_install_finished(126)
+        assert warned
+    finally:
+        mw.close()
+
+
+def test_captive_install_finished_success_restarts_active_hotspot(qapp):
+    """FIX-6 (I1) / FIX-5 (C1): once the captive config is installed, an
+    already-running hotspot must be restarted so dnsmasq/dispatcher pick up
+    the new config."""
+    from flow.ui.main_window import MainWindow
+
+    mw = MainWindow()
+    try:
+        calls = []
+
+        class _FakeHS:
+            def is_active(self):
+                return True
+
+            def stop(self):
+                calls.append("stop")
+
+            def start(self, ssid, pw):
+                calls.append(("start", ssid, pw))
+                return True
+
+        mw._hotspot = _FakeHS()
+        mw._config_service.set_hotspot_ssid("Flow-TEST")
+        mw._config_service.set_hotspot_password("pw123456")
+        mw._on_captive_install_finished(0)
+        assert calls[0] == "stop"
+        assert calls[1] == ("start", "Flow-TEST", "pw123456")
+    finally:
+        mw.close()
+
+
 def test_hotspot_toggle_stops_when_active(qapp):
     from flow.ui.main_window import MainWindow
 

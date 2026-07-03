@@ -426,12 +426,35 @@ class MainWindow(QMainWindow):
         cmd = hs.captive_portal_install_command()
         if not cmd:
             return
-        import subprocess
+        from PySide6.QtCore import QProcess
 
-        try:
-            subprocess.run(cmd, check=False)
-        except Exception:
-            pass
+        proc = QProcess(self)
+        proc.finished.connect(
+            lambda code, _status: self._on_captive_install_finished(code)
+        )
+        self._captive_proc = proc  # GC 방지
+        proc.start(cmd[0], cmd[1:])
+
+    def _on_captive_install_finished(self, exit_code: int) -> None:
+        if exit_code != 0:
+            from flow.ui.dialogs import flow_warning
+
+            flow_warning(
+                self,
+                "폰 튕김 방지",
+                "설정이 완료되지 않았습니다 (권한 거부 또는 오류).",
+            )
+        else:
+            hs = self._get_hotspot()
+            if hs.is_active():
+                ssid = self._config_service.get_hotspot_ssid()
+                pw = self._config_service.get_hotspot_password()
+                if ssid:
+                    hs.stop()
+                    hs.start(ssid, pw)
+                self._statusbar.showMessage(
+                    "핫스팟을 다시 시작해 폰 튕김 방지를 적용했습니다", 4000
+                )
         self._web_broadcast_screen.refresh_hotspot()
 
     def _show_projects_screen(self) -> None:
@@ -2422,7 +2445,7 @@ class MainWindow(QMainWindow):
                 pass  # 앱 종료 시 웹 송출 정리 실패가 종료를 막으면 안 됨
         if self._hotspot is not None:
             try:
-                self._hotspot.stop()
+                self._hotspot.stop_if_started()
             except Exception:
                 pass
         event.accept()

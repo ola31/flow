@@ -41,6 +41,9 @@ class _UnsupportedHotspot:
     def stop(self) -> None:
         return None
 
+    def stop_if_started(self) -> None:
+        return None
+
     def last_error(self) -> str:
         return ""
 
@@ -56,6 +59,9 @@ class _UnsupportedHotspot:
     def captive_portal_install_command(self) -> list[str]:
         return []
 
+    def captive_portal_uninstall_command(self) -> list[str]:
+        return []
+
 
 _CAPTIVE_MARKER_PATH = Path(
     "/etc/NetworkManager/dnsmasq-shared.d/flow-captive.conf"
@@ -69,6 +75,7 @@ class _LinuxHotspot:
         self._run = run
         self._which = which
         self._last_error = ""
+        self._started = False
 
     def _wifi_device(self) -> str | None:
         try:
@@ -76,6 +83,7 @@ class _LinuxHotspot:
                 ["nmcli", "-t", "-f", "DEVICE,TYPE", "device"],
                 capture_output=True,
                 text=True,
+                timeout=10,
             )
         except Exception:
             return None
@@ -110,24 +118,37 @@ class _LinuxHotspot:
                 ],
                 capture_output=True,
                 text=True,
+                timeout=30,
             )
         except Exception as e:
             self._last_error = str(e)
             return False
         if result.returncode == 0:
+            self._started = True
             return True
         self._last_error = (result.stderr or "").strip()
         return False
 
     def stop(self) -> None:
+        """Explicit user-requested stop: downs the hotspot regardless of
+        whether Flow was the one that started it."""
         try:
             self._run(
                 ["nmcli", "connection", "down", "Hotspot"],
                 capture_output=True,
                 text=True,
+                timeout=10,
             )
         except Exception:
             pass
+        self._started = False
+
+    def stop_if_started(self) -> None:
+        """Only stop the hotspot if this instance started it — never kill a
+        hotspot the user (or another app) already had running, e.g. on app
+        shutdown."""
+        if self._started:
+            self.stop()
 
     def is_active(self) -> bool:
         try:
@@ -135,13 +156,14 @@ class _LinuxHotspot:
                 ["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show", "--active"],
                 capture_output=True,
                 text=True,
+                timeout=10,
             )
         except Exception:
             return False
         stdout = getattr(result, "stdout", "") or ""
         for line in stdout.splitlines():
             parts = line.split(":")
-            if parts and parts[0] == "Hotspot":
+            if len(parts) >= 2 and parts[0] == "Hotspot" and "wireless" in parts[1]:
                 return True
         return False
 
@@ -154,6 +176,7 @@ class _LinuxHotspot:
                 ["nmcli", "-t", "-f", "IP4.ADDRESS", "device", "show", dev],
                 capture_output=True,
                 text=True,
+                timeout=10,
             )
             stdout = getattr(result, "stdout", "") or ""
             for line in stdout.splitlines():
@@ -183,11 +206,25 @@ class _LinuxHotspot:
             / "install_captive.sh"
         )
 
+    def _captive_uninstall_script_path(self) -> Path:
+        return (
+            Path(__file__).resolve().parents[1]
+            / "resources"
+            / "captive"
+            / "uninstall_captive.sh"
+        )
+
     def captive_portal_installed(self) -> bool:
         return _CAPTIVE_MARKER_PATH.exists()
 
     def captive_portal_install_command(self) -> list[str]:
         return ["pkexec", "bash", str(self._captive_script_path())]
+
+    def captive_portal_uninstall_command(self) -> list[str]:
+        """Command to remove Flow's captive-portal config (dnsmasq snippet +
+        dispatcher script + nft table). Not wired to any UI button — this is
+        for support/manual cleanup, run from a terminal."""
+        return ["pkexec", "bash", str(self._captive_uninstall_script_path())]
 
 
 _WINDOWS_CAPTIVE_MESSAGE = (
@@ -210,6 +247,7 @@ class _WindowsHotspot:
 
     def __init__(self) -> None:
         self._last_error = ""
+        self._started = False
 
     def _manager(self):
         try:
@@ -249,7 +287,10 @@ class _WindowsHotspot:
             )
 
             result = manager.start_tethering_async().get()
-            return bool(result.status == TetheringOperationStatus.SUCCESS)
+            ok = bool(result.status == TetheringOperationStatus.SUCCESS)
+            if ok:
+                self._started = True
+            return ok
         except Exception as e:
             self._last_error = str(e)
             return False
@@ -259,6 +300,11 @@ class _WindowsHotspot:
             self._manager().stop_tethering_async().get()
         except Exception:
             pass
+        self._started = False
+
+    def stop_if_started(self) -> None:
+        if self._started:
+            self.stop()
 
     def is_active(self) -> bool:
         try:
@@ -285,6 +331,9 @@ class _WindowsHotspot:
         return False
 
     def captive_portal_install_command(self) -> list[str]:
+        return []
+
+    def captive_portal_uninstall_command(self) -> list[str]:
         return []
 
     def last_error(self) -> str:
@@ -328,6 +377,9 @@ class HotspotManager(QObject):
     def captive_portal_install_command(self) -> list[str]:
         return self._backend.captive_portal_install_command()
 
+    def captive_portal_uninstall_command(self) -> list[str]:
+        return self._backend.captive_portal_uninstall_command()
+
     def start(self, ssid: str, password: str) -> bool:
         ok = self._backend.start(ssid, password)
         if ok:
@@ -336,4 +388,8 @@ class HotspotManager(QObject):
 
     def stop(self) -> None:
         self._backend.stop()
+        self.state_changed.emit()
+
+    def stop_if_started(self) -> None:
+        self._backend.stop_if_started()
         self.state_changed.emit()

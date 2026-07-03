@@ -139,6 +139,70 @@ def test_captive_install_script_exists_on_disk():
     assert os.path.exists(cmd[-1]), cmd[-1]
 
 
+def test_stop_if_started_noop_when_not_started():
+    from flow.services.hotspot import _LinuxHotspot
+
+    calls = []
+
+    class R:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(args, **kw):
+        calls.append(args)
+        return R()
+
+    be = _LinuxHotspot(run=fake_run, which=lambda n: "/usr/bin/nmcli")
+    be.stop_if_started()
+    assert not any("down" in c for c in calls)
+
+
+def test_stop_if_started_runs_after_successful_start():
+    from flow.services.hotspot import _LinuxHotspot
+
+    calls = []
+
+    class R:
+        returncode = 0
+        stdout = "wld0:wifi\n"
+        stderr = ""
+
+    def fake_run(args, **kw):
+        calls.append(args)
+        return R()
+
+    be = _LinuxHotspot(run=fake_run, which=lambda n: "/usr/bin/nmcli")
+    assert be.start("Flow-0001", "pw123456") is True
+    calls.clear()
+    be.stop_if_started()
+    assert any("down" in c for c in calls)
+
+
+def test_is_active_false_for_vpn_named_hotspot():
+    from flow.services.hotspot import _LinuxHotspot
+
+    class R:
+        returncode = 0
+        stdout = "Hotspot:vpn\n"
+        stderr = ""
+
+    be = _LinuxHotspot(run=lambda a, **k: R(), which=lambda n: "/usr/bin/nmcli")
+    assert be.is_active() is False
+
+
+def test_is_active_true_for_wireless_hotspot():
+    from flow.services.hotspot import _LinuxHotspot
+
+    class R:
+        returncode = 0
+        stdout = "Hotspot:802-11-wireless\n"
+        stderr = ""
+
+    be = _LinuxHotspot(run=lambda a, **k: R(), which=lambda n: "/usr/bin/nmcli")
+    assert be.is_active() is True
+
+
 def test_windows_backend_unsupported_without_winsdk():
     from flow.services.hotspot import _WindowsHotspot
 
