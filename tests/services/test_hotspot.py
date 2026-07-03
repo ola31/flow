@@ -130,8 +130,9 @@ def test_linux_captive_install_command():
 
 
 def test_captive_install_script_exists_on_disk():
-    from flow.services.hotspot import _LinuxHotspot
     import os
+
+    from flow.services.hotspot import _LinuxHotspot
 
     be = _LinuxHotspot(run=lambda a, **k: None, which=lambda n: "/usr/bin/nmcli")
     cmd = be.captive_portal_install_command()
