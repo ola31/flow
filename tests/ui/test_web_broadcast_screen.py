@@ -12,9 +12,10 @@ class _FakeSignal:
 
 
 class _FakeServer:
-    def __init__(self, running=True, http_port_value=8777):
+    def __init__(self, running=True, http_port_value=8777, ws_port_value=8778):
         self._running = running
         self._http_port_value = http_port_value
+        self._ws_port_value = ws_port_value
         self.client_count_changed = _FakeSignal()
 
     def is_running(self):
@@ -28,6 +29,9 @@ class _FakeServer:
 
     def http_port(self):
         return self._http_port_value
+
+    def ws_port(self):
+        return self._ws_port_value
 
 
 def test_screen_idle_state(qtbot):
@@ -88,6 +92,7 @@ class _FakeHotspot:
     def is_active(self): return self._active
     def support_message(self): return "" if self._sup else "미지원 메시지"
     def captive_portal_installed(self): return self._captive
+    def is_open_fallback(self): return False
 
 
 def test_hotspot_section_unsupported_hides_toggle(qtbot):
@@ -157,6 +162,18 @@ def test_captive_status_warns_on_port_mismatch(qtbot):
     s.set_server(_FakeServer(running=True, http_port_value=9000))
     s.set_hotspot(_FakeHotspot(supported=True, active=True, captive=True))
     assert "8777" in s._captive_status_label.text()
+
+
+def test_captive_status_warns_on_ws_port_mismatch(qtbot):
+    """The captive-portal firewall rules open a fixed WS port (8778) — if the
+    WebSocket server fell back to a random port, phones can load the page
+    but never receive live slide updates."""
+    from flow.ui.screens.web_broadcast_screen import WebBroadcastScreen
+    s = WebBroadcastScreen()
+    qtbot.addWidget(s)
+    s.set_server(_FakeServer(running=True, ws_port_value=54321))
+    s.set_hotspot(_FakeHotspot(supported=True, active=True, captive=True))
+    assert "8778" in s._captive_status_label.text() or "8777" in s._captive_status_label.text()
 
 
 def test_captive_status_prompts_to_start_web_broadcast_when_no_server(qtbot):

@@ -391,33 +391,58 @@ class MainWindow(QMainWindow):
         hs = self._get_hotspot()
         if hs.is_active():
             hs.stop()
-        else:
-            from flow.ui.dialogs import flow_question
+            self._refresh_hotspot_credentials()
+            self._web_broadcast_screen.refresh_hotspot()
+            return
 
-            if not flow_question(
-                self,
-                "핫스팟 켜기",
-                "핫스팟을 켜면 이 노트북의 인터넷 연결이 끊어집니다. 계속할까요?",
-            ):
+        from flow.ui.dialogs import flow_question
+
+        if not flow_question(
+            self,
+            "핫스팟 켜기",
+            "핫스팟을 켜면 이 노트북의 인터넷 연결이 끊어집니다. 계속할까요?",
+        ):
+            return
+
+        # 폰 튕김 방지(캡티브 포털)가 아직 설정 안 되어 있으면, 사용자가 별도
+        # 버튼을 몰라도 되도록 핫스팟을 켜기 전에 자동으로 먼저 설정한다.
+        if hs.is_supported() and not hs.captive_portal_installed():
+            cmd = hs.captive_portal_install_command()
+            if cmd:
+                from PySide6.QtCore import QProcess
+
+                proc = QProcess(self)
+                proc.finished.connect(
+                    lambda code, _status: self._on_captive_install_finished(
+                        code, then_start_hotspot=True
+                    )
+                )
+                self._captive_proc = proc  # GC 방지
+                proc.start(cmd[0], cmd[1:])
                 return
-            ssid = self._config_service.get_hotspot_ssid()
-            pw = self._config_service.get_hotspot_password()
-            if not ssid:
-                from flow.services.hotspot import (
-                    generate_default_password,
-                    generate_default_ssid,
-                )
 
-                ssid = generate_default_ssid()
-                pw = generate_default_password()
-                self._config_service.set_hotspot_ssid(ssid)
-                self._config_service.set_hotspot_password(pw)
-            if not hs.start(ssid, pw):
-                from flow.ui.dialogs import flow_warning
+        self._start_hotspot()
 
-                flow_warning(
-                    self, "핫스팟", f"핫스팟을 켤 수 없습니다:\n{hs.last_error()}"
-                )
+    def _start_hotspot(self) -> None:
+        hs = self._get_hotspot()
+        ssid = self._config_service.get_hotspot_ssid()
+        pw = self._config_service.get_hotspot_password()
+        if not ssid:
+            from flow.services.hotspot import (
+                generate_default_password,
+                generate_default_ssid,
+            )
+
+            ssid = generate_default_ssid()
+            pw = generate_default_password()
+            self._config_service.set_hotspot_ssid(ssid)
+            self._config_service.set_hotspot_password(pw)
+        if not hs.start(ssid, pw):
+            from flow.ui.dialogs import flow_warning
+
+            flow_warning(
+                self, "핫스팟", f"핫스팟을 켤 수 없습니다:\n{hs.last_error()}"
+            )
         self._refresh_hotspot_credentials()
         self._web_broadcast_screen.refresh_hotspot()
 
@@ -435,7 +460,9 @@ class MainWindow(QMainWindow):
         self._captive_proc = proc  # GC 방지
         proc.start(cmd[0], cmd[1:])
 
-    def _on_captive_install_finished(self, exit_code: int) -> None:
+    def _on_captive_install_finished(
+        self, exit_code: int, then_start_hotspot: bool = False
+    ) -> None:
         if exit_code != 0:
             from flow.ui.dialogs import flow_warning
 
@@ -444,17 +471,25 @@ class MainWindow(QMainWindow):
                 "폰 튕김 방지",
                 "설정이 완료되지 않았습니다 (권한 거부 또는 오류).",
             )
-        else:
-            hs = self._get_hotspot()
-            if hs.is_active():
-                ssid = self._config_service.get_hotspot_ssid()
-                pw = self._config_service.get_hotspot_password()
-                if ssid:
-                    hs.stop()
-                    hs.start(ssid, pw)
-                self._statusbar.showMessage(
-                    "핫스팟을 다시 시작해 폰 튕김 방지를 적용했습니다", 4000
-                )
+            self._web_broadcast_screen.refresh_hotspot()
+            if then_start_hotspot:
+                # 끊김 방지 설정엔 실패했어도 핫스팟 자체는 켜준다 — 폰이
+                # 스스로 끊을 수는 있지만 기능이 아예 막히는 것보단 낫다.
+                self._start_hotspot()
+            return
+
+        hs = self._get_hotspot()
+        if then_start_hotspot:
+            self._start_hotspot()
+        elif hs.is_active():
+            ssid = self._config_service.get_hotspot_ssid()
+            pw = self._config_service.get_hotspot_password()
+            if ssid:
+                hs.stop()
+                hs.start(ssid, pw)
+            self._statusbar.showMessage(
+                "핫스팟을 다시 시작해 폰 튕김 방지를 적용했습니다", 4000
+            )
         self._web_broadcast_screen.refresh_hotspot()
 
     def _show_projects_screen(self) -> None:

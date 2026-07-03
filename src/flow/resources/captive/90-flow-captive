@@ -13,8 +13,22 @@ case "$ACTION" in
     nft 'add chain ip flow_captive prerouting { type nat hook prerouting priority -100 ; }' 2>/dev/null || true
     nft flush chain ip flow_captive prerouting 2>/dev/null || true
     nft add rule ip flow_captive prerouting iifname "$IFACE" tcp dport 80 redirect to :8777 2>/dev/null || true
+
+    # Docker sets the legacy iptables FORWARD chain's default policy to
+    # drop and only opens holes for its own bridges/Tailscale — that silently
+    # swallows the hotspot's forwarded traffic even though firewalld and
+    # NetworkManager's own NAT rules both allow it. DOCKER-USER is the chain
+    # Docker leaves empty specifically for custom rules like this.
+    if command -v iptables >/dev/null 2>&1 && iptables -S DOCKER-USER >/dev/null 2>&1; then
+      iptables -C DOCKER-USER -i "$IFACE" -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER -i "$IFACE" -j ACCEPT
+      iptables -C DOCKER-USER -o "$IFACE" -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER -o "$IFACE" -j ACCEPT
+    fi
     ;;
   down)
     nft delete table ip flow_captive 2>/dev/null || true
+    if command -v iptables >/dev/null 2>&1 && iptables -S DOCKER-USER >/dev/null 2>&1; then
+      iptables -D DOCKER-USER -i "$IFACE" -j ACCEPT 2>/dev/null || true
+      iptables -D DOCKER-USER -o "$IFACE" -j ACCEPT 2>/dev/null || true
+    fi
     ;;
 esac

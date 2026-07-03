@@ -144,6 +144,9 @@ def test_hotspot_toggle_starts_when_confirmed(qapp, monkeypatch):
             def captive_portal_installed(self):
                 return False
 
+            def captive_portal_install_command(self):
+                return []
+
         mw._hotspot = _FakeHS()
         monkeypatch.setattr(dialogs, "flow_question", lambda *a, **k: True)
         mw._on_hotspot_toggle()
@@ -203,6 +206,86 @@ def test_captive_install_finished_failure_shows_warning(qapp, monkeypatch):
         )
         mw._on_captive_install_finished(126)
         assert warned
+    finally:
+        mw.close()
+
+
+def test_hotspot_toggle_auto_installs_captive_before_starting(
+    qapp, monkeypatch, qtbot
+):
+    """Users shouldn't need to discover the separate '폰 튕김 방지 설정하기'
+    button — turning the hotspot on when it isn't installed yet should
+    install it automatically first, then start the hotspot."""
+    import flow.ui.dialogs as dialogs
+    from flow.ui.main_window import MainWindow
+
+    mw = MainWindow()
+    try:
+        calls = []
+
+        class _FakeHS:
+            def is_active(self):
+                return False
+
+            def is_supported(self):
+                return True
+
+            def captive_portal_installed(self):
+                return False
+
+            def captive_portal_install_command(self):
+                return ["true"]
+
+            def start(self, ssid, pw):
+                calls.append("start")
+                return True
+
+            def last_error(self):
+                return ""
+
+        mw._hotspot = _FakeHS()
+        monkeypatch.setattr(dialogs, "flow_question", lambda *a, **k: True)
+        mw._on_hotspot_toggle()
+        assert "start" not in calls  # waits for install to finish first
+        qtbot.waitUntil(lambda: "start" in calls, timeout=3000)
+    finally:
+        mw.close()
+
+
+def test_hotspot_toggle_starts_directly_when_already_installed(qapp, monkeypatch):
+    """No captive install step (and no QProcess round-trip) when it's
+    already installed — the common case after the first run."""
+    import flow.ui.dialogs as dialogs
+    from flow.ui.main_window import MainWindow
+
+    mw = MainWindow()
+    try:
+        calls = []
+
+        class _FakeHS:
+            def is_active(self):
+                return False
+
+            def is_supported(self):
+                return True
+
+            def captive_portal_installed(self):
+                return True
+
+            def captive_portal_install_command(self):
+                raise AssertionError("should not be called when already installed")
+
+            def start(self, ssid, pw):
+                calls.append("start")
+                return True
+
+            def last_error(self):
+                return ""
+
+        mw._hotspot = _FakeHS()
+        monkeypatch.setattr(dialogs, "flow_question", lambda *a, **k: True)
+        mw._on_hotspot_toggle()
+        assert calls == ["start"]
     finally:
         mw.close()
 

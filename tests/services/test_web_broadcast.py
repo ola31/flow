@@ -74,6 +74,19 @@ def test_detect_local_ips_returns_list():
     assert all(not ip.startswith("127.") for ip in ips)
 
 
+def test_ws_port_defaults_to_fixed_value(qapp):
+    """A fixed WS port (rather than an OS-assigned random one) lets a
+    restrictive firewall zone (e.g. NetworkManager's hotspot nm-shared zone)
+    allow it in advance — see Flow's captive-portal install script."""
+    srv = WebBroadcastServer()
+    srv.start()
+    try:
+        assert srv.ws_port() == 8778
+    finally:
+        srv.stop()
+    assert srv.ws_port() is None
+
+
 def test_server_start_stop_and_http_serves_page(qapp, qtbot):
     srv = WebBroadcastServer()
     srv.start()

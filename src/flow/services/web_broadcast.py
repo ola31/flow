@@ -37,6 +37,7 @@ _INDEX_HTML_PATH = (
 _FALLBACK_INDEX_HTML = b"<html><body>Flow web broadcast</body></html>"
 _WS_PORT_PLACEHOLDER = "{{WS_PORT}}"
 _HTTP_PORT_DEFAULT = 8777
+_WS_PORT_DEFAULT = 8778
 
 CLEAR_PAYLOAD: dict[str, Any] = {"type": "clear"}
 
@@ -231,11 +232,16 @@ class WebBroadcastServer(QObject):
         self._http_thread = thread
 
     def _start_ws(self) -> None:
+        # A fixed default port lets firewalld/nft rules (e.g. Flow's hotspot
+        # captive-portal setup) allow it in advance — an OS-assigned random
+        # port would be unreachable behind a restrictive firewall zone that
+        # only opens known ports.
         server = QWebSocketServer(
             "flow-web", QWebSocketServer.SslMode.NonSecureMode, parent=self
         )
-        server.listen(QHostAddress.SpecialAddress.Any, 0)
         server.newConnection.connect(self._on_new_connection)
+        if not server.listen(QHostAddress.SpecialAddress.Any, _WS_PORT_DEFAULT):
+            server.listen(QHostAddress.SpecialAddress.Any, 0)
         self._ws_server = server
         self._ws_port = server.serverPort()
 
@@ -270,6 +276,10 @@ class WebBroadcastServer(QObject):
     def http_port(self) -> int | None:
         """The HTTP port actually bound to, or ``None`` if not running."""
         return self._http_port if self.is_running() else None
+
+    def ws_port(self) -> int | None:
+        """The WebSocket port actually bound to, or ``None`` if not running."""
+        return self._ws_port if self.is_running() else None
 
     def local_urls(self) -> list[str]:
         if self._http_port is None:

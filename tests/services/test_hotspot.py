@@ -43,6 +43,9 @@ class _FakeBackend:
     def captive_portal_install_command(self):
         return ["true"]
 
+    def is_open_fallback(self):
+        return False
+
 
 def test_generate_default_ssid_format():
     assert re.fullmatch(r"Flow-[0-9A-F]{4}", generate_default_ssid())
@@ -68,6 +71,22 @@ def test_manager_delegates_and_emits(qapp):
     assert len(fired) == 2
 
 
+def test_manager_polls_and_detects_external_state_change(qapp, qtbot):
+    """The hotspot can be toggled outside Flow entirely (OS network
+    settings, nmcli, ...) — the manager must notice via polling, not just
+    react to its own start()/stop() calls, or the toggle button drifts from
+    reality."""
+    be = _FakeBackend()
+    mgr = HotspotManager(backend=be)
+    mgr._poll_timer.setInterval(20)  # speed up for the test
+    fired = []
+    mgr.state_changed.connect(lambda: fired.append(1))
+
+    be.active = True  # simulate e.g. nmcli/GNOME settings turning it on
+    qtbot.waitUntil(lambda: bool(fired), timeout=1000)
+    assert mgr.is_active() is True
+
+
 def test_manager_default_backend_on_this_os(qapp):
     mgr = HotspotManager()
     assert isinstance(mgr.is_supported(), bool)
@@ -75,7 +94,10 @@ def test_manager_default_backend_on_this_os(qapp):
     assert isinstance(mgr.captive_portal_installed(), bool)
 
 
-def test_linux_start_builds_nmcli_command():
+def test_linux_start_builds_open_hotspot_profile():
+    """WPA2 AP mode is unreliable across Wi-Fi drivers (e.g. brcmfmac on
+    Apple Silicon/Asahi Linux never manages to push the PSK into firmware),
+    so Flow always builds an open (no password) hotspot on Linux."""
     from flow.services.hotspot import _LinuxHotspot
 
     calls = []
@@ -91,23 +113,37 @@ def test_linux_start_builds_nmcli_command():
 
     be = _LinuxHotspot(run=fake_run, which=lambda n: "/usr/bin/nmcli")
     assert be.start("Flow-0001", "pw123456") is True
-    hotspot_calls = [c for c in calls if "hotspot" in c]
-    assert hotspot_calls, calls
-    args = hotspot_calls[0]
-    assert args[:4] == ["nmcli", "device", "wifi", "hotspot"]
-    assert "Flow-0001" in args and "pw123456" in args
+    assert be.is_open_fallback() is True
+
+    joined = [" ".join(c) for c in calls]
+    assert any("connection delete Hotspot" in c for c in joined)
+    assert any(
+        "connection add type wifi" in c and "Flow-0001" in c for c in joined
+    )
+    assert any(
+        "802-11-wireless.mode ap" in c and "ipv4.method shared" in c
+        for c in joined
+    )
+    assert any("connection up Hotspot" in c for c in joined)
+    # no password ever passed to nmcli
+    assert not any("pw123456" in c for c in joined)
 
 
 def test_linux_start_failure_sets_error():
     from flow.services.hotspot import _LinuxHotspot
 
     class R:
-        returncode = 1
-        stdout = "wld0:wifi\n"
-        stderr = "Wi-Fi adapter busy"
+        def __init__(self, returncode=0, stdout="", stderr=""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
 
-    # _wifi_device needs a wifi line; same R works (stdout has wld0:wifi)
-    be = _LinuxHotspot(run=lambda a, **k: R(), which=lambda n: "/usr/bin/nmcli")
+    def fake_run(args, **kw):
+        if args[:3] == ["nmcli", "connection", "up"]:
+            return R(returncode=1, stderr="Wi-Fi adapter busy")
+        return R(stdout="wld0:wifi\n")
+
+    be = _LinuxHotspot(run=fake_run, which=lambda n: "/usr/bin/nmcli")
     assert be.start("s", "p12345678") is False
     assert "busy" in be.last_error()
 
@@ -137,6 +173,125 @@ def test_captive_install_script_exists_on_disk():
     be = _LinuxHotspot(run=lambda a, **k: None, which=lambda n: "/usr/bin/nmcli")
     cmd = be.captive_portal_install_command()
     assert os.path.exists(cmd[-1]), cmd[-1]
+
+
+def test_captive_installed_false_when_content_stale(monkeypatch, tmp_path):
+    """A stale install from an older Flow version (e.g. the old blanket
+    '/#/' DNS override that broke real internet sharing over Ethernet) must
+    be treated as 'not installed' so the app reinstalls the current config
+    automatically instead of silently running outdated rules forever."""
+    import flow.services.hotspot as hotspot_module
+
+    stale = tmp_path / "flow-captive.conf"
+    stale.write_text("address=/#/10.42.0.1\n")
+    monkeypatch.setattr(hotspot_module, "_CAPTIVE_MARKER_PATH", stale)
+
+    be = hotspot_module._LinuxHotspot(
+        run=lambda a, **k: None, which=lambda n: None
+    )
+    assert be.captive_portal_installed() is False
+
+
+def test_captive_installed_false_when_dispatcher_stale(monkeypatch, tmp_path):
+    """A stale dispatcher script (e.g. missing the DOCKER-USER forwarding
+    workaround) must be treated as 'not installed' too, not just a stale
+    dnsmasq conf — both files need to be current."""
+    import flow.services.hotspot as hotspot_module
+
+    current_conf = tmp_path / "flow-captive.conf"
+    current_conf.write_bytes(hotspot_module._CAPTIVE_CONF_RESOURCE_PATH.read_bytes())
+    monkeypatch.setattr(hotspot_module, "_CAPTIVE_MARKER_PATH", current_conf)
+
+    stale_dispatcher = tmp_path / "90-flow-captive"
+    stale_dispatcher.write_text("#!/bin/bash\n# old version, no DOCKER-USER fix\n")
+    monkeypatch.setattr(
+        hotspot_module, "_CAPTIVE_DISPATCHER_PATH", stale_dispatcher
+    )
+
+    be = hotspot_module._LinuxHotspot(
+        run=lambda a, **k: None, which=lambda n: None
+    )
+    assert be.captive_portal_installed() is False
+
+
+def test_captive_installed_true_when_content_matches(monkeypatch, tmp_path):
+    import flow.services.hotspot as hotspot_module
+
+    current = tmp_path / "flow-captive.conf"
+    current.write_bytes(hotspot_module._CAPTIVE_CONF_RESOURCE_PATH.read_bytes())
+    monkeypatch.setattr(hotspot_module, "_CAPTIVE_MARKER_PATH", current)
+    current_dispatcher = tmp_path / "90-flow-captive"
+    current_dispatcher.write_bytes(
+        hotspot_module._CAPTIVE_DISPATCHER_RESOURCE_PATH.read_bytes()
+    )
+    monkeypatch.setattr(
+        hotspot_module, "_CAPTIVE_DISPATCHER_PATH", current_dispatcher
+    )
+
+    be = hotspot_module._LinuxHotspot(
+        run=lambda a, **k: None, which=lambda n: None
+    )
+    assert be.captive_portal_installed() is True
+
+
+def test_captive_installed_false_when_forward_disabled(monkeypatch, tmp_path):
+    """firewalld blocks inter-zone forwarding by default, which silently
+    breaks real internet sharing (e.g. via Ethernet) even though DNS
+    (answered locally by dnsmasq) keeps working — a very confusing failure
+    mode unless this is treated as an incomplete install."""
+    import flow.services.hotspot as hotspot_module
+
+    current = tmp_path / "flow-captive.conf"
+    current.write_bytes(hotspot_module._CAPTIVE_CONF_RESOURCE_PATH.read_bytes())
+    monkeypatch.setattr(hotspot_module, "_CAPTIVE_MARKER_PATH", current)
+    current_dispatcher = tmp_path / "90-flow-captive"
+    current_dispatcher.write_bytes(
+        hotspot_module._CAPTIVE_DISPATCHER_RESOURCE_PATH.read_bytes()
+    )
+    monkeypatch.setattr(
+        hotspot_module, "_CAPTIVE_DISPATCHER_PATH", current_dispatcher
+    )
+
+    class R:
+        def __init__(self, returncode):
+            self.returncode = returncode
+
+    def fake_run(args, **kw):
+        if "--query-forward" in args:
+            return R(returncode=1)  # "no"
+        return R(returncode=0)  # ports are open
+
+    be = hotspot_module._LinuxHotspot(
+        run=fake_run, which=lambda n: f"/usr/bin/{n}"
+    )
+    assert be.captive_portal_installed() is False
+
+
+def test_captive_installed_true_when_forward_enabled(monkeypatch, tmp_path):
+    import flow.services.hotspot as hotspot_module
+
+    current = tmp_path / "flow-captive.conf"
+    current.write_bytes(hotspot_module._CAPTIVE_CONF_RESOURCE_PATH.read_bytes())
+    monkeypatch.setattr(hotspot_module, "_CAPTIVE_MARKER_PATH", current)
+    current_dispatcher = tmp_path / "90-flow-captive"
+    current_dispatcher.write_bytes(
+        hotspot_module._CAPTIVE_DISPATCHER_RESOURCE_PATH.read_bytes()
+    )
+    monkeypatch.setattr(
+        hotspot_module, "_CAPTIVE_DISPATCHER_PATH", current_dispatcher
+    )
+
+    class R:
+        def __init__(self, returncode):
+            self.returncode = returncode
+
+    def fake_run(args, **kw):
+        return R(returncode=0)
+
+    be = hotspot_module._LinuxHotspot(
+        run=fake_run, which=lambda n: f"/usr/bin/{n}"
+    )
+    assert be.captive_portal_installed() is True
 
 
 def test_stop_if_started_noop_when_not_started():
@@ -201,6 +356,31 @@ def test_is_active_true_for_wireless_hotspot():
 
     be = _LinuxHotspot(run=lambda a, **k: R(), which=lambda n: "/usr/bin/nmcli")
     assert be.is_active() is True
+
+
+def test_linux_start_deletes_stale_profile_before_creating():
+    """A leftover 'Hotspot' profile from a previous run can carry mismatched
+    settings that make nmcli silently no-op, so start() must always tear
+    down any existing profile first."""
+    from flow.services.hotspot import _LinuxHotspot
+
+    calls = []
+
+    class R:
+        returncode = 0
+        stdout = "wld0:wifi\n"
+        stderr = ""
+
+    def fake_run(args, **kw):
+        calls.append(args)
+        return R()
+
+    be = _LinuxHotspot(run=fake_run, which=lambda n: "/usr/bin/nmcli")
+    assert be.start("Flow-0001", "pw123456") is True
+    joined = [" ".join(c) for c in calls]
+    delete_idx = next(i for i, c in enumerate(joined) if "connection delete Hotspot" in c)
+    add_idx = next(i for i, c in enumerate(joined) if "connection add type wifi" in c)
+    assert delete_idx < add_idx
 
 
 def test_windows_backend_unsupported_without_winsdk():

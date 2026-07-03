@@ -277,9 +277,16 @@ class WebBroadcastScreen(QWidget):
         self._hotspot_toggle_btn.setText("핫스팟 끄기" if active else "핫스팟 켜기")
 
         if active:
-            self._hotspot_info_label.setText(
-                f"SSID: {self._hotspot_ssid}\n비밀번호: {self._hotspot_password}"
-            )
+            if self._hotspot.is_open_fallback():
+                self._hotspot_info_label.setText(
+                    f"SSID: {self._hotspot_ssid}\n"
+                    "비밀번호 없음 — 기기 호환성을 위해 이 핫스팟은 비밀번호 "
+                    "없이 열립니다."
+                )
+            else:
+                self._hotspot_info_label.setText(
+                    f"SSID: {self._hotspot_ssid}\n비밀번호: {self._hotspot_password}"
+                )
             self._hotspot_info_label.setVisible(True)
         else:
             self._hotspot_info_label.setVisible(False)
@@ -298,10 +305,10 @@ class WebBroadcastScreen(QWidget):
                 srv = self._server
                 if srv is None or not srv.is_running():
                     status = "폰 튕김 방지 켜짐 — 웹 송출을 켜야 동작합니다"
-                elif srv.http_port() != 8777:
+                elif srv.http_port() != 8777 or srv.ws_port() != 8778:
                     status = (
-                        "경고: 웹 송출이 8777 포트가 아니라 폰 튕김 방지가 "
-                        "동작하지 않습니다"
+                        "경고: 웹 송출 포트가 기본값(8777/8778)이 아니라 "
+                        "폰 튕김 방지가 동작하지 않습니다"
                     )
             self._captive_status_label.setText(status)
             self._captive_status_label.setVisible(True)
