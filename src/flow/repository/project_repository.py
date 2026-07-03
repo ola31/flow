@@ -58,6 +58,7 @@ class ProjectRepository:
             song_data = {
                 "name": song.name,
                 "sheets": [s.to_dict() for s in song.score_sheets],
+                "show_sheet_names": song.show_sheet_names,
             }
 
             song_json_path = song_dir / "song.json"
@@ -131,6 +132,7 @@ class ProjectRepository:
                 score_sheets=score_sheets,
                 order=song_info.get("order", 0),
                 project_dir=project_dir,
+                show_sheet_names=song_data.get("show_sheet_names", False),
             )
             selected_songs.append(song)
 
@@ -182,6 +184,7 @@ class ProjectRepository:
             song_data = {
                 "name": song.name,
                 "sheets": [s.to_dict() for s in song.score_sheets],
+                "show_sheet_names": song.show_sheet_names,
             }
             with open(song_json, "w", encoding="utf-8-sig") as f:
                 json.dump(song_data, f, ensure_ascii=False, indent=2)
@@ -336,6 +339,7 @@ class ProjectRepository:
             folder=Path("."),  # 현재 폴더가 곡 폴더임
             score_sheets=score_sheets,
             project_dir=song_dir,
+            show_sheet_names=song_data.get("show_sheet_names", False),
         )
 
         # 3. 가상 Project 객체 생성
@@ -358,6 +362,7 @@ class ProjectRepository:
         song_data = {
             "name": song.name,
             "sheets": [s.to_dict() for s in song.score_sheets],
+            "show_sheet_names": song.show_sheet_names,
         }
 
         with open(song_json_path, "w", encoding="utf-8-sig") as f:

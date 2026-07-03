@@ -55,6 +55,35 @@ class SlideConverter(abc.ABC):
         """전체 캐시 삭제"""
         pass
 
+    def get_cached_slide(self, pptx_path: Path, index: int) -> QImage | None:
+        """이미 변환된 캐시 이미지만 반환 (변환하지 않음). 없으면 None.
+
+        GUI 스레드에서 convert_slide를 인라인 호출하면 큰 PPT에서 UI가
+        수십 초 얼어붙으므로, UI는 이 비차단 조회를 사용해야 한다.
+        """
+        return None
+
+
+def _cached_img_path(
+    prefix: str, pptx_path: Path, index: int, cache_dir: Path
+) -> Path:
+    """엔진별 변환 캐시의 슬라이드 PNG 경로 (convert_slide와 동일 키)."""
+    mtime = pptx_path.stat().st_mtime
+    pptx_hash = hashlib.md5(
+        f"{prefix}{str(pptx_path.resolve())}_{mtime}_"
+        f"{_target_size[0]}x{_target_size[1]}".encode()
+    ).hexdigest()
+    return cache_dir / pptx_hash / f"slide_{index}.png"
+
+
+def _load_cached_img(
+    prefix: str, pptx_path: Path, index: int, cache_dir: Path
+) -> QImage | None:
+    if not pptx_path or not Path(pptx_path).exists():
+        return None
+    img_path = _cached_img_path(prefix, Path(pptx_path), index, cache_dir)
+    return QImage(str(img_path)) if img_path.exists() else None
+
 
 def _get_project_root() -> Path:
     """프로젝트 루트 디렉토리 반환"""
@@ -188,6 +217,9 @@ class OnlyOfficeSlideConverter(SlideConverter):
     def get_engine_name(self) -> str:
         return "ONLYOFFICE (standalone)"
 
+    def get_cached_slide(self, pptx_path: Path, index: int) -> QImage | None:
+        return _load_cached_img("oo_v1_", pptx_path, index, self._cache_dir)
+
     def _get_cache_dir_for_pptx(self, pptx_path: Path) -> Path | None:
         if not pptx_path or not pptx_path.exists():
             return None
@@ -284,6 +316,9 @@ class WindowsSlideConverter(SlideConverter):
     def __init__(self):
         self._cache_dir = Path(tempfile.gettempdir()) / "flow_win_cache"
         self._cache_dir.mkdir(exist_ok=True)
+
+    def get_cached_slide(self, pptx_path: Path, index: int) -> QImage | None:
+        return _load_cached_img("win_v2_", pptx_path, index, self._cache_dir)
         self._has_pp = None
 
     def get_engine_name(self) -> str:
@@ -419,6 +454,9 @@ class LinuxSlideConverter(SlideConverter):
             status_callback=status_callback,
         )
 
+    def get_cached_slide(self, pptx_path: Path, index: int) -> QImage | None:
+        return _load_cached_img("lo_v10_", pptx_path, index, self._cache_dir)
+
     def invalidate_cache(self, pptx_path: Path) -> None:
         for item in self._cache_dir.iterdir():
             if item.is_dir():
@@ -438,6 +476,12 @@ class MacOSSlideConverter(SlideConverter):
         self._cache_dir.mkdir(exist_ok=True)
         self._has_pp = None
         self._soffice_path = None
+
+    def get_cached_slide(self, pptx_path: Path, index: int) -> QImage | None:
+        img = _load_cached_img("mac_v1_", pptx_path, index, self._cache_dir)
+        if img is None:
+            img = _load_cached_img("lo_v10_", pptx_path, index, self._cache_dir)
+        return img
 
     def get_engine_name(self) -> str:
         if self._check_powerpoint_installed():
@@ -717,6 +761,10 @@ class MarkdownSlideConverter(SlideConverter):
 
     def get_engine_name(self) -> str:
         return "Markdown"
+
+    def get_cached_slide(self, md_path: Path, index: int) -> QImage | None:
+        # 마크다운 렌더는 외부 프로세스 없이 Qt로만 그리므로 인라인 안전
+        return self.convert_slide(md_path, index)
 
     def get_slide_count(self, md_path: Path) -> int:
         return len(self._slides_for(md_path))

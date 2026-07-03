@@ -583,12 +583,22 @@ class SongLibraryDialog(QDialog):
 class _SheetTab(QPushButton):
     """선택된 곡 하단에 나타나는 페이지 탭."""
 
-    def __init__(self, sheet: ScoreSheet, page_num: int, parent=None) -> None:
-        label = f"P{page_num}"
+    def __init__(
+        self, sheet: ScoreSheet, page_num: int, parent=None, show_name: bool = False
+    ) -> None:
+        label = sheet.name if show_name and sheet.name else f"P{page_num}"
         super().__init__(label, parent)
         self._sheet = sheet
-        self.setFixedHeight(24)
-        self.setMinimumWidth(36)
+        self._show_name = show_name
+        if show_name:
+            # 이름 표시 모드: 한 줄에 하나씩 크게 (좌측 정렬, 전체 폭)
+            self.setFixedHeight(32)
+            self.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+        else:
+            self.setFixedHeight(24)
+            self.setMinimumWidth(36)
         self.setCheckable(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -602,13 +612,19 @@ class _SheetTab(QPushButton):
     def _refresh_style(self, active: bool) -> None:
         # Linear 패턴: active = 미묘한 white-overlay + ACCENT_INTER 텍스트
         # 솔리드 인디고 채움 안 함
+        # 이름 표시 모드: 한 줄 전체 폭이므로 좌측 정렬 + 조금 큰 글씨
+        metrics = (
+            f"font-size: {FONT_SM}px; padding: 0 10px; text-align: left;"
+            if self._show_name
+            else "font-size: 10px; padding: 0 6px;"
+        )
         if active:
             self.setStyleSheet(f"""
                 QPushButton {{
                     background: {SURFACE_SUBTLE}; color: {ACCENT_INTER};
                     border: 1px solid {BORDER_STANDARD_RGBA};
                     border-radius: {RADIUS_SM}px;
-                    font-size: 10px; padding: 0 6px;
+                    {metrics}
                     font-weight: {FW_SEMI};
                 }}
             """)
@@ -618,7 +634,7 @@ class _SheetTab(QPushButton):
                     background: {SURFACE_GHOST}; color: {TEXT_TERTIARY};
                     border: 1px solid {BORDER_SUBTLE_RGBA};
                     border-radius: {RADIUS_SM}px;
-                    font-size: 10px; padding: 0 6px;
+                    {metrics}
                     font-weight: {FW_MEDIUM};
                 }}
                 QPushButton:hover {{
@@ -638,6 +654,9 @@ class _SongCard(QFrame):
     edit_requested = Signal(object)     # Song
     remove_requested = Signal(object)   # Song
     reload_requested = Signal(object)   # Song
+    import_ppt_requested = Signal(object)  # Song
+    move_requested = Signal(object, int)   # (Song, -1=위/+1=아래)
+    toggle_sheet_names_requested = Signal(object)  # Song
 
     def __init__(self, song: Song, position: int, parent=None) -> None:
         super().__init__(parent)
@@ -811,16 +830,28 @@ class _SongCard(QFrame):
 
         valid_sheets = [s for s in self._song.score_sheets if s.image_path]
         for i, sheet in enumerate(valid_sheets):
-            tab = _SheetTab(sheet, i + 1, self._tabs_container)
+            tab = _SheetTab(
+                sheet,
+                i + 1,
+                self._tabs_container,
+                show_name=self._song.show_sheet_names,
+            )
             tab.set_current(sheet.id == current_sheet_id)
             tab.clicked.connect(lambda checked, s=sheet: self.sheet_selected.emit(s))
             self._sheet_tabs.append(tab)
-            row, col = divmod(i, self._TABS_PER_ROW)
-            self._tabs_layout.addWidget(tab, row, col)
-        # 마지막 컬럼 이후 stretch로 좌측 정렬
-        last_row_count = len(valid_sheets) % self._TABS_PER_ROW or self._TABS_PER_ROW
-        if last_row_count < self._TABS_PER_ROW:
-            self._tabs_layout.setColumnStretch(self._TABS_PER_ROW, 1)
+            if self._song.show_sheet_names:
+                # 이름 표시 모드: 한 줄에 한 시트 (stretch 열까지 스팬)
+                self._tabs_layout.addWidget(tab, i, 0, 1, self._TABS_PER_ROW + 1)
+            else:
+                row, col = divmod(i, self._TABS_PER_ROW)
+                self._tabs_layout.addWidget(tab, row, col)
+        # 마지막 컬럼 이후 stretch로 좌측 정렬 (격자 모드 전용)
+        if not self._song.show_sheet_names:
+            last_row_count = (
+                len(valid_sheets) % self._TABS_PER_ROW or self._TABS_PER_ROW
+            )
+            if last_row_count < self._TABS_PER_ROW:
+                self._tabs_layout.setColumnStretch(self._TABS_PER_ROW, 1)
 
     def _refresh_frame_style(self) -> None:
         # Linear 패턴: selected = 미묘한 white-overlay + 좌측 액센트 바
@@ -868,6 +899,9 @@ class _SongCard(QFrame):
         super().mousePressEvent(event)
 
     def contextMenuEvent(self, event) -> None:
+        self._build_context_menu().exec(event.globalPos())
+
+    def _build_context_menu(self) -> QMenu:
         menu = QMenu(self)
         menu.setStyleSheet(f"""
             QMenu {{ background: {BG_ELEVATED}; color: {TEXT_PRIMARY}; border: 1px solid {BORDER_FOCUS}; border-radius: {RADIUS_MD}px; }}
@@ -883,12 +917,36 @@ class _SongCard(QFrame):
         reload_act.triggered.connect(lambda: self.reload_requested.emit(self._song))
         menu.addAction(reload_act)
 
+        import_ppt_act = QAction("PPT 가져오기", self)
+        import_ppt_act.triggered.connect(
+            lambda: self.import_ppt_requested.emit(self._song)
+        )
+        menu.addAction(import_ppt_act)
+
+        toggle_names_act = QAction(
+            "시트 이름 숨기기" if self._song.show_sheet_names else "시트 이름 표시",
+            self,
+        )
+        toggle_names_act.triggered.connect(
+            lambda: self.toggle_sheet_names_requested.emit(self._song)
+        )
+        menu.addAction(toggle_names_act)
+
+        menu.addSeparator()
+        up_act = QAction("위로 이동", self)
+        up_act.triggered.connect(lambda: self.move_requested.emit(self._song, -1))
+        menu.addAction(up_act)
+
+        down_act = QAction("아래로 이동", self)
+        down_act.triggered.connect(lambda: self.move_requested.emit(self._song, 1))
+        menu.addAction(down_act)
+
         menu.addSeparator()
         remove_act = QAction("셋리스트에서 제거", self)
         remove_act.triggered.connect(lambda: self.remove_requested.emit(self._song))
         menu.addAction(remove_act)
 
-        menu.exec(event.globalPos())
+        return menu
 
 
 # ─── 단독 곡 편집 패널 (standalone 모드) ────────────────────────────────────
@@ -898,9 +956,13 @@ class _StandalonePanel(QWidget):
     """단독 곡 편집 모드 전용 — 시트 페이지 탭 목록."""
 
     sheet_selected = Signal(object)     # ScoreSheet
+    sheet_rename_requested = Signal(object)     # ScoreSheet
+    sheet_move_requested = Signal(object, int)  # (ScoreSheet, delta)
+    sheet_delete_requested = Signal(object)     # ScoreSheet
     add_sheet_requested = Signal()
     edit_markdown_requested = Signal()
     open_ppt_requested = Signal()
+    import_ppt_requested = Signal()
     open_folder_requested = Signal()
 
     def __init__(self, parent=None) -> None:
@@ -957,6 +1019,22 @@ class _StandalonePanel(QWidget):
         )
         self._btn_open_ppt.clicked.connect(self.open_ppt_requested.emit)
         layout.addWidget(self._btn_open_ppt)
+
+        # PPT 가져오기 — 외부 .pptx를 곡 폴더의 slides.pptx로 복사
+        self._btn_import_ppt = QPushButton("PPT 가져오기")
+        self._btn_import_ppt.setIcon(
+            icon_qicon("slideshow", size=16, color=TEXT_PRIMARY)
+        )
+        self._btn_import_ppt.setIconSize(_icon_size)
+        self._btn_import_ppt.setFixedHeight(34)
+        self._btn_import_ppt.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_import_ppt.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_import_ppt.setStyleSheet(_icon_btn_qss)
+        self._btn_import_ppt.setToolTip(
+            "외부에서 만든 .pptx 파일을 이 곡의 슬라이드(slides.pptx)로 가져옵니다"
+        )
+        self._btn_import_ppt.clicked.connect(self.import_ppt_requested.emit)
+        layout.addWidget(self._btn_import_ppt)
 
         # 마크다운 편집 — 인앱 에디터로 slides.md 편집
         self._btn_edit_md = QPushButton("마크다운 편집")
@@ -1039,6 +1117,9 @@ class _StandalonePanel(QWidget):
         for i, sheet in enumerate(valid_sheets):
             card = _PageCard(sheet, i + 1, sheet.id == self._current_sheet_id)
             card.selected.connect(self.sheet_selected.emit)
+            card.rename_requested.connect(self.sheet_rename_requested.emit)
+            card.move_requested.connect(self.sheet_move_requested.emit)
+            card.delete_requested.connect(self.sheet_delete_requested.emit)
             self._pages_layout.addWidget(card)
 
         if not valid_sheets:
@@ -1051,7 +1132,10 @@ class _StandalonePanel(QWidget):
 class _PageCard(QFrame):
     """단독 모드에서 시트 페이지를 나타내는 작은 카드."""
 
-    selected = Signal(object)  # ScoreSheet
+    selected = Signal(object)          # ScoreSheet
+    rename_requested = Signal(object)  # ScoreSheet
+    move_requested = Signal(object, int)  # (ScoreSheet, -1=위/+1=아래)
+    delete_requested = Signal(object)  # ScoreSheet
 
     def __init__(self, sheet: ScoreSheet, page_num: int, active: bool, parent=None) -> None:
         super().__init__(parent)
@@ -1110,6 +1194,37 @@ class _PageCard(QFrame):
         if event.button() == Qt.MouseButton.LeftButton:
             self.selected.emit(self._sheet)
         super().mousePressEvent(event)
+
+    def contextMenuEvent(self, event) -> None:
+        self._build_context_menu().exec(event.globalPos())
+
+    def _build_context_menu(self) -> QMenu:
+        menu = QMenu(self)
+        menu.setStyleSheet(f"""
+            QMenu {{ background: {BG_ELEVATED}; color: {TEXT_PRIMARY}; border: 1px solid {BORDER_FOCUS}; border-radius: {RADIUS_MD}px; }}
+            QMenu::item {{ padding: {SP_SM}px {SP_LG}px; font-size: {FONT_MD}px; }}
+            QMenu::item:selected {{ background: {ACCENT_MUTED}; color: {ACCENT}; }}
+            QMenu::separator {{ height: 1px; background: {BORDER}; margin: 4px 0; }}
+        """)
+
+        rename_act = QAction("이름 변경", self)
+        rename_act.triggered.connect(lambda: self.rename_requested.emit(self._sheet))
+        menu.addAction(rename_act)
+
+        up_act = QAction("위로 이동", self)
+        up_act.triggered.connect(lambda: self.move_requested.emit(self._sheet, -1))
+        menu.addAction(up_act)
+
+        down_act = QAction("아래로 이동", self)
+        down_act.triggered.connect(lambda: self.move_requested.emit(self._sheet, 1))
+        menu.addAction(down_act)
+
+        menu.addSeparator()
+        delete_act = QAction("삭제", self)
+        delete_act.triggered.connect(lambda: self.delete_requested.emit(self._sheet))
+        menu.addAction(delete_act)
+
+        return menu
 
 
 # ─── 메인 위젯 ──────────────────────────────────────────────────────────────
@@ -1325,8 +1440,12 @@ class SongListWidget(QWidget):
         panel = _StandalonePanel()
         panel.set_song(song, current_id)
         panel.sheet_selected.connect(self._on_sheet_selected_direct)
+        panel.sheet_rename_requested.connect(self._rename_sheet)
+        panel.sheet_move_requested.connect(self._move_sheet)
+        panel.sheet_delete_requested.connect(self._delete_sheet)
         panel.add_sheet_requested.connect(self._on_add_sheet_clicked)
         panel.open_ppt_requested.connect(self._on_open_ppt_clicked)
+        panel.import_ppt_requested.connect(self._on_import_ppt_clicked)
         panel.edit_markdown_requested.connect(self._on_edit_markdown_clicked)
         panel.open_folder_requested.connect(self._on_open_folder_clicked)
 
@@ -1344,8 +1463,15 @@ class SongListWidget(QWidget):
                 panel._btn_edit_md.setToolTip(
                     "이 곡은 PPT 슬라이드를 사용합니다. 마크다운으로 전환하려면 PPT를 먼저 제거하세요."
                 )
+            panel._btn_import_ppt.setEnabled(not song.has_markdown)
+            if song.has_markdown:
+                panel._btn_import_ppt.setToolTip(
+                    "이 곡은 마크다운 슬라이드를 사용합니다. "
+                    "PPT로 전환하려면 slides.md를 먼저 제거하세요."
+                )
         else:
             panel._btn_open_ppt.setEnabled(False)
+            panel._btn_import_ppt.setEnabled(False)
             panel._btn_edit_md.setEnabled(False)
 
         self._standalone_panel = panel
@@ -1370,6 +1496,9 @@ class SongListWidget(QWidget):
             card.edit_requested.connect(self.song_edit_requested.emit)
             card.remove_requested.connect(self._remove_song)
             card.reload_requested.connect(self.song_reload_requested.emit)
+            card.import_ppt_requested.connect(self._import_ppt_to_song)
+            card.move_requested.connect(self._move_song)
+            card.toggle_sheet_names_requested.connect(self._toggle_sheet_names)
 
             self._cards.append(card)
             self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
@@ -1768,6 +1897,161 @@ class SongListWidget(QWidget):
                 f"PPT 파일을 여는 데 실패했습니다:\n{pptx_path}",
             )
 
+    def _move_song(self, song: Song, delta: int) -> None:
+        """셋리스트 곡 순서 변경. 오프셋 재계산·저장은 _on_songs_changed가 담당."""
+        if not self._project or not self._main_window:
+            return
+        if getattr(self._main_window, "_is_live", False):
+            return
+        songs = self._project.selected_songs
+        i = next((idx for idx, s in enumerate(songs) if s is song), None)
+        if i is None:
+            return
+        j = i + delta
+        if not (0 <= j < len(songs)):
+            return
+        songs[i], songs[j] = songs[j], songs[i]
+        self._project.song_order = [s.name for s in songs]
+        self._main_window._on_songs_changed()
+
+    def _toggle_sheet_names(self, song: Song) -> None:
+        """셋리스트 탭의 P1, P2… ↔ 시트 이름 표시 토글 (곡별, song.json 저장)."""
+        song.show_sheet_names = not song.show_sheet_names
+        self.refresh_list()
+        if self._main_window:
+            self._main_window._mark_dirty()
+
+    # ── 시트(페이지) 관리 ────────────────────────────────────────────────
+
+    def _find_song_of_sheet(self, sheet: ScoreSheet) -> Song | None:
+        if not self._project:
+            return None
+        for song in self._project.selected_songs:
+            if any(s is sheet for s in song.score_sheets):
+                return song
+        return None
+
+    def _rename_sheet(self, sheet: ScoreSheet) -> None:
+        from flow.ui import dialogs
+
+        new_name, ok = dialogs.flow_input_text(
+            self,
+            "시트 이름 변경",
+            "새 이름을 입력하세요:",
+            default=sheet.name,
+        )
+        new_name = new_name.strip()
+        if not ok or not new_name or new_name == sheet.name:
+            return
+        sheet.name = new_name
+        self.refresh_list()
+        if self._main_window:
+            self._main_window._mark_dirty()
+
+    def _move_sheet(self, sheet: ScoreSheet, delta: int) -> None:
+        song = self._find_song_of_sheet(sheet)
+        if song is None:
+            return
+        sheets = song.score_sheets
+        i = next(idx for idx, s in enumerate(sheets) if s is sheet)
+        j = i + delta
+        if not (0 <= j < len(sheets)):
+            return
+        sheets[i], sheets[j] = sheets[j], sheets[i]
+        self.refresh_list()
+        if self._main_window:
+            self._main_window._mark_dirty()
+
+    def _delete_sheet(self, sheet: ScoreSheet) -> None:
+        from flow.ui import dialogs
+
+        song = self._find_song_of_sheet(sheet)
+        if song is None:
+            return
+        ok = dialogs.flow_question(
+            self,
+            "시트 삭제",
+            f"'{sheet.name}' 시트를 삭제하시겠습니까?\n"
+            "(이미지 파일은 삭제되지 않습니다)",
+            yes_text="삭제",
+            no_text="취소",
+        )
+        if not ok:
+            return
+        song.score_sheets = [s for s in song.score_sheets if s is not sheet]
+        self.refresh_list()
+        self.song_removed.emit(sheet.id)
+        if self._main_window:
+            self._main_window._mark_dirty()
+
+    def _on_import_ppt_clicked(self) -> None:
+        """단독 곡 편집 모드: 이 곡에 외부 PPT 가져오기."""
+        if not self._project or not self._project.selected_songs:
+            return
+        self._import_ppt_to_song(self._project.selected_songs[0])
+
+    def _import_ppt_to_song(self, song: Song) -> None:
+        """외부 .pptx를 곡 폴더의 slides.pptx로 복사하고 슬라이드 리로드."""
+        import shutil
+
+        from flow.ui import dialogs
+
+        if getattr(self._main_window, "_is_live", False):
+            dialogs.flow_warning(
+                self,
+                "라이브 모드",
+                "라이브 송출 중에는 PPT를 가져올 수 없습니다.\n"
+                "먼저 라이브 모드를 종료해 주세요(Esc).",
+            )
+            return
+
+        # 마크다운이 있으면 PPT가 무시되므로(마크다운 우선) 조용한 실패 방지
+        if song.has_markdown:
+            dialogs.flow_warning(
+                self,
+                "마크다운 곡",
+                "이 곡은 마크다운 슬라이드(slides.md)를 사용하고 있어\n"
+                "PPT를 가져와도 표시되지 않습니다.\n\n"
+                "PPT로 전환하려면 곡 폴더에서 slides.md를 먼저 제거하세요.",
+            )
+            return
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            f"'{song.name}'에 가져올 PPT 파일 선택",
+            "",
+            "PowerPoint 파일 (*.pptx)",
+        )
+        if not file_path:
+            return
+
+        dest = song.abs_slides_path
+        if dest.exists():
+            ok = dialogs.flow_question(
+                self,
+                "파일 덮어쓰기",
+                "이 곡에 이미 슬라이드 파일(slides.pptx)이 있습니다.\n"
+                "선택한 파일로 덮어쓰시겠습니까?",
+                yes_text="덮어쓰기",
+                no_text="취소",
+            )
+            if not ok:
+                return
+
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(file_path, dest)
+        except shutil.SameFileError:
+            pass
+        except Exception as e:
+            QMessageBox.warning(
+                self, "가져오기 실패", f"PPT 파일을 가져오지 못했습니다: {e}"
+            )
+            return
+
+        self.song_reload_requested.emit(song)
+        self.refresh_list()
+
     def _open_markdown_editor(self, song) -> None:
         """markdown 곡 전용 인앱 에디터를 메인 윈도우 내부 화면으로 전환."""
         if self._main_window is not None and hasattr(
@@ -1816,7 +2100,7 @@ class SongListWidget(QWidget):
         )
         new_sheet = ScoreSheet(
             name=sheet_name.strip(),
-            image_path=str(rel_sheets / p_path.name),
+            image_path=(rel_sheets / p_path.name).as_posix(),
         )
         song.score_sheets.append(new_sheet)
         self.refresh_list()

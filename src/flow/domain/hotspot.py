@@ -44,6 +44,17 @@ class Hotspot:
             
         return -1
 
+    def get_effective_slide_index(self, verse_index: int = 0) -> int:
+        """절 매핑이 없으면 후렴(5) 매핑으로 폴백한 유효 인덱스 반환.
+
+        표시/재생 판정용. 명시적 매핑 존재 여부가 필요한 곳(매핑 해제,
+        undo의 이전 값 저장 등)은 get_slide_index를 그대로 사용할 것.
+        """
+        idx = self.get_slide_index(verse_index)
+        if idx < 0 and verse_index != 5:
+            idx = self.get_slide_index(5)
+        return idx
+
     def set_slide_index(self, slide_index: int, verse_index: int = 0) -> None:
         """특정 절에 슬라이드 매핑 설정"""
         self.slide_mappings[str(verse_index)] = slide_index

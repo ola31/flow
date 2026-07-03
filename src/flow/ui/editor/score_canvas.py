@@ -99,6 +99,10 @@ class ScoreCanvas(QWidget):
 
         self._pixmap_cache = {}
 
+        # press 시점엔 팝오버를 띄우지 않고 예약만 해 둔다 — release에서
+        # 드래그(이동)가 없었을 때만 표시 (드래그 화면 가림 방지).
+        self._pending_popover_hotspot_id: str | None = None
+
     def is_hotspot_editable(self, hotspot: Hotspot, verse_index: int) -> bool:
         """현재 레이어에서 이 핫스팟이 편집 가능한지 판별"""
         if not hotspot:
@@ -377,16 +381,18 @@ class ScoreCanvas(QWidget):
                 int(hotspot.y * self._scale_y + self._offset_y),
             )
 
-            # 현재 레이어에서 매핑 여부 확인
-            current_slide_idx = hotspot.get_slide_index(v_idx)
+            # 현재 레이어에서 매핑 여부 확인 — 절 레이어에서는 후렴(5) 폴백
+            # 포함. 후렴 매핑된 핫스팟은 절에서도 실제로 동작하므로(클릭 시
+            # 후렴 슬라이드 송출) '매핑 완료'로 보여야 한다.
+            current_slide_idx = hotspot.get_effective_slide_index(v_idx)
             is_mapped = current_slide_idx >= 0
 
             # 색상/테두리: 선택 > 매핑완료 > 미매핑 > 타레이어 잠금 순서
             if is_selected:
                 color = self.HOTSPOT_SELECTED_COLOR
                 pen = QPen(Qt.GlobalColor.white, 2)
-            elif not is_editable:
-                # 타 레이어 전용 버튼: 연한 점선 외곽선
+            elif not is_editable and not is_mapped:
+                # 타 레이어 전용 버튼(유효 매핑도 없음): 연한 점선 외곽선
                 color = self.HOTSPOT_COLOR
                 pen = QPen(QColor(200, 200, 200, 180), 1, Qt.PenStyle.DashLine)
             elif is_mapped:
@@ -423,13 +429,8 @@ class ScoreCanvas(QWidget):
                 display_name = str(verse_display_counter)
 
             label = display_name
-            # [수정] 현재 절 매핑 우선, 없으면 후렴 매핑 표시 (내비게이션 지원)
-            slide_idx = hotspot.get_slide_index(self._verse_index)
-
-            # 현재 절 매핑이 없고, 후렴 버튼인 경우 후렴 슬라이드 번호 표시
-            is_chorus_hotspot = hotspot.id in chorus_labels
-            if slide_idx < 0 and is_chorus_hotspot:
-                slide_idx = hotspot.get_slide_index(5)  # 후렴 슬라이드 가져오기
+            # 현재 절 매핑 우선, 없으면 후렴 매핑 표시 (내비게이션 지원)
+            slide_idx = hotspot.get_effective_slide_index(self._verse_index)
 
             if slide_idx >= 0:
                 label = f"{display_name}-{slide_idx + 1}"
@@ -576,12 +577,7 @@ class ScoreCanvas(QWidget):
                     self.setCursor(Qt.CursorShape.ClosedHandCursor)
 
                 if self._edit_mode:
-                    anchor = self._image_to_widget_coords(
-                        clicked_hotspot.x, clicked_hotspot.y
-                    )
-                    self._popover.show_for_hotspot(
-                        clicked_hotspot, self._verse_index, anchor
-                    )
+                    self._pending_popover_hotspot_id = clicked_hotspot.id
             elif self._edit_mode and self._hotspot_editable and not popover_was_visible:
                 img_coords = self._widget_to_image_coords(pos.x(), pos.y())
                 if img_coords:
@@ -612,7 +608,7 @@ class ScoreCanvas(QWidget):
             hovered = self._find_hotspot_at(pos)
             if hovered:
                 self.setCursor(Qt.CursorShape.PointingHandCursor)
-                slide_idx = hovered.get_slide_index(self._verse_index)
+                slide_idx = hovered.get_effective_slide_index(self._verse_index)
                 tip = f"#{hovered.order + 1}"
                 if hovered.lyric:
                     tip += f"  {hovered.lyric}"
@@ -646,18 +642,35 @@ class ScoreCanvas(QWidget):
         super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        """마우스 뗌 (드래그 종료)"""
-        if event.button() == Qt.MouseButton.LeftButton and self._is_dragging:
-            if self._drag_hotspot_id and self._score_sheet:
-                hotspot = self._score_sheet.find_hotspot_by_id(self._drag_hotspot_id)
-                if hotspot:
-                    new_pos = (hotspot.x, hotspot.y)
-                    if new_pos != self._drag_start_pos:
-                        self.hotspot_moved.emit(hotspot, self._drag_start_pos, new_pos)
+        """마우스 뗌 (드래그 종료 / 클릭이었으면 팝오버 표시)"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            was_moved = False
+            if self._is_dragging:
+                if self._drag_hotspot_id and self._score_sheet:
+                    hotspot = self._score_sheet.find_hotspot_by_id(
+                        self._drag_hotspot_id
+                    )
+                    if hotspot:
+                        new_pos = (hotspot.x, hotspot.y)
+                        if new_pos != self._drag_start_pos:
+                            was_moved = True
+                            self.hotspot_moved.emit(
+                                hotspot, self._drag_start_pos, new_pos
+                            )
 
-            self._is_dragging = False
-            self._drag_hotspot_id = None
-            self.setCursor(Qt.CursorShape.ArrowCursor)
+                self._is_dragging = False
+                self._drag_hotspot_id = None
+                self.setCursor(Qt.CursorShape.ArrowCursor)
+
+            pending_id = self._pending_popover_hotspot_id
+            self._pending_popover_hotspot_id = None
+            if pending_id and not was_moved and self._score_sheet:
+                hotspot = self._score_sheet.find_hotspot_by_id(pending_id)
+                if hotspot:
+                    anchor = self._image_to_widget_coords(hotspot.x, hotspot.y)
+                    self._popover.show_for_hotspot(
+                        hotspot, self._verse_index, anchor
+                    )
 
         super().mouseReleaseEvent(event)
 

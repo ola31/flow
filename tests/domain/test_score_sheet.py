@@ -170,3 +170,35 @@ class TestScoreSheetSerialization:
         assert sheet.id == "test-sheet-id"
         assert sheet.name == "복원된 시트"
         assert len(sheet.hotspots) == 1
+
+
+class TestPathNormalization:
+    """Windows에서 저장된 백슬래시 경로가 어느 OS에서든 동작해야 한다."""
+
+    def test_from_dict_normalizes_backslash_image_path(self):
+        sheet = ScoreSheet.from_dict({
+            "id": "sid-1",
+            "name": "page_one",
+            "image_path": "sheets\\page_one.jpg",
+        })
+        assert sheet.image_path == "sheets/page_one.jpg"
+
+    def test_from_dict_normalizes_backslash_pptx_path(self):
+        sheet = ScoreSheet.from_dict({
+            "id": "sid-2",
+            "name": "page_two",
+            "pptx_path": "songs\\a\\slides.pptx",
+        })
+        assert sheet.pptx_path == "songs/a/slides.pptx"
+
+    def test_to_dict_writes_posix_separators(self):
+        sheet = ScoreSheet(name="p", image_path="sheets\\img.jpg")
+        assert sheet.to_dict()["image_path"] == "sheets/img.jpg"
+
+    def test_forward_slash_paths_unchanged(self):
+        sheet = ScoreSheet.from_dict({
+            "id": "sid-3",
+            "name": "page_three",
+            "image_path": "sheets/ok.jpg",
+        })
+        assert sheet.image_path == "sheets/ok.jpg"

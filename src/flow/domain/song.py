@@ -26,6 +26,7 @@ class Song:
     order: int = 0  # 셋리스트 순서
     project_dir: Optional[Path] = None  # 프로젝트 베이스 경로 (절대 경로 해결용)
     source: str = "local"  # "library" | "local" — 워크스페이스 구조에서 곡 출처
+    show_sheet_names: bool = False  # 셋리스트 탭에 P1, P2… 대신 시트 이름 표시
     
     @property
     def score_sheet(self) -> ScoreSheet | None:
@@ -164,4 +165,5 @@ class Song:
             score_sheets=score_sheets,
             order=order,
             source=source,
+            show_sheet_names=data.get("show_sheet_names", False),
         )
