@@ -2708,6 +2708,20 @@ class MainWindow(QMainWindow):
             return
         self._slide_preview.hide_loading()
         self._slide_preview.refresh_slides()
+
+        # 같은 오류의 연속 팝업 억제 — 여러 파일이 연달아 실패해도 모달
+        # 폭풍으로 앱이 잠기지 않게 한다 (이후 건 상태바로만 안내)
+        import time as _time
+
+        now = _time.monotonic()
+        last_msg = getattr(self, "_last_ppt_error_msg", None)
+        last_time = getattr(self, "_last_ppt_error_time", 0.0)
+        self._last_ppt_error_msg = message
+        self._last_ppt_error_time = now
+        if message == last_msg and now - last_time < 30.0:
+            self._statusbar.showMessage(f"PPT 로드 실패: {message}", 5000)
+            return
+
         QMessageBox.warning(self, "PPT 로딩 오류", message)
         self._statusbar.showMessage("PPT 로드 실패", 3000)
 

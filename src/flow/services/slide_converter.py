@@ -373,10 +373,10 @@ class WindowsSlideConverter(SlideConverter):
     def __init__(self):
         self._cache_dir = _cache_base_dir() / "flow_win_cache"
         self._cache_dir.mkdir(exist_ok=True)
+        self._has_pp = None
 
     def get_cached_slide(self, pptx_path: Path, index: int) -> QImage | None:
         return _load_cached_img("win_v2_", pptx_path, index, self._cache_dir)
-        self._has_pp = None
 
     def get_engine_name(self) -> str:
         if self._check_powerpoint_installed():

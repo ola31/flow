@@ -46,3 +46,13 @@ class TestPruneStaleCaches:
 
         assert legacy.exists()  # 원본 불명 → 안전하게 유지
         assert keep.exists()
+
+
+class TestWindowsConverterInit:
+    def test_init_sets_powerpoint_detection_field(self):
+        """get_cached_slide 삽입 사고로 __init__이 잘려 _has_pp 미초기화 →
+        Windows에서 모든 변환이 AttributeError로 죽던 회귀 방지."""
+        from flow.services.slide_converter import WindowsSlideConverter
+
+        conv = WindowsSlideConverter()
+        assert conv._has_pp is None  # __init__에서 초기화돼야 함

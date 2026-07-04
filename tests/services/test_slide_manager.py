@@ -614,3 +614,57 @@ class TestPeekThumbnail:
         manager._loading = True
 
         assert manager.peek_thumbnail(0, 480, 270) is None
+
+
+class TestConversionFailureBackoff:
+    """변환 실패 시 자동 재예약 금지 — 실패 파일을 peek이 계속 재예약하면
+    에러 팝업이 무한 반복돼 앱이 죽는다 (Windows에서 실제 발생).
+    수동 로드(load_songs/reload_song)만 재시도를 허용한다."""
+
+    def _song(self, tmp_path):
+        from pptx import Presentation
+
+        from flow.domain.song import Song
+
+        d = tmp_path / "songs" / "song_f"
+        d.mkdir(parents=True)
+        prs = Presentation()
+        prs.slides.add_slide(prs.slide_layouts[6])
+        prs.save(d / "slides.pptx")
+        song = Song(name="song_f", folder=Path("songs/song_f"), project_dir=tmp_path)
+        song.set_slide_count(1)
+        return song
+
+    def test_error_blocks_auto_reschedule(self, manager, mock_converter, tmp_path):
+        song = self._song(tmp_path)
+        manager._songs = [song]
+        manager._recalculate_offsets()
+        mock_converter.get_cached_slide.return_value = None
+        tasks = []
+        manager._worker.add_task = tasks.append
+
+        manager.peek_slide_image(0)   # 1차 예약
+        assert len(tasks) == 1
+        manager.load_error.emit("변환 실패")  # 실패 → _loading 해제 + 재시도 차단
+
+        manager.peek_slide_image(0)   # 자동 재예약되면 안 됨
+        manager.peek_slide_image(0)
+        assert len(tasks) == 1
+
+    def test_manual_reload_clears_block(self, manager, mock_converter, tmp_path):
+        song = self._song(tmp_path)
+        manager._songs = [song]
+        manager._recalculate_offsets()
+        mock_converter.get_cached_slide.return_value = None
+        tasks = []
+        manager._worker.add_task = tasks.append
+
+        manager.peek_slide_image(0)
+        manager.load_error.emit("변환 실패")
+        manager.reload_song(song)     # 사용자 새로고침 = 명시적 재시도
+
+        assert len(tasks) == 2        # 재시도 허용
+        # 재시도도 실패하면 다시 차단
+        manager.load_error.emit("변환 실패")
+        manager.peek_slide_image(0)
+        assert len(tasks) == 2

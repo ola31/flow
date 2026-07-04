@@ -223,6 +223,9 @@ class SlideManager(QObject):
         self._pending_conversions = 0
         # 이번 load_songs에서 카운트한 곡 이름 (변환 예약 대상)
         self._counted_song_names: set[str] = set()
+        # 변환 실패 후 자동 재예약 차단 플래그 — peek이 실패 파일을 계속
+        # 재예약하면 에러 팝업이 무한 반복된다. 수동 로드만 재시도 허용.
+        self._auto_retry_blocked = False
         # peek용 디코드 캐시 (키 → QImage). 핫스팟 클릭마다 같은 슬라이드
         # PNG를 재디코드하지 않게 한다. 키에 mtime이 있어 파일이 바뀌면
         # 자연히 미스가 나고, 상한으로 메모리를 제한한다.
@@ -353,12 +356,16 @@ class SlideManager(QObject):
             return
 
         self._pptx_path = p
+        self._auto_retry_blocked = False
         self.load_started.emit()
         worker.add_task(PPTTask(PPTTask.LOAD_SINGLE, p))
 
     def _on_load_error_clear_flag(self, _msg: str) -> None:
-        # 변환 실패 시에도 플래그를 풀어 peek의 재예약이 막히지 않게 함
+        # 실패 시 로딩 플래그는 풀되, 자동 재예약은 차단한다 — 실패가
+        # 반복 재시도(→ 에러 팝업 폭풍)로 이어지면 안 됨. 사용자 새로고침
+        # (load_songs/reload_song/load_pptx)이 차단을 해제한다.
         self._loading = False
+        self._auto_retry_blocked = True
 
     def _on_single_load_finished(self, count: int):
         self._pending_conversions = max(0, self._pending_conversions - 1)
@@ -384,6 +391,7 @@ class SlideManager(QObject):
         self._loading = False
         self._pending_conversions = 0
         self._counted_song_names = set()
+        self._auto_retry_blocked = False  # 사용자 주도 로드 = 재시도 허용
 
         song_data_list = []
         for s in songs:
@@ -637,7 +645,7 @@ class SlideManager(QObject):
         로딩 오버레이(썸네일 영역 가림)를 띄우면 안 된다. 진행 표시는
         워커의 progress 신호가 패널 제목에 비차단으로 반영한다.
         """
-        if self._loading or self._worker is None:
+        if self._loading or self._worker is None or self._auto_retry_blocked:
             return
         self._loading = True
         self._worker.add_task(PPTTask(PPTTask.LOAD_SINGLE, path))
@@ -768,6 +776,7 @@ class SlideManager(QObject):
 
         if self._songs:
             self._pending_reload_song = song
+        self._auto_retry_blocked = False  # 사용자 새로고침 = 재시도 허용
         self._loading = True
         self.load_started.emit()
         worker.add_task(PPTTask(PPTTask.LOAD_SINGLE, target_path))

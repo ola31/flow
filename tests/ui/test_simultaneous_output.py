@@ -268,3 +268,29 @@ class TestQrButton:
             mw._slide_manager.shutdown()
             mw._clear_dirty()
             mw.close()
+
+
+class TestErrorPopupDedupe:
+    """같은 PPT 오류 팝업의 연속 표시 억제 — 팝업 폭풍으로 앱이 죽는 것 방지."""
+
+    def test_repeated_same_error_shows_one_popup(self, qtbot, monkeypatch):
+        from PySide6.QtWidgets import QMessageBox
+
+        mw = _make_mw(
+            qtbot, monkeypatch,
+            DisplayTarget(mode="screen", screen=None, windowed=True, with_web=False),
+        )
+        try:
+            popups = []
+            monkeypatch.setattr(
+                QMessageBox, "warning",
+                staticmethod(lambda *a, **k: popups.append(a[2] if len(a) > 2 else "")),
+            )
+            mw._on_ppt_load_error("PPTX 로드 중 오류 발생: X")
+            mw._on_ppt_load_error("PPTX 로드 중 오류 발생: X")
+            mw._on_ppt_load_error("PPTX 로드 중 오류 발생: X")
+            assert len(popups) == 1
+        finally:
+            mw._slide_manager.shutdown()
+            mw._clear_dirty()
+            mw.close()
