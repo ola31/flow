@@ -20,7 +20,11 @@ from flow.services.markdown.patches import (
     apply_patches_to_text,
     slide_hash,
 )
-from flow.services.markdown.renderer import render_all, render_slide
+from flow.services.markdown.renderer import (
+    effective_background,
+    render_all,
+    render_slide,
+)
 
 __all__ = [
     "Frontmatter",
@@ -32,6 +36,7 @@ __all__ = [
     "SongSpec",
     "apply_patches",
     "apply_patches_to_text",
+    "effective_background",
     "lyric_snippet",
     "parse",
     "read_song_lyrics",

@@ -160,5 +160,14 @@ class TestConfigServicePersistence:
         new_service._config_dir = config_service._config_dir
         new_service._config_file = config_service._config_file
         new_service.load()
-        
+
         assert path_str in new_service.get_recent_projects()
+
+
+def test_hotspot_ssid_password_roundtrip(config_service):
+    assert config_service.get_hotspot_ssid() == ""
+    assert config_service.get_hotspot_password() == ""
+    config_service.set_hotspot_ssid("Flow-ABCD")
+    config_service.set_hotspot_password("pw123456")
+    assert config_service.get_hotspot_ssid() == "Flow-ABCD"
+    assert config_service.get_hotspot_password() == "pw123456"

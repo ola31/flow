@@ -113,6 +113,40 @@ class TestLiveControllerBroadcast:
         assert slide_spy.called
         assert slide_spy.args[0] is None
 
+    def test_live_slide_index_default_and_after_set(self, live_controller):
+        """live_slide_index 프로퍼티 기본값 및 설정 반영 확인"""
+        assert live_controller.live_slide_index == -1
+        live_controller._live_slide_index = 3
+        assert live_controller.live_slide_index == 3
+
+    def test_live_slide_index_reflects_direct_slide_broadcast(self, live_controller):
+        """직접 슬라이드 송출 시 live_slide_index가 반영됨"""
+        live_controller.set_preview_slide(3)
+
+        live_controller.send_to_live()
+
+        assert live_controller.live_slide_index == 3
+
+    def test_live_slide_index_reflects_hotspot_broadcast(self, live_controller):
+        """핫스팟 송출 시에도 live_slide_index가 해당 전역 슬라이드 인덱스로 반영됨"""
+        hotspot = Hotspot(x=10, y=20, lyric="Sending to Live")
+        hotspot.set_slide_index(7, verse_index=0)
+        live_controller.set_preview(hotspot)
+
+        live_controller.send_to_live()
+
+        assert live_controller.live_slide_index == 7
+
+    def test_live_slide_index_reset_on_clear(self, live_controller):
+        """Live 초기화 시 live_slide_index가 -1로 초기화됨"""
+        live_controller.set_preview_slide(2)
+        live_controller.send_to_live()
+        assert live_controller.live_slide_index == 2
+
+        live_controller.clear_live()
+
+        assert live_controller.live_slide_index == -1
+
 
 class TestLiveNeverConvertsInline:
     """라이브 송출도 GUI 스레드 인라인 변환 금지.

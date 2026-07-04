@@ -214,6 +214,36 @@ class ConfigService:
         self._config["display_windowed_mode"] = bool(windowed)
         self.save()
 
+    def get_display_with_web(self) -> bool:
+        """모니터 송출 시 웹 송출도 함께 시작할지 (F11 픽커 체크박스 기본값)."""
+        self.load()
+        return bool(self._config.get("display_with_web", False))
+
+    def set_display_with_web(self, with_web: bool) -> None:
+        self.load()
+        self._config["display_with_web"] = bool(with_web)
+        self.save()
+
+    # ==== 핫스팟 ====
+
+    def get_hotspot_ssid(self) -> str:
+        self.load()
+        return self._config.get("hotspot_ssid", "")
+
+    def set_hotspot_ssid(self, ssid: str) -> None:
+        self.load()
+        self._config["hotspot_ssid"] = ssid or ""
+        self.save()
+
+    def get_hotspot_password(self) -> str:
+        self.load()
+        return self._config.get("hotspot_password", "")
+
+    def set_hotspot_password(self, password: str) -> None:
+        self.load()
+        self._config["hotspot_password"] = password or ""
+        self.save()
+
     # ==== 출력 해상도 ====
 
     def get_output_resolution(self) -> tuple[int, int]:

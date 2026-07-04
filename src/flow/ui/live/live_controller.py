@@ -84,6 +84,8 @@ class LiveController(QObject):
             if slide_idx < 0:
                 slide_idx = self._live_hotspot.get_slide_index(5)
 
+            self._live_slide_index = slide_idx
+
             if self._slide_manager and slide_idx >= 0:
                 self._emit_slide_if_available(slide_idx)
             else:
@@ -113,6 +115,8 @@ class LiveController(QObject):
             slide_idx = self._live_hotspot.get_slide_index(v_idx)
             if slide_idx < 0:
                 slide_idx = self._live_hotspot.get_slide_index(5)
+
+            self._live_slide_index = slide_idx
 
             if self._slide_manager and slide_idx >= 0:
                 self._emit_slide_if_available(slide_idx)
@@ -174,3 +178,8 @@ class LiveController(QObject):
     def live_hotspot(self) -> Hotspot | None:
         """현재 Live 핫스팟"""
         return self._live_hotspot
+
+    @property
+    def live_slide_index(self) -> int:
+        """현재 Live 전역 슬라이드 인덱스 (없으면 -1)"""
+        return self._live_slide_index

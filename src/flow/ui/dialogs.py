@@ -21,6 +21,7 @@ OS 기본 다이얼로그(QMessageBox, QInputDialog)는 타이틀바 글자 잘�
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 
 from PySide6.QtCore import Qt, QPoint, QSize
 from PySide6.QtGui import QMouseEvent
@@ -377,19 +378,30 @@ def flow_save_changes(
 # ─── 모니터 선택 다이얼로그 ────────────────────────────────────────────────
 
 
+@dataclass
+class DisplayTarget:
+    """송출 대상 — 물리 모니터 또는 웹 브라우저."""
+
+    mode: str  # "screen" | "web"
+    screen: object | None = None  # QScreen (mode == "screen"일 때만)
+    windowed: bool = False
+    with_web: bool = False  # 모니터 송출과 웹 송출을 동시에 (mode=="screen" 전용)
+
+
 def flow_select_screen(
     parent,
     screens: list,
     *,
     current_name: str = "",
     default_windowed: bool | None = None,
+    default_with_web: bool = False,
     title: str = "송출 모니터 선택",
-) -> tuple[object | None, bool] | None:
-    """송출에 사용할 QScreen + 윈도우 모드 여부 선택.
+) -> DisplayTarget | None:
+    """송출에 사용할 대상(모니터 또는 웹) + 윈도우 모드 여부 선택.
 
     Returns:
-        (screen, windowed) 튜플 — screen은 선택된 QScreen, windowed는
-        True면 fullscreen 대신 윈도우 모드로 송출. 사용자 취소 시 None 반환.
+        DisplayTarget — mode가 "web"이면 웹 송출, "screen"이면 screen/windowed
+        필드가 채워진다. 사용자 취소 시 None 반환.
     """
     from PySide6.QtWidgets import QButtonGroup, QRadioButton, QCheckBox
 
@@ -449,7 +461,23 @@ def flow_select_screen(
         radios.append((radio, screen))
         body.addWidget(radio)
 
-    if not any(r.isChecked() for r, _ in radios):
+    radio_web = QRadioButton("웹으로 송출  ·  같은 네트워크의 브라우저로 접속")
+    radio_web.setStyleSheet(
+        f"QRadioButton {{ color: {TEXT_PRIMARY}; font-size: {FONT_MD}px; "
+        f"background: transparent; padding: {SP_SM}px 0; "
+        f"font-weight: {FW_MEDIUM}; spacing: 8px; }}"
+        f"QRadioButton::indicator {{ width: 14px; height: 14px; "
+        f"border-radius: 8px; border: 1.5px solid {BORDER_STANDARD_RGBA}; "
+        f"background: {BG_ELEVATED}; }}"
+        f"QRadioButton::indicator:checked {{ border: 4px solid {ACCENT}; "
+        f"background: {BG_DEEP}; }}"
+    )
+    if current_name == "__web__":
+        radio_web.setChecked(True)
+    group.addButton(radio_web, len(screens))
+    body.addWidget(radio_web)
+
+    if not any(r.isChecked() for r, _ in radios) and not radio_web.isChecked():
         radios[0][0].setChecked(True)
 
     # 윈도우 모드 체크박스 — 단일 모니터 환경의 기본 옵션, 다중 모니터에서도 선택 가능
@@ -464,6 +492,22 @@ def flow_select_screen(
     )
     body.addWidget(chk_windowed)
 
+    # 동시 송출: 모니터 송출과 함께 웹 서버도 시작
+    chk_with_web = QCheckBox("웹 송출도 함께 시작 (폰/브라우저 동시 시청)")
+    chk_with_web.setStyleSheet(
+        f"color: {TEXT_SECONDARY}; font-size: {FONT_SM}px; "
+        f"background: transparent; padding: {SP_SM}px 0;"
+    )
+    chk_with_web.setChecked(default_with_web)
+
+    def _sync_with_web_enabled() -> None:
+        # "웹으로 송출" 라디오는 그 자체가 웹 전용 모드 → 체크박스 비활성
+        chk_with_web.setEnabled(not radio_web.isChecked())
+
+    radio_web.toggled.connect(lambda _checked: _sync_with_web_enabled())
+    _sync_with_web_enabled()
+    body.addWidget(chk_with_web)
+
     btn_cancel = _make_button("취소")
     btn_cancel.clicked.connect(dlg.reject)
 
@@ -477,12 +521,20 @@ def flow_select_screen(
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return None
 
+    if radio_web.isChecked():
+        return DisplayTarget(mode="web")
+
     chosen_screen = None
     for radio, screen in radios:
         if radio.isChecked():
             chosen_screen = screen
             break
-    return (chosen_screen, chk_windowed.isChecked())
+    return DisplayTarget(
+        mode="screen",
+        screen=chosen_screen,
+        windowed=chk_windowed.isChecked(),
+        with_web=chk_with_web.isChecked(),
+    )
 
 
 # ─── 텍스트 입력 다이얼로그 (QInputDialog.getText 대체) ────────────────────
@@ -649,3 +701,42 @@ def flow_show_install_guide(parent, *, platform_name: str = "") -> None:
 
     dlg.exec()
 
+
+
+# ─── QR 팝업 ────────────────────────────────────────────────────────────────
+
+
+def flow_show_qr(parent, url: str, *, title: str = "웹 송출 QR") -> None:
+    """웹 송출 URL의 QR 코드를 큰 팝업으로 표시 (폰 카메라로 스캔)."""
+    from flow.ui.qr import build_qr_pixmap
+
+    dlg = _FlowDialog(parent, title=title)
+    body = dlg.body_layout()
+
+    pixmap = build_qr_pixmap(url)
+    if pixmap is not None:
+        qr_label = QLabel()
+        qr_label.setFixedSize(280, 280)
+        qr_label.setScaledContents(True)
+        qr_label.setPixmap(pixmap)
+        body.addWidget(qr_label, 0, Qt.AlignmentFlag.AlignHCenter)
+    else:
+        missing = QLabel("QR 코드를 생성할 수 없습니다")
+        missing.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; font-size: {FONT_MD}px; "
+            "background: transparent; border: none;"
+        )
+        body.addWidget(missing, 0, Qt.AlignmentFlag.AlignHCenter)
+
+    url_label = QLabel(url)
+    url_label.setStyleSheet(
+        f"color: {TEXT_PRIMARY}; font-size: {FONT_MD}px; "
+        f"font-weight: {FW_MEDIUM}; background: transparent; border: none;"
+    )
+    url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    body.addWidget(url_label, 0, Qt.AlignmentFlag.AlignHCenter)
+
+    btn_close = _make_button("닫기", primary=True)
+    btn_close.clicked.connect(dlg.accept)
+    dlg.add_button_row([btn_close])
+    dlg.exec()

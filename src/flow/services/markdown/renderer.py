@@ -93,7 +93,7 @@ def render_slide(spec: SongSpec, slide: Slide, *, song_dir: Path) -> QImage:
     img = QImage(width, height, QImage.Format.Format_RGB32)
 
     attrs = resolve_attrs(spec, slide)
-    background = _effective_background(spec, slide, attrs)
+    background = effective_background(spec, slide, attrs)
     painter = QPainter(img)
     try:
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
@@ -107,7 +107,7 @@ def render_slide(spec: SongSpec, slide: Slide, *, song_dir: Path) -> QImage:
     return img
 
 
-def _effective_background(spec: SongSpec, slide: Slide, attrs: ResolvedAttrs) -> str:
+def effective_background(spec: SongSpec, slide: Slide, attrs: ResolvedAttrs) -> str:
     """Pick background.
 
     Slide override wins; otherwise longer slides use long-line backgrounds.

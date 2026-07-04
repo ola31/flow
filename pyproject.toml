@@ -17,9 +17,11 @@ dependencies = [
     "python-pptx",
     "watchdog",
     "pywin32; platform_system == 'Windows'",
+    "winsdk; platform_system == 'Windows'",
     "pdf2image",
     "pymupdf",
     "pyyaml>=6.0",
+    "qrcode",
 ]
 
 [project.optional-dependencies]
