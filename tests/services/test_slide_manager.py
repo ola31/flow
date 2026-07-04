@@ -419,3 +419,198 @@ class TestSlideCacheKey:
         manager._recalculate_offsets()
 
         assert manager.get_slide_cache_key(99) is None
+
+
+class TestMetadataCountsBeforeConverting:
+    """메타데이터 로드는 카운트만 빠르게 끝내고, 변환은 뒤로 미룬다.
+
+    카운트+변환이 한 작업이면 61장 PPT 변환이 끝날 때까지 오프셋/인덱스
+    globalize가 지연돼, 그동안 프로젝트의 모든 핫스팟이 동작하지 않는다.
+    """
+
+    def _pptx(self, tmp_path, name, slides=2):
+        from pptx import Presentation
+
+        d = tmp_path / "songs" / name
+        d.mkdir(parents=True)
+        prs = Presentation()
+        for _ in range(slides):
+            prs.slides.add_slide(prs.slide_layouts[6])
+        prs.save(d / "slides.pptx")
+        return d / "slides.pptx"
+
+    def test_metadata_task_does_not_convert(self, mock_converter, tmp_path, qtbot):
+        worker = SlideWorker(mock_converter)
+        p = self._pptx(tmp_path, "song_a", 3)
+        results = []
+        worker.metadata_finished.connect(results.append)
+
+        worker._handle_metadata_load([("song_a", p)])
+
+        assert results == [[("song_a", 3)]]
+        mock_converter.convert_slide.assert_not_called()
+
+    def test_conversion_enqueued_after_final_metadata(
+        self, manager, mock_converter, tmp_path
+    ):
+        from flow.domain.song import Song
+
+        p = self._pptx(tmp_path, "song_a", 2)
+        song = Song(name="song_a", folder=Path("songs/song_a"), project_dir=tmp_path)
+        manager._songs = [song]
+        manager._pending_metadata_batches = 1
+        manager._loading = True
+
+        queued = []
+        manager._worker.queue_task = queued.append
+
+        manager._on_metadata_loaded([("song_a", 2)])
+
+        assert len(queued) == 1 and queued[0].data == p
+        # 변환이 남아 있는 동안 _loading 유지 (peek의 add_task가 큐를 비우는
+        # 사고 방지)
+        assert manager._loading is True
+
+        manager._on_single_load_finished(2)
+        assert manager._loading is False
+
+    def test_worker_queue_task_does_not_clear_queue(self, mock_converter):
+        worker = SlideWorker(mock_converter)
+        worker._task_queue.put(PPTTask(PPTTask.LOAD_SINGLE, Path("/fake1")))
+
+        worker.queue_task(PPTTask(PPTTask.LOAD_SINGLE, Path("/fake2")))
+
+        assert worker._task_queue.qsize() == 2
+
+
+class TestPeekImageLRU:
+    """peek이 같은 슬라이드를 반복 조회할 때 PNG 재디코드를 피한다.
+
+    핫스팟 클릭마다 PIP+매핑 패널이 같은 슬라이드를 다시 요청하는데,
+    매번 풀해상도 PNG를 디코드하면 클릭이 수백 ms씩 걸린다.
+    """
+
+    def _song(self, tmp_path):
+        from pptx import Presentation
+
+        from flow.domain.song import Song
+
+        d = tmp_path / "songs" / "song_l"
+        d.mkdir(parents=True)
+        prs = Presentation()
+        prs.slides.add_slide(prs.slide_layouts[6])
+        prs.save(d / "slides.pptx")
+        song = Song(name="song_l", folder=Path("songs/song_l"), project_dir=tmp_path)
+        song.set_slide_count(1)
+        return song
+
+    def test_repeated_peek_hits_lru(self, manager, mock_converter, tmp_path):
+        from PySide6.QtGui import QImage
+
+        song = self._song(tmp_path)
+        manager._songs = [song]
+        manager._recalculate_offsets()
+        img = QImage(4, 4, QImage.Format.Format_RGB32)
+        mock_converter.get_cached_slide.return_value = img
+
+        first = manager.peek_slide_image(0)
+        second = manager.peek_slide_image(0)
+
+        assert first is img and second is img
+        assert mock_converter.get_cached_slide.call_count == 1
+
+    def test_lru_invalidated_by_file_change(self, manager, mock_converter, tmp_path):
+        import os
+
+        from PySide6.QtGui import QImage
+
+        song = self._song(tmp_path)
+        manager._songs = [song]
+        manager._recalculate_offsets()
+        mock_converter.get_cached_slide.return_value = QImage(
+            4, 4, QImage.Format.Format_RGB32
+        )
+
+        manager.peek_slide_image(0)
+        os.utime(song.abs_slides_path, (2e9, 2e9))  # mtime 변경 → 키 변경
+        manager.peek_slide_image(0)
+
+        assert mock_converter.get_cached_slide.call_count == 2
+
+    def test_clear_caches_drops_lru(self, manager, mock_converter, tmp_path):
+        from PySide6.QtGui import QImage
+
+        song = self._song(tmp_path)
+        manager._songs = [song]
+        manager._recalculate_offsets()
+        mock_converter.get_cached_slide.return_value = QImage(
+            4, 4, QImage.Format.Format_RGB32
+        )
+
+        manager.peek_slide_image(0)
+        manager.clear_caches()
+        manager.peek_slide_image(0)
+
+        assert mock_converter.get_cached_slide.call_count == 2
+
+
+class TestPeekThumbnail:
+    """미리보기/매핑 패널용 축소본 조회 — 반복 클릭 시 스케일 재연산 방지."""
+
+    def _song(self, tmp_path):
+        from pptx import Presentation
+
+        from flow.domain.song import Song
+
+        d = tmp_path / "songs" / "song_t"
+        d.mkdir(parents=True)
+        prs = Presentation()
+        prs.slides.add_slide(prs.slide_layouts[6])
+        prs.save(d / "slides.pptx")
+        song = Song(name="song_t", folder=Path("songs/song_t"), project_dir=tmp_path)
+        song.set_slide_count(1)
+        return song
+
+    def test_thumbnail_scaled_within_bounds(self, manager, mock_converter, tmp_path):
+        from PySide6.QtGui import QImage
+
+        song = self._song(tmp_path)
+        manager._songs = [song]
+        manager._recalculate_offsets()
+        mock_converter.get_cached_slide.return_value = QImage(
+            1920, 1080, QImage.Format.Format_RGB32
+        )
+
+        thumb = manager.peek_thumbnail(0, 480, 270)
+
+        assert thumb is not None
+        assert thumb.width() <= 480 and thumb.height() <= 270
+
+    def test_repeat_thumbnail_skips_rescale_and_decode(
+        self, manager, mock_converter, tmp_path
+    ):
+        from PySide6.QtGui import QImage
+
+        song = self._song(tmp_path)
+        manager._songs = [song]
+        manager._recalculate_offsets()
+        mock_converter.get_cached_slide.return_value = QImage(
+            1920, 1080, QImage.Format.Format_RGB32
+        )
+
+        first = manager.peek_thumbnail(0, 480, 270)
+        peeks = []
+        manager.peek_slide_image = lambda i: peeks.append(i)  # 재호출 감지
+        second = manager.peek_thumbnail(0, 480, 270)
+
+        assert second is first  # 캐시된 동일 객체
+        assert peeks == []
+
+    def test_thumbnail_none_when_unconverted(self, manager, mock_converter, tmp_path):
+        song = self._song(tmp_path)
+        manager._songs = [song]
+        manager._recalculate_offsets()
+        mock_converter.get_cached_slide.return_value = None
+        manager._loading = True
+
+        assert manager.peek_thumbnail(0, 480, 270) is None

@@ -88,7 +88,22 @@ class SlidePreviewPanel(QWidget):
         # 캐시 키 → 썸네일 QIcon. 키(파일 mtime 포함)가 같으면 PNG 재디코드
         # 없이 재사용 — 곡 추가/새로고침 때 전체 덱을 다시 그리지 않게 한다.
         self._icon_cache: dict[tuple, QIcon] = {}
+        self._placeholder_icon_cached: QIcon | None = None
         self._setup_ui()
+
+    def _placeholder_icon(self) -> QIcon:
+        """변환 전 슬라이드용 자리 표시 아이콘 (실제 썸네일과 같은 크기).
+
+        IconMode는 아이템 생성 후 setIcon으로는 셀 크기를 재계산하지
+        않으므로, 아이콘 없이 만들면 채워진 뒤에도 조그맣게 남는다.
+        """
+        if self._placeholder_icon_cached is None:
+            from flow.ui.styles import BG_ELEVATED
+
+            pm = QPixmap(192, 108)
+            pm.fill(QColor(BG_ELEVATED))
+            self._placeholder_icon_cached = QIcon(pm)
+        return self._placeholder_icon_cached
 
     def _setup_ui(self) -> None:
         from flow.ui.styles import (
@@ -490,51 +505,74 @@ class SlidePreviewPanel(QWidget):
             qimg = None
             if icon is None:
                 if decoded >= self._DECODE_BUDGET:
-                    # 이번 틱 예산 소진 — 나머지는 다음 틱에서 이어서
+                    # 이번 틱 예산 소진 — 자리만 잡고 다음 틱에서 이어서
                     deferred = True
-                    continue
-                try:
-                    qimg = self._slide_manager.peek_slide_image(i)
-                except Exception:
-                    qimg = None
-                if qimg is None or qimg.isNull():
-                    # 아직 변환 안 됨 — load_finished 후 다음 refresh에서 채움
-                    continue
-                decoded += 1
+                else:
+                    try:
+                        # peek_thumbnail 경로로 디코드하면 클릭 미리보기
+                        # (PIP/매핑 패널/팝오버)가 쓰는 공유 축소본 캐시가
+                        # 함께 데워져, 스트립이 채워진 뒤에는 어떤 핫스팟을
+                        # 눌러도 디코드 없이 즉시 뜬다.
+                        thumb_fn = getattr(
+                            self._slide_manager, "peek_thumbnail", None
+                        )
+                        if thumb_fn is not None:
+                            qimg = thumb_fn(i)
+                        else:
+                            qimg = self._slide_manager.peek_slide_image(i)
+                    except Exception:
+                        qimg = None
+                    if qimg is not None and not qimg.isNull():
+                        decoded += 1
 
-                if (
-                    existing_item is not None
-                    and key is None
-                    and existing_item.data(self._SLIDE_IMAGE_ROLE) is qimg
-                ):
-                    # 키를 못 만드는 소스: 기존 QImage 동일성 스킵 유지
-                    if existing_item.text() != label:
-                        existing_item.setText(label)
-                    if existing_item.foreground().color() != target_color:
-                        existing_item.setForeground(target_color)
-                    continue
+                        if (
+                            existing_item is not None
+                            and key is None
+                            and existing_item.data(self._SLIDE_IMAGE_ROLE)
+                            is qimg
+                        ):
+                            # 키를 못 만드는 소스: QImage 동일성 스킵 유지
+                            if existing_item.text() != label:
+                                existing_item.setText(label)
+                            if (
+                                existing_item.foreground().color()
+                                != target_color
+                            ):
+                                existing_item.setForeground(target_color)
+                            continue
 
-                pixmap = QPixmap.fromImage(qimg)
-                scaled = pixmap.scaled(
-                    192, 108,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-                icon = QIcon(scaled)
-                if key is not None:
-                    self._icon_cache[key] = icon
+                        pixmap = QPixmap.fromImage(qimg)
+                        scaled = pixmap.scaled(
+                            192, 108,
+                            Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation,
+                        )
+                        icon = QIcon(scaled)
+                        if key is not None:
+                            self._icon_cache[key] = icon
+                    else:
+                        qimg = None
+                        # 아직 변환 안 됨 — load_finished 후 refresh에서 채움
 
+            # 아이콘이 없어도 아이템은 반드시 만든다: 목록 행 번호가 곧
+            # 슬라이드 인덱스이므로(select_slide) 건너뛰면 선택이 어긋난다.
             if existing_item is not None:
                 item = existing_item
             else:
                 item = QListWidgetItem()
                 self._list.addItem(item)
-            item.setIcon(icon)
+            if icon is not None:
+                item.setIcon(icon)
+                item.setData(self._SLIDE_IMAGE_ROLE, qimg)
+                item.setData(self._SLIDE_KEY_ROLE, key)
+            else:
+                # 자리 표시자 — 실제 썸네일과 같은 크기의 아이콘으로 셀
+                # 지오메트리를 잡아 두고, 키를 비워 다음 refresh에서 재시도
+                item.setIcon(self._placeholder_icon())
+                item.setData(self._SLIDE_KEY_ROLE, None)
             item.setText(label)
             item.setForeground(target_color)
             item.setData(Qt.ItemDataRole.UserRole, i)
-            item.setData(self._SLIDE_IMAGE_ROLE, qimg)
-            item.setData(self._SLIDE_KEY_ROLE, key)
 
         # 이번 렌더에 안 쓰인 키는 버려 메모리 상한 유지
         self._icon_cache = {

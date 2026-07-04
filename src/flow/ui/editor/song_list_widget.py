@@ -959,6 +959,7 @@ class _StandalonePanel(QWidget):
     sheet_rename_requested = Signal(object)     # ScoreSheet
     sheet_move_requested = Signal(object, int)  # (ScoreSheet, delta)
     sheet_delete_requested = Signal(object)     # ScoreSheet
+    sheet_clear_mappings_requested = Signal(object)  # ScoreSheet
     add_sheet_requested = Signal()
     edit_markdown_requested = Signal()
     open_ppt_requested = Signal()
@@ -1120,6 +1121,9 @@ class _StandalonePanel(QWidget):
             card.rename_requested.connect(self.sheet_rename_requested.emit)
             card.move_requested.connect(self.sheet_move_requested.emit)
             card.delete_requested.connect(self.sheet_delete_requested.emit)
+            card.clear_mappings_requested.connect(
+                self.sheet_clear_mappings_requested.emit
+            )
             self._pages_layout.addWidget(card)
 
         if not valid_sheets:
@@ -1136,6 +1140,7 @@ class _PageCard(QFrame):
     rename_requested = Signal(object)  # ScoreSheet
     move_requested = Signal(object, int)  # (ScoreSheet, -1=위/+1=아래)
     delete_requested = Signal(object)  # ScoreSheet
+    clear_mappings_requested = Signal(object)  # ScoreSheet
 
     def __init__(self, sheet: ScoreSheet, page_num: int, active: bool, parent=None) -> None:
         super().__init__(parent)
@@ -1218,6 +1223,13 @@ class _PageCard(QFrame):
         down_act = QAction("아래로 이동", self)
         down_act.triggered.connect(lambda: self.move_requested.emit(self._sheet, 1))
         menu.addAction(down_act)
+
+        menu.addSeparator()
+        clear_map_act = QAction("모든 매핑 해제", self)
+        clear_map_act.triggered.connect(
+            lambda: self.clear_mappings_requested.emit(self._sheet)
+        )
+        menu.addAction(clear_map_act)
 
         menu.addSeparator()
         delete_act = QAction("삭제", self)
@@ -1443,6 +1455,7 @@ class SongListWidget(QWidget):
         panel.sheet_rename_requested.connect(self._rename_sheet)
         panel.sheet_move_requested.connect(self._move_sheet)
         panel.sheet_delete_requested.connect(self._delete_sheet)
+        panel.sheet_clear_mappings_requested.connect(self._clear_sheet_mappings)
         panel.add_sheet_requested.connect(self._on_add_sheet_clicked)
         panel.open_ppt_requested.connect(self._on_open_ppt_clicked)
         panel.import_ppt_requested.connect(self._on_import_ppt_clicked)
@@ -1983,6 +1996,49 @@ class SongListWidget(QWidget):
         self.song_removed.emit(sheet.id)
         if self._main_window:
             self._main_window._mark_dirty()
+
+    def _clear_sheet_mappings(self, sheet: ScoreSheet) -> None:
+        """시트의 모든 핫스팟 매핑 일괄 해제 (Ctrl+Z 복구 가능)."""
+        from flow.ui import dialogs
+
+        if getattr(self._main_window, "_is_live", False):
+            return
+        mapped = sum(
+            1
+            for h in sheet.hotspots
+            if h.slide_index >= 0
+            or any(v >= 0 for v in h.slide_mappings.values())
+        )
+        if mapped == 0:
+            dialogs.flow_warning(
+                self, "매핑 없음", "이 시트에는 해제할 매핑이 없습니다."
+            )
+            return
+        ok = dialogs.flow_question(
+            self,
+            "매핑 일괄 해제",
+            f"'{sheet.name}' 시트의 핫스팟 {mapped}개에 걸린 매핑을 모두 "
+            "해제하시겠습니까?\n(핫스팟 자체는 남고, Ctrl+Z로 되돌릴 수 있습니다)",
+            yes_text="모두 해제",
+            no_text="취소",
+        )
+        if not ok:
+            return
+
+        from flow.ui.undo_commands import ClearSheetMappingsCommand
+
+        mw = self._main_window
+        command = ClearSheetMappingsCommand(
+            sheet,
+            update_cb=lambda: (
+                mw._canvas.update(),
+                mw._update_mapped_slides_ui()
+                if hasattr(mw, "_update_mapped_slides_ui")
+                else None,
+            ),
+        )
+        mw._undo_stack.push(command)
+        mw._mark_dirty()
 
     def _on_import_ppt_clicked(self) -> None:
         """단독 곡 편집 모드: 이 곡에 외부 PPT 가져오기."""

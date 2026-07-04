@@ -2331,13 +2331,16 @@ class MainWindow(QMainWindow):
         self._slide_preview.hide_loading()
         self._slide_preview.refresh_slides()
         self._canvas.popover.set_slide_source(
-            count, self._slide_manager.peek_slide_image
+            count, self._slide_manager.peek_thumbnail
         )
         # 변환 완료 시점에 PIP 미리보기 재조회 — 캐시 미스로 비워둔
         # 미리보기(peek가 None을 반환했던 경우)를 채워 넣는다.
         selected = self._canvas.get_selected_hotspot()
         if selected is not None:
             self._update_preview(selected)
+        # 라이브 중이면 송출 화면도 재동기화 (미변환으로 유지하던 프레임 갱신)
+        if self._is_live:
+            self._live_controller.sync_live()
         self._statusbar.showMessage(f"PPT 로드 완료 ({count} 슬라이드)", 3000)
 
     def _on_songs_metadata_started(self) -> None:
@@ -2371,7 +2374,7 @@ class MainWindow(QMainWindow):
         self._slide_preview.refresh_slides()
         self._canvas.popover.set_slide_source(
             self._slide_manager.get_slide_count(),
-            self._slide_manager.peek_slide_image,
+            self._slide_manager.peek_thumbnail,
         )
 
     def _on_ppt_load_error(self, message: str) -> None:
@@ -2483,7 +2486,7 @@ class MainWindow(QMainWindow):
             self._mapping_panel.show_for_hotspot(
                 hotspot,
                 v_idx,
-                self._slide_manager.peek_slide_image,
+                self._slide_manager.peek_thumbnail,
             )
             sizes = self._h_splitter.sizes()
             if len(sizes) > 3 and sizes[3] == 0:
@@ -2524,7 +2527,7 @@ class MainWindow(QMainWindow):
                 self._mapping_panel.refresh(
                     hotspot,
                     self._project.current_verse_index,
-                    self._slide_manager.peek_slide_image,
+                    self._slide_manager.peek_thumbnail,
                 ) if self._mapping_panel.isVisible() else None,
             ),
         )
@@ -2630,7 +2633,7 @@ class MainWindow(QMainWindow):
 
         if slide_idx >= 0:
             try:
-                qimg = self._slide_manager.peek_slide_image(slide_idx)
+                qimg = self._slide_manager.peek_thumbnail(slide_idx)
                 if qimg is not None and not qimg.isNull():
                     self._pip.set_preview_image(QtGui.QPixmap.fromImage(qimg))
                 else:
@@ -2858,7 +2861,7 @@ class MainWindow(QMainWindow):
                 self._mapping_panel.refresh(
                     selected_hotspot,
                     self._project.current_verse_index,
-                    self._slide_manager.peek_slide_image,
+                    self._slide_manager.peek_thumbnail,
                 ) if self._mapping_panel.isVisible() else None,
             ),
         )
@@ -2941,7 +2944,7 @@ class MainWindow(QMainWindow):
                 self._update_mapped_slides_ui(),
                 self._update_verse_buttons_state(),
                 self._mapping_panel.refresh(
-                    hotspot, v_idx, self._slide_manager.peek_slide_image
+                    hotspot, v_idx, self._slide_manager.peek_thumbnail
                 ) if self._mapping_panel.isVisible() else None,
                 # 매핑 완료 후 팝오버 자동 닫기 (시트 가림 방지)
                 self._canvas.popover.dismiss(),
@@ -3010,7 +3013,7 @@ class MainWindow(QMainWindow):
     def _update_preview_with_index(self, index: int) -> None:
         self._last_preview_index = index
         try:
-            qimg = self._slide_manager.peek_slide_image(index)
+            qimg = self._slide_manager.peek_thumbnail(index)
             self._pip.set_preview_image(QtGui.QPixmap.fromImage(qimg))
             self._pip.set_preview_text(f"#{index + 1}")
         except Exception:
