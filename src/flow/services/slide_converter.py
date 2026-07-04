@@ -85,6 +85,60 @@ def _load_cached_img(
     return QImage(str(img_path)) if img_path.exists() else None
 
 
+_SOURCE_MARKER = "source_path.txt"
+
+
+def _prune_stale_caches(base_dir: Path, pptx_path: Path, keep_dir: Path) -> None:
+    """같은 원본 파일의 이전 버전(다른 mtime) 캐시 폴더를 삭제.
+
+    캐시 키에 mtime이 들어 있어 파일을 편집할 때마다 새 폴더가 생기므로,
+    변환 성공 시 새 폴더에 원본 경로 마커를 남기고 같은 원본을 가리키는
+    옛 폴더들을 정리한다. 마커가 없는(구버전) 폴더는 원본 불명이라 안전하게
+    남겨 둔다.
+    """
+    try:
+        src = str(Path(pptx_path).resolve())
+        keep_dir.mkdir(parents=True, exist_ok=True)
+        (keep_dir / _SOURCE_MARKER).write_text(src, encoding="utf-8")
+        for item in base_dir.iterdir():
+            if not item.is_dir() or item.resolve() == keep_dir.resolve():
+                continue
+            marker = item / _SOURCE_MARKER
+            try:
+                if marker.exists() and marker.read_text(
+                    encoding="utf-8"
+                ) == src:
+                    shutil.rmtree(item, ignore_errors=True)
+            except Exception:
+                continue
+    except Exception:
+        pass  # 정리 실패는 무해 — 다음 변환 때 재시도
+
+
+def _cache_base_dir() -> Path:
+    """변환 캐시 베이스 디렉토리.
+
+    /tmp는 재부팅마다 비워져 큰 PPT(soffice 변환 수십 초)를 매번 다시
+    굽게 되므로, 사용자 캐시 디렉토리에 영구 보관한다.
+    """
+    import os
+
+    if sys.platform.startswith("linux") or sys.platform == "darwin":
+        base = Path(
+            os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))
+        )
+    else:  # Windows
+        base = Path(
+            os.environ.get("LOCALAPPDATA", tempfile.gettempdir())
+        )
+    target = base / "flow-slides"
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+    except Exception:
+        return Path(tempfile.gettempdir())
+
+
 def _get_project_root() -> Path:
     """프로젝트 루트 디렉토리 반환"""
     return Path(__file__).parent.parent.parent.parent
@@ -211,7 +265,7 @@ class OnlyOfficeSlideConverter(SlideConverter):
 
     def __init__(self, executable_path: Path):
         self.exe = executable_path
-        self._cache_dir = Path(tempfile.gettempdir()) / "flow_oo_cache"
+        self._cache_dir = _cache_base_dir() / "flow_oo_cache"
         self._cache_dir.mkdir(exist_ok=True)
 
     def get_engine_name(self) -> str:
@@ -291,9 +345,12 @@ class OnlyOfficeSlideConverter(SlideConverter):
                     [str(self.exe), str(script_path)], check=True, capture_output=True
                 )
                 if pdf_path.exists():
-                    _convert_pdf_to_images(
+                    if _convert_pdf_to_images(
                         pdf_path, pptx_cache_dir, status_callback=status_callback
-                    )
+                    ):
+                        _prune_stale_caches(
+                            self._cache_dir, pptx_path, pptx_cache_dir
+                        )
                 else:
                     print(
                         f"[OnlyOfficeSlideConverter] 슬라이드 {index} 변환 실패 (PDF 생성 안됨)"
@@ -314,7 +371,7 @@ class WindowsSlideConverter(SlideConverter):
     """Windows용 변환기 (PowerPoint PDF 변환 -> PyMuPDF 추출)"""
 
     def __init__(self):
-        self._cache_dir = Path(tempfile.gettempdir()) / "flow_win_cache"
+        self._cache_dir = _cache_base_dir() / "flow_win_cache"
         self._cache_dir.mkdir(exist_ok=True)
 
     def get_cached_slide(self, pptx_path: Path, index: int) -> QImage | None:
@@ -416,7 +473,10 @@ class WindowsSlideConverter(SlideConverter):
             # 32 = ppSaveAsPDF
             pres.SaveAs(str(pdf_path.resolve()), 32)
             pres.Close()
-            _convert_pdf_to_images(pdf_path, cache_dir, status_callback=status_callback)
+            if _convert_pdf_to_images(
+                pdf_path, cache_dir, status_callback=status_callback
+            ):
+                _prune_stale_caches(self._cache_dir, pptx_path, cache_dir)
         finally:
             # 파워포인트가 다른 창에서 열려있지 않다면 종료 시도 (선택적)
             # pp.Quit() # 다른 작업 중일 수 있으므로 주의해서 사용
@@ -437,7 +497,7 @@ class LinuxSlideConverter(SlideConverter):
     """Linux용 변환기 (LibreOffice 기반)"""
 
     def __init__(self):
-        self._cache_dir = Path(tempfile.gettempdir()) / "flow_linux_cache"
+        self._cache_dir = _cache_base_dir() / "flow_linux_cache"
         self._cache_dir.mkdir(exist_ok=True)
 
     def get_engine_name(self) -> str:
@@ -472,7 +532,7 @@ class MacOSSlideConverter(SlideConverter):
     """macOS용 변환기 — PowerPoint(AppleScript) → LibreOffice fallback."""
 
     def __init__(self):
-        self._cache_dir = Path(tempfile.gettempdir()) / "flow_macos_cache"
+        self._cache_dir = _cache_base_dir() / "flow_macos_cache"
         self._cache_dir.mkdir(exist_ok=True)
         self._has_pp = None
         self._soffice_path = None
@@ -592,7 +652,10 @@ class MacOSSlideConverter(SlideConverter):
             ["osascript", "-e", script], check=True, capture_output=True, timeout=120
         )
         if pdf_path.exists():
-            _convert_pdf_to_images(pdf_path, cache_dir, status_callback=status_callback)
+            if _convert_pdf_to_images(
+                pdf_path, cache_dir, status_callback=status_callback
+            ):
+                _prune_stale_caches(self._cache_dir, pptx_path, cache_dir)
 
 
 # ─── 엔진 감지 헬퍼 (모든 OS) ────────────────────────────────────────────────
@@ -693,9 +756,10 @@ def _convert_with_libreoffice(
             pass
 
     if pdf_path.exists():
-        _convert_pdf_to_images(
+        if _convert_pdf_to_images(
             pdf_path, pptx_cache_dir, status_callback=status_callback
-        )
+        ):
+            _prune_stale_caches(cache_dir, pptx_path, pptx_cache_dir)
 
     if img_path.exists():
         return QImage(str(img_path))

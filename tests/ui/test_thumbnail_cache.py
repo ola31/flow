@@ -16,6 +16,74 @@ class _FakeSignal:
         pass
 
 
+class TestProgressiveRefreshDuringConversion:
+    """변환 진행 신호가 올 때 썸네일을 점진적으로 채운다 (스로틀 적용)."""
+
+    def test_progress_triggers_throttled_refresh(self, qtbot, monkeypatch):
+        mgr = _FakeManager(count=3)
+        panel = _make_panel(qtbot, mgr)
+
+        calls = []
+        monkeypatch.setattr(panel, "refresh_slides", lambda: calls.append(1))
+
+        panel._on_conversion_progress(1, 61, "LibreOffice")
+        panel._on_conversion_progress(2, 61, "LibreOffice")  # 스로틀로 무시
+        assert len(calls) == 1
+
+        panel._last_progress_refresh = 0.0  # 스로틀 창 경과 시뮬레이션
+        panel._on_conversion_progress(30, 61, "LibreOffice")
+        assert len(calls) == 2
+
+    def test_progress_shown_in_title_not_overlay(self, qtbot):
+        """변환 진행은 오버레이(썸네일 가림) 대신 제목에 비차단 표시."""
+        mgr = _FakeManager(count=3)
+        panel = _make_panel(qtbot, mgr)
+
+        panel._on_conversion_progress(42, 61, "LibreOffice")
+
+        assert "42/61" in panel._title.text()
+        assert not panel._loading_overlay.isVisible()
+
+        # 변환 완료(hide_loading) 후 제목의 진행 표시가 사라져야 함
+        panel.hide_loading()
+        panel.refresh_slides()
+        assert "42/61" not in panel._title.text()
+
+    def test_background_warm_scheduling_does_not_show_overlay(self, qtbot):
+        """peek 미스로 예약되는 백그라운드 변환은 load_started(오버레이)를
+        발신하지 않는다 — 곡 전환 때마다 화면이 가려지면 안 됨."""
+        from flow.services.slide_manager import SlideManager
+
+        mgr = SlideManager(converter=None)  # 엔진 없음 → 워커 None
+        try:
+            started = []
+            mgr.load_started.connect(lambda: started.append(1))
+            mgr._ensure_background_conversion(__import__("pathlib").Path("/x.pptx"))
+            assert started == []
+        finally:
+            mgr.shutdown()
+
+    def test_status_change_does_not_reenter_event_loop(self, qtbot, monkeypatch):
+        """상태 라벨 갱신이 processEvents를 호출하면 스크롤 중 스터터가 생긴다."""
+        from PySide6.QtWidgets import QApplication
+
+        mgr = _FakeManager(count=1)
+        panel = _make_panel(qtbot, mgr)
+        calls = []
+        monkeypatch.setattr(
+            QApplication,
+            "processEvents",
+            staticmethod(lambda *a, **k: calls.append(1)),
+        )
+        try:
+            panel._on_load_status_changed("이미지 추출 중 (3/61)...")
+        finally:
+            monkeypatch.undo()
+
+        assert calls == []
+        assert panel._loading_label.text() == "이미지 추출 중 (3/61)..."
+
+
 class _FakeManager:
     """count/peek/cache_key만 흉내내는 슬라이드 매니저."""
 
@@ -140,11 +208,13 @@ class TestThumbnailIconCache:
         """스트립 채우기가 peek_thumbnail을 쓰면 클릭용 축소본 캐시가
         함께 데워져, 이후 핫스팟 클릭이 디코드 없이 즉시 뜬다."""
         mgr = _FakeManager(count=3)
-        panel = _make_panel(qtbot, mgr)
+        panel = _make_panel(qtbot, mgr)  # 참조 유지 필수 (지연 채움 타이머)
+        qtbot.waitUntil(lambda: len(set(mgr.thumb_calls)) == 3, timeout=3000)
 
-        assert sorted(mgr.thumb_calls) == [0, 1, 2], (
+        assert sorted(set(mgr.thumb_calls)) == [0, 1, 2], (
             "스트립이 peek_thumbnail 경로로 디코드해 공유 캐시를 데워야 함"
         )
+        assert panel._list.count() == 3
 
     def test_placeholder_items_keep_thumbnail_geometry(self, qtbot):
         """자리 표시 아이템도 실제 썸네일과 같은 크기의 아이콘을 가져야 한다.

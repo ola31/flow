@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from flow.domain.song import detect_slides_file
 from flow.ui.styles import (
     BG_DEEP, BG_SURFACE, BG_ELEVATED, BG_HOVER, BG_INPUT,
     BORDER, BORDER_FOCUS, BORDER_SUBTLE_RGBA, BORDER_STANDARD_RGBA,
@@ -43,7 +44,7 @@ def _song_status(song_path: str) -> tuple[str, str, str]:
         if d.is_dir()
         for f in d.iterdir()
     )
-    has_ppt = (p / "slides.pptx").exists()
+    has_ppt = detect_slides_file(p) is not None
     has_md = (p / "slides.md").exists()
     has_slides = has_ppt or has_md
 

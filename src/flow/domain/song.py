@@ -11,6 +11,23 @@ if TYPE_CHECKING:
     from .workspace import Workspace
 
 
+def detect_slides_file(song_dir: Path) -> Optional[Path]:
+    """곡 폴더의 슬라이드 pptx 경로를 감지.
+
+    규약 이름(slides.pptx)이 우선. 없으면 폴더 안의 *.pptx가 정확히
+    1개일 때 그것을 슬라이드로 인식한다 (2개 이상이면 모호 → None).
+    파일 관리자로 임의 이름의 pptx를 넣어도 동작하게 하는 완화 규칙.
+    """
+    default = song_dir / "slides.pptx"
+    if default.exists():
+        return default
+    try:
+        candidates = [f for f in song_dir.glob("*.pptx") if f.is_file()]
+    except OSError:
+        return None
+    return candidates[0] if len(candidates) == 1 else None
+
+
 @dataclass
 class Song:
     """
@@ -57,9 +74,17 @@ class Song:
 
     @property
     def abs_slides_path(self) -> Path:
-        """슬라이드 파일의 절대 경로"""
+        """슬라이드 파일의 절대 경로.
+
+        규약 경로(slides.pptx)가 없으면 곡 폴더의 유일한 *.pptx를 자동
+        감지한다 (detect_slides_file 규칙).
+        """
         p = self.slides_path or (self.folder / "slides.pptx")
-        return self._resolve_abs(p)
+        resolved = self._resolve_abs(p)
+        if resolved.exists():
+            return resolved
+        detected = detect_slides_file(self.abs_folder)
+        return detected if detected is not None else resolved
 
     @property
     def abs_sheets_dir(self) -> Path:

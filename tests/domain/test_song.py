@@ -249,3 +249,59 @@ class TestSongWorkspaceLoading:
         assert song.abs_slides_path == (
             ws.library_song_dir("곡") / "slides.pptx"
         ).resolve()
+
+
+class TestSlidesFileAutoDetection:
+    """slides.pptx가 없어도 곡 폴더에 pptx가 정확히 1개면 자동 인식."""
+
+    def _song(self, tmp_path):
+        from pathlib import Path
+
+        d = tmp_path / "songs" / "song_d"
+        d.mkdir(parents=True)
+        return d, Song(
+            name="song_d", folder=Path("songs/song_d"), project_dir=tmp_path
+        )
+
+    def test_single_custom_named_pptx_detected(self, tmp_path):
+        d, song = self._song(tmp_path)
+        (d / "찬양대회.pptx").write_bytes(b"PK")
+
+        assert song.has_slides is True
+        assert song.abs_slides_path == d / "찬양대회.pptx"
+        assert song.slide_source == "pptx"
+
+    def test_conventional_name_wins_over_custom(self, tmp_path):
+        d, song = self._song(tmp_path)
+        (d / "slides.pptx").write_bytes(b"PK1")
+        (d / "다른파일.pptx").write_bytes(b"PK2")
+
+        assert song.abs_slides_path == d / "slides.pptx"
+
+    def test_multiple_custom_pptx_is_ambiguous(self, tmp_path):
+        d, song = self._song(tmp_path)
+        (d / "버전1.pptx").write_bytes(b"PK")
+        (d / "버전2.pptx").write_bytes(b"PK")
+
+        assert song.has_slides is False  # 모호 → 인식 안 함
+        assert song.slide_source == "none"
+
+    def test_markdown_still_wins_over_custom_pptx(self, tmp_path):
+        d, song = self._song(tmp_path)
+        (d / "찬양대회.pptx").write_bytes(b"PK")
+        (d / "slides.md").write_text("# t\n\n가사\n", encoding="utf-8")
+
+        assert song.slide_source == "markdown"
+
+    def test_detect_slides_file_helper(self, tmp_path):
+        from flow.domain.song import detect_slides_file
+
+        d = tmp_path / "empty"
+        d.mkdir()
+        assert detect_slides_file(d) is None
+
+        (d / "자유이름.pptx").write_bytes(b"PK")
+        assert detect_slides_file(d) == d / "자유이름.pptx"
+
+        (d / "slides.pptx").write_bytes(b"PK")
+        assert detect_slides_file(d) == d / "slides.pptx"

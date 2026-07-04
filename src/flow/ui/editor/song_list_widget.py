@@ -43,7 +43,7 @@ from flow.ui.styles import (
 
 from flow.domain.project import Project
 from flow.domain.score_sheet import ScoreSheet
-from flow.domain.song import Song
+from flow.domain.song import Song, detect_slides_file
 
 
 # ─── 상태 계산 헬퍼 ────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ def _song_status(song: Song) -> dict:
     has_md = False
     if song.project_dir and song.folder:
         song_dir = song.project_dir / song.folder
-        has_ppt = (song_dir / "slides.pptx").exists()
+        has_ppt = detect_slides_file(song_dir) is not None
         has_md = (song_dir / "slides.md").exists()
     else:
         if hasattr(song, "has_slides"):
@@ -98,7 +98,7 @@ def _scan_library_song(song_dir: Path) -> dict:
     result["sheet_count"] = sheet_count
 
     # PPT / 마크다운 확인
-    result["has_ppt"] = (song_dir / "slides.pptx").exists()
+    result["has_ppt"] = detect_slides_file(song_dir) is not None
     result["has_md"] = (song_dir / "slides.md").exists()
 
     # 가사 검색용 텍스트 — 선두 frontmatter(설정) 블록을 제외한 본문(원문).

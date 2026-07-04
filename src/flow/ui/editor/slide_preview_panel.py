@@ -98,10 +98,21 @@ class SlidePreviewPanel(QWidget):
         않으므로, 아이콘 없이 만들면 채워진 뒤에도 조그맣게 남는다.
         """
         if self._placeholder_icon_cached is None:
-            from flow.ui.styles import BG_ELEVATED
+            from PySide6.QtGui import QFont, QPainter
+
+            from flow.ui.styles import BG_ELEVATED, FONT_SM, TEXT_TERTIARY
 
             pm = QPixmap(192, 108)
             pm.fill(QColor(BG_ELEVATED))
+            painter = QPainter(pm)
+            painter.setPen(QColor(TEXT_TERTIARY))
+            font = QFont()
+            font.setPixelSize(FONT_SM)
+            painter.setFont(font)
+            painter.drawText(
+                pm.rect(), Qt.AlignmentFlag.AlignCenter, "변환 중…"
+            )
+            painter.end()
             self._placeholder_icon_cached = QIcon(pm)
         return self._placeholder_icon_cached
 
@@ -350,6 +361,7 @@ class SlidePreviewPanel(QWidget):
         self._loading_overlay.hide()
         self._list.setEnabled(True)
         self._btn_reload.setEnabled(True)  # 버튼 복구
+        self._conv_progress_text = None
 
     def wheelEvent(self, event) -> None:
         """마우스 휠 이벤트를 수평 스크롤로 변환 (감도 개선)"""
@@ -368,13 +380,47 @@ class SlidePreviewPanel(QWidget):
         self._slide_manager.file_changed.connect(self.refresh_slides)
         self._slide_manager.load_error.connect(self.hide_loading)
         self._slide_manager.load_status.connect(self._on_load_status_changed)
+        # 변환이 진행되는 대로 썸네일을 점진적으로 채움 (스로틀)
+        progress_sig = getattr(self._slide_manager, "load_progress", None)
+        if progress_sig is not None:
+            progress_sig.connect(self._on_conversion_progress)
         self.refresh_slides()
 
     def _on_load_status_changed(self, status: str) -> None:
+        # processEvents를 여기서 호출하면 안 됨 — 워커 상태 신호마다 이벤트
+        # 루프가 중첩 실행돼 스크롤/입력이 버벅인다. 라벨만 갱신한다.
         self._loading_label.setText(status)
-        from PySide6.QtWidgets import QApplication
 
-        QApplication.processEvents()
+    # 변환 진행 중 점진 갱신 최소 간격(초)
+    _PROGRESS_REFRESH_INTERVAL = 2.0
+
+    def _on_conversion_progress(self, cur: int, total: int, _engine: str) -> None:
+        """백그라운드 변환 진행 표시 + (스로틀 간격으로) 썸네일 점진 채움.
+
+        오버레이로 썸네일 영역을 덮지 않는다 — 혼합 프로젝트에서는 이미
+        로드된 마크다운 곡 썸네일을 보고 조작할 수 있어야 하고, 변환 중인
+        슬라이드는 자리 표시("변환 중…")로 구분된다. 진행률은 패널 제목에
+        비차단으로 표시한다.
+        """
+        import time as _time
+
+        self._conv_progress_text = f"이미지 생성 중 {cur}/{total}"
+        self._apply_title()
+
+        now = _time.monotonic()
+        last = getattr(self, "_last_progress_refresh", 0.0)
+        if now - last < self._PROGRESS_REFRESH_INTERVAL:
+            return
+        self._last_progress_refresh = now
+        self.refresh_slides()
+
+    def _apply_title(self) -> None:
+        count = self._slide_manager.get_slide_count() if self._slide_manager else 0
+        suffix = getattr(self, "_conv_progress_text", None)
+        text = f"슬라이드 ({count})"
+        if suffix:
+            text += f" — {suffix}"
+        self._title.setText(text)
 
     def set_live_mode(self, *, is_live: bool, slide_source: str) -> None:
         """라이브 모드 전환 및 긴급 패치 메뉴 활성 여부 설정"""
@@ -440,7 +486,7 @@ class SlidePreviewPanel(QWidget):
     _SLIDE_KEY_ROLE = Qt.ItemDataRole.UserRole + 11
     # 한 번의 refresh에서 디코드할 최대 썸네일 수 — 초과분은 다음 이벤트
     # 루프 틱으로 미뤄 큰 덱에서도 GUI가 얼지 않게 한다.
-    _DECODE_BUDGET = 8
+    _DECODE_BUDGET = 2
 
     def refresh_slides(self) -> None:
         """슬라이드 목록 점진 갱신.
@@ -462,7 +508,7 @@ class SlidePreviewPanel(QWidget):
         ppt_path = self._slide_manager._pptx_path
         ppt_name = ppt_path.name if ppt_path else "로드된 PPT 없음"
 
-        self._title.setText(f"슬라이드 ({count})")
+        self._apply_title()
         self._title.setToolTip(f"{ppt_name}\n{str(ppt_path) if ppt_path else ''}")
         self._btn_close.setEnabled(ppt_path is not None)
 
@@ -582,7 +628,8 @@ class SlidePreviewPanel(QWidget):
         if deferred:
             from PySide6.QtCore import QTimer
 
-            QTimer.singleShot(0, self.refresh_slides)
+            # 40ms 간격으로 이어가기 — 연속 디코드로 GUI가 버벅이지 않게
+            QTimer.singleShot(40, self.refresh_slides)
 
         # Notify listeners that the thumbnail list has been rebuilt so
         # they can recompute view-derived state (e.g. patch badges).

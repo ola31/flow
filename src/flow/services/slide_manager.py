@@ -631,11 +631,15 @@ class SlideManager(QObject):
             return None
 
     def _ensure_background_conversion(self, path) -> None:
-        """유휴 상태일 때만 해당 파일의 전체 변환을 워커에 예약."""
+        """유휴 상태일 때만 해당 파일의 전체 변환을 워커에 예약.
+
+        load_started를 발신하지 않는다 — 조용한 백그라운드 워밍이므로
+        로딩 오버레이(썸네일 영역 가림)를 띄우면 안 된다. 진행 표시는
+        워커의 progress 신호가 패널 제목에 비차단으로 반영한다.
+        """
         if self._loading or self._worker is None:
             return
         self._loading = True
-        self.load_started.emit()
         self._worker.add_task(PPTTask(PPTTask.LOAD_SINGLE, path))
 
     def get_song_slide_image(
