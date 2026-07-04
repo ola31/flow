@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QApplication,
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
@@ -656,6 +657,7 @@ class _SongCard(QFrame):
     reload_requested = Signal(object)   # Song
     import_ppt_requested = Signal(object)  # Song
     move_requested = Signal(object, int)   # (Song, -1=위/+1=아래)
+    move_mode_requested = Signal(object)   # Song (방향키 이동 모드)
     toggle_sheet_names_requested = Signal(object)  # Song
 
     def __init__(self, song: Song, position: int, parent=None) -> None:
@@ -933,6 +935,12 @@ class _SongCard(QFrame):
         menu.addAction(toggle_names_act)
 
         menu.addSeparator()
+        move_mode_act = QAction("위치 이동", self)
+        move_mode_act.triggered.connect(
+            lambda: self.move_mode_requested.emit(self._song)
+        )
+        menu.addAction(move_mode_act)
+
         up_act = QAction("위로 이동", self)
         up_act.triggered.connect(lambda: self.move_requested.emit(self._song, -1))
         menu.addAction(up_act)
@@ -960,6 +968,7 @@ class _StandalonePanel(QWidget):
     sheet_move_requested = Signal(object, int)  # (ScoreSheet, delta)
     sheet_delete_requested = Signal(object)     # ScoreSheet
     sheet_clear_mappings_requested = Signal(object)  # ScoreSheet
+    sheet_move_mode_requested = Signal(object)  # ScoreSheet
     add_sheet_requested = Signal()
     edit_markdown_requested = Signal()
     open_ppt_requested = Signal()
@@ -1124,6 +1133,7 @@ class _StandalonePanel(QWidget):
             card.clear_mappings_requested.connect(
                 self.sheet_clear_mappings_requested.emit
             )
+            card.move_mode_requested.connect(self.sheet_move_mode_requested.emit)
             self._pages_layout.addWidget(card)
 
         if not valid_sheets:
@@ -1141,6 +1151,7 @@ class _PageCard(QFrame):
     move_requested = Signal(object, int)  # (ScoreSheet, -1=위/+1=아래)
     delete_requested = Signal(object)  # ScoreSheet
     clear_mappings_requested = Signal(object)  # ScoreSheet
+    move_mode_requested = Signal(object)  # ScoreSheet (방향키 이동 모드)
 
     def __init__(self, sheet: ScoreSheet, page_num: int, active: bool, parent=None) -> None:
         super().__init__(parent)
@@ -1216,6 +1227,12 @@ class _PageCard(QFrame):
         rename_act.triggered.connect(lambda: self.rename_requested.emit(self._sheet))
         menu.addAction(rename_act)
 
+        move_mode_act = QAction("위치 이동", self)
+        move_mode_act.triggered.connect(
+            lambda: self.move_mode_requested.emit(self._sheet)
+        )
+        menu.addAction(move_mode_act)
+
         up_act = QAction("위로 이동", self)
         up_act.triggered.connect(lambda: self.move_requested.emit(self._sheet, -1))
         menu.addAction(up_act)
@@ -1267,6 +1284,8 @@ class SongListWidget(QWidget):
         self._is_standalone = False
         self._cards: list[_SongCard] = []
         self._standalone_panel: _StandalonePanel | None = None
+        # 위치 이동 모드: {"kind": "sheet"|"song", "obj": ..., "start": int}
+        self._move_mode: dict | None = None
         self._setup_ui()
 
     # ── UI 구성 ──────────────────────────────────────────────────────────
@@ -1417,6 +1436,161 @@ class SongListWidget(QWidget):
                     "" if editable else "라이브 모드 중에는 편집할 수 없습니다"
                 )
 
+    # ── 위치 이동 모드 (방향키) ──────────────────────────────────────────
+
+    def _move_mode_items(self) -> list | None:
+        if not self._move_mode or not self._project:
+            return None
+        if self._move_mode["kind"] == "song":
+            return self._project.selected_songs
+        song = self._find_song_of_sheet(self._move_mode["obj"])
+        return song.score_sheets if song else None
+
+    def _enter_move_mode(self, kind: str, obj) -> None:
+        """우클릭 '위치 이동' 진입: ↑↓ 이동, Enter 확정, Esc 취소."""
+        if getattr(self._main_window, "_is_live", False):
+            return
+        if self._move_mode:
+            self._exit_move_mode(confirm=True)
+        self._move_mode = {"kind": kind, "obj": obj, "start": -1}
+        items = self._move_mode_items()
+        idx = (
+            next((i for i, x in enumerate(items) if x is obj), None)
+            if items is not None
+            else None
+        )
+        if idx is None:
+            self._move_mode = None
+            return
+        self._move_mode["start"] = idx
+
+        self.grabKeyboard()
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)  # 바깥 클릭 = 확정
+        self.refresh_list()
+        self._show_move_hint("위치 이동: ↑↓ 이동 · Enter 확정 · Esc 취소")
+
+    def _show_move_hint(self, msg: str) -> None:
+        status_fn = getattr(self._main_window, "statusBar", None)
+        if callable(status_fn):
+            try:
+                status_fn().showMessage(msg, 0 if msg else 1)
+            except Exception:
+                pass
+
+    def _shift_moving(self, delta: int) -> None:
+        items = self._move_mode_items()
+        if items is None:
+            return
+        obj = self._move_mode["obj"]
+        i = next((k for k, x in enumerate(items) if x is obj), None)
+        if i is None:
+            return
+        j = i + delta
+        if not (0 <= j < len(items)):
+            return
+        items[i], items[j] = items[j], items[i]
+        self.refresh_list()
+
+    def _exit_move_mode(self, confirm: bool) -> None:
+        mm = self._move_mode
+        if not mm:
+            return
+        self._move_mode = None
+        self.releaseKeyboard()
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
+        self._show_move_hint("")
+
+        items = (
+            self._project.selected_songs
+            if mm["kind"] == "song"
+            else (
+                self._find_song_of_sheet(mm["obj"]).score_sheets
+                if self._find_song_of_sheet(mm["obj"])
+                else None
+            )
+        )
+        if items is None:
+            self.refresh_list()
+            return
+        obj = mm["obj"]
+        cur = next((k for k, x in enumerate(items) if x is obj), None)
+
+        if cur is None or cur == mm["start"]:
+            self.refresh_list()
+            return
+
+        if not confirm:
+            # 취소: 원위치 복귀
+            items.pop(cur)
+            items.insert(mm["start"], obj)
+            self.refresh_list()
+            return
+
+        # 확정: 영속화
+        if mm["kind"] == "song":
+            self._project.song_order = [s.name for s in items]
+            if self._main_window:
+                self._main_window._on_songs_changed()
+        else:
+            self.refresh_list()
+            if self._main_window:
+                self._main_window._mark_dirty()
+
+    def keyPressEvent(self, event) -> None:
+        if self._move_mode:
+            key = event.key()
+            if key == Qt.Key.Key_Up:
+                self._shift_moving(-1)
+            elif key == Qt.Key.Key_Down:
+                self._shift_moving(1)
+            elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._exit_move_mode(confirm=True)
+            elif key == Qt.Key.Key_Escape:
+                self._exit_move_mode(confirm=False)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def eventFilter(self, watched, event) -> bool:
+        # 이동 모드 중 아무 곳이나 마우스 클릭 = 확정 종료
+        if self._move_mode and event.type() == QEvent.Type.MouseButtonPress:
+            self._exit_move_mode(confirm=True)
+        return super().eventFilter(watched, event)
+
+    def _apply_move_mode_visuals(self) -> None:
+        """이동 중인 카드는 강조, 나머지는 비활성+흐림."""
+        if not self._move_mode:
+            return
+        from PySide6.QtWidgets import QGraphicsOpacityEffect
+
+        def mark(card, is_moving: bool) -> None:
+            if is_moving:
+                card.setStyleSheet(
+                    card.styleSheet()
+                    + f"QFrame#SongCard, QFrame#PageCard {{"
+                    f" border: 2px solid {ACCENT}; }}"
+                )
+            else:
+                card.setEnabled(False)
+                eff = QGraphicsOpacityEffect(card)
+                eff.setOpacity(0.35)
+                card.setGraphicsEffect(eff)
+
+        obj = self._move_mode["obj"]
+        if self._move_mode["kind"] == "song":
+            for card in self._cards:
+                mark(card, card._song is obj)
+        elif self._standalone_panel is not None:
+            layout = self._standalone_panel._pages_layout
+            for i in range(layout.count()):
+                w = layout.itemAt(i).widget()
+                if isinstance(w, _PageCard):
+                    mark(w, w._sheet is obj)
+
     def refresh_list(self) -> None:
         """카드 목록 전체 갱신."""
         # 기존 카드 제거
@@ -1439,6 +1613,8 @@ class SongListWidget(QWidget):
         else:
             self._refresh_project()
 
+        self._apply_move_mode_visuals()
+
     def _refresh_standalone(self) -> None:
         """단독 곡 편집 모드: 시트 페이지 패널."""
         song = (
@@ -1456,6 +1632,9 @@ class SongListWidget(QWidget):
         panel.sheet_move_requested.connect(self._move_sheet)
         panel.sheet_delete_requested.connect(self._delete_sheet)
         panel.sheet_clear_mappings_requested.connect(self._clear_sheet_mappings)
+        panel.sheet_move_mode_requested.connect(
+            lambda sheet: self._enter_move_mode("sheet", sheet)
+        )
         panel.add_sheet_requested.connect(self._on_add_sheet_clicked)
         panel.open_ppt_requested.connect(self._on_open_ppt_clicked)
         panel.import_ppt_requested.connect(self._on_import_ppt_clicked)
@@ -1511,6 +1690,9 @@ class SongListWidget(QWidget):
             card.reload_requested.connect(self.song_reload_requested.emit)
             card.import_ppt_requested.connect(self._import_ppt_to_song)
             card.move_requested.connect(self._move_song)
+            card.move_mode_requested.connect(
+                lambda song: self._enter_move_mode("song", song)
+            )
             card.toggle_sheet_names_requested.connect(self._toggle_sheet_names)
 
             self._cards.append(card)
