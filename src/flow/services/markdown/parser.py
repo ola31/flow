@@ -101,7 +101,8 @@ class SongSpec:
     slides: list[Slide]
 
 
-_FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+# `(.*?\n)?`: frontmatter가 완전히 비어 있어도(--- 바로 다음 줄이 ---) 매치.
+_FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?\n)?---\s*\n", re.DOTALL)
 _OVERRIDE_RE = re.compile(r"\A\{(.+)\}\s*\Z")
 
 # Effective default resolution when frontmatter omits it.
@@ -219,7 +220,7 @@ def parse(text: str) -> SongSpec:
     m = _FRONTMATTER_RE.match(text)
     if m:
         try:
-            fm_raw = yaml.safe_load(m.group(1)) or {}
+            fm_raw = yaml.safe_load(m.group(1) or "") or {}
             if not isinstance(fm_raw, dict):
                 logger.warning("frontmatter must be a mapping; ignoring")
                 fm_raw = None

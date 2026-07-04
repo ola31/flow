@@ -251,17 +251,31 @@ class MarkdownEditor(QWidget):
             self._render_main_preview(idx)
 
     def _slide_index_at_line(self, line: int) -> int:
-        """Map cursor line to slide index by counting blank-line blocks above."""
+        """Map cursor line to slide index by counting blank-line blocks above.
+
+        파서(parse)와 동일한 규칙으로 세야 한다: frontmatter는 슬라이드가
+        아니고, `#`/`##` 헤더도 블록을 끝내며(=슬라이드 경계) 빈 줄과 같은
+        효과를 낸다.
+        """
+        from flow.services.markdown.parser import _FRONTMATTER_RE
+
         text = self.text()
         slides = parse(text).slides
         if not slides:
             return -1
+
+        m = _FRONTMATTER_RE.match(text)
+        body_start_line = text[: m.end()].count("\n") if m else 0
+
         running_idx = 0
         in_slide = False
         for i, raw in enumerate(text.splitlines()):
+            if i < body_start_line:
+                continue  # frontmatter 영역
             stripped = raw.strip()
             if stripped.startswith("#"):
                 if in_slide:
+                    running_idx += 1
                     in_slide = False
                 continue
             if not stripped:

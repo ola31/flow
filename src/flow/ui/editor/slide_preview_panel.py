@@ -85,7 +85,36 @@ class SlidePreviewPanel(QWidget):
         self._editable = True  # [복구] 편집 가능 상태 보관
         self._live_emergency_enabled = False
         self._patched_indices: set[int] = set()
+        # 캐시 키 → 썸네일 QIcon. 키(파일 mtime 포함)가 같으면 PNG 재디코드
+        # 없이 재사용 — 곡 추가/새로고침 때 전체 덱을 다시 그리지 않게 한다.
+        self._icon_cache: dict[tuple, QIcon] = {}
+        self._placeholder_icon_cached: QIcon | None = None
         self._setup_ui()
+
+    def _placeholder_icon(self) -> QIcon:
+        """변환 전 슬라이드용 자리 표시 아이콘 (실제 썸네일과 같은 크기).
+
+        IconMode는 아이템 생성 후 setIcon으로는 셀 크기를 재계산하지
+        않으므로, 아이콘 없이 만들면 채워진 뒤에도 조그맣게 남는다.
+        """
+        if self._placeholder_icon_cached is None:
+            from PySide6.QtGui import QFont, QPainter
+
+            from flow.ui.styles import BG_ELEVATED, FONT_SM, TEXT_TERTIARY
+
+            pm = QPixmap(192, 108)
+            pm.fill(QColor(BG_ELEVATED))
+            painter = QPainter(pm)
+            painter.setPen(QColor(TEXT_TERTIARY))
+            font = QFont()
+            font.setPixelSize(FONT_SM)
+            painter.setFont(font)
+            painter.drawText(
+                pm.rect(), Qt.AlignmentFlag.AlignCenter, "변환 중…"
+            )
+            painter.end()
+            self._placeholder_icon_cached = QIcon(pm)
+        return self._placeholder_icon_cached
 
     def _setup_ui(self) -> None:
         from flow.ui.styles import (
@@ -332,6 +361,7 @@ class SlidePreviewPanel(QWidget):
         self._loading_overlay.hide()
         self._list.setEnabled(True)
         self._btn_reload.setEnabled(True)  # 버튼 복구
+        self._conv_progress_text = None
 
     def wheelEvent(self, event) -> None:
         """마우스 휠 이벤트를 수평 스크롤로 변환 (감도 개선)"""
@@ -350,13 +380,47 @@ class SlidePreviewPanel(QWidget):
         self._slide_manager.file_changed.connect(self.refresh_slides)
         self._slide_manager.load_error.connect(self.hide_loading)
         self._slide_manager.load_status.connect(self._on_load_status_changed)
+        # 변환이 진행되는 대로 썸네일을 점진적으로 채움 (스로틀)
+        progress_sig = getattr(self._slide_manager, "load_progress", None)
+        if progress_sig is not None:
+            progress_sig.connect(self._on_conversion_progress)
         self.refresh_slides()
 
     def _on_load_status_changed(self, status: str) -> None:
+        # processEvents를 여기서 호출하면 안 됨 — 워커 상태 신호마다 이벤트
+        # 루프가 중첩 실행돼 스크롤/입력이 버벅인다. 라벨만 갱신한다.
         self._loading_label.setText(status)
-        from PySide6.QtWidgets import QApplication
 
-        QApplication.processEvents()
+    # 변환 진행 중 점진 갱신 최소 간격(초)
+    _PROGRESS_REFRESH_INTERVAL = 2.0
+
+    def _on_conversion_progress(self, cur: int, total: int, _engine: str) -> None:
+        """백그라운드 변환 진행 표시 + (스로틀 간격으로) 썸네일 점진 채움.
+
+        오버레이로 썸네일 영역을 덮지 않는다 — 혼합 프로젝트에서는 이미
+        로드된 마크다운 곡 썸네일을 보고 조작할 수 있어야 하고, 변환 중인
+        슬라이드는 자리 표시("변환 중…")로 구분된다. 진행률은 패널 제목에
+        비차단으로 표시한다.
+        """
+        import time as _time
+
+        self._conv_progress_text = f"이미지 생성 중 {cur}/{total}"
+        self._apply_title()
+
+        now = _time.monotonic()
+        last = getattr(self, "_last_progress_refresh", 0.0)
+        if now - last < self._PROGRESS_REFRESH_INTERVAL:
+            return
+        self._last_progress_refresh = now
+        self.refresh_slides()
+
+    def _apply_title(self) -> None:
+        count = self._slide_manager.get_slide_count() if self._slide_manager else 0
+        suffix = getattr(self, "_conv_progress_text", None)
+        text = f"슬라이드 ({count})"
+        if suffix:
+            text += f" — {suffix}"
+        self._title.setText(text)
 
     def set_live_mode(self, *, is_live: bool, slide_source: str) -> None:
         """라이브 모드 전환 및 긴급 패치 메뉴 활성 여부 설정"""
@@ -419,6 +483,10 @@ class SlidePreviewPanel(QWidget):
     # so refresh_slides can skip repainting items whose image didn't
     # actually change between calls.
     _SLIDE_IMAGE_ROLE = Qt.ItemDataRole.UserRole + 10
+    _SLIDE_KEY_ROLE = Qt.ItemDataRole.UserRole + 11
+    # 한 번의 refresh에서 디코드할 최대 썸네일 수 — 초과분은 다음 이벤트
+    # 루프 틱으로 미뤄 큰 덱에서도 GUI가 얼지 않게 한다.
+    _DECODE_BUDGET = 2
 
     def refresh_slides(self) -> None:
         """슬라이드 목록 점진 갱신.
@@ -440,7 +508,7 @@ class SlidePreviewPanel(QWidget):
         ppt_path = self._slide_manager._pptx_path
         ppt_name = ppt_path.name if ppt_path else "로드된 PPT 없음"
 
-        self._title.setText(f"슬라이드 ({count})")
+        self._apply_title()
         self._title.setToolTip(f"{ppt_name}\n{str(ppt_path) if ppt_path else ''}")
         self._btn_close.setEnabled(ppt_path is not None)
 
@@ -452,55 +520,116 @@ class SlidePreviewPanel(QWidget):
 
         from flow.ui.styles import ACCENT_INTER, TEXT_TERTIARY
 
-        for i in range(count):
-            try:
-                qimg = self._slide_manager.get_slide_image(i)
-            except Exception:
-                qimg = None
-            if qimg is None:
-                continue
+        get_key = getattr(self._slide_manager, "get_slide_cache_key", None)
+        seen_keys: set = set()
+        decoded = 0
+        deferred = False
 
+        for i in range(count):
             is_mapped = i in mapped_indices
             label = f"Slide {i + 1}" + (" ●" if is_mapped else "")
             target_color = QColor(ACCENT_INTER if is_mapped else TEXT_TERTIARY)
 
+            key = get_key(i) if get_key is not None else None
+            if key is not None:
+                seen_keys.add(key)
             existing_item = self._list.item(i) if i < self._list.count() else None
-            if existing_item is not None:
-                cached_img = existing_item.data(self._SLIDE_IMAGE_ROLE)
-                if cached_img is qimg:
-                    # No image change — only update label/foreground if needed.
-                    if existing_item.text() != label:
-                        existing_item.setText(label)
-                    if existing_item.foreground().color() != target_color:
-                        existing_item.setForeground(target_color)
-                    continue
-                # Image changed: rebuild icon in place.
-                pixmap = QPixmap.fromImage(qimg)
-                scaled = pixmap.scaled(
-                    192, 108,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-                existing_item.setIcon(QIcon(scaled))
-                existing_item.setText(label)
-                existing_item.setForeground(target_color)
-                existing_item.setData(self._SLIDE_IMAGE_ROLE, qimg)
-                existing_item.setData(Qt.ItemDataRole.UserRole, i)
+
+            # 키가 같으면 PNG 디코드 자체를 건너뜀 (61장 덱 3초 → 0초)
+            if (
+                existing_item is not None
+                and key is not None
+                and existing_item.data(self._SLIDE_KEY_ROLE) == key
+            ):
+                if existing_item.text() != label:
+                    existing_item.setText(label)
+                if existing_item.foreground().color() != target_color:
+                    existing_item.setForeground(target_color)
                 continue
 
-            # New item past previous end.
-            pixmap = QPixmap.fromImage(qimg)
-            scaled = pixmap.scaled(
-                192, 108,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            item = QListWidgetItem(label)
-            item.setIcon(QIcon(scaled))
-            item.setData(Qt.ItemDataRole.UserRole, i)
-            item.setData(self._SLIDE_IMAGE_ROLE, qimg)
+            icon = self._icon_cache.get(key) if key is not None else None
+            qimg = None
+            if icon is None:
+                if decoded >= self._DECODE_BUDGET:
+                    # 이번 틱 예산 소진 — 자리만 잡고 다음 틱에서 이어서
+                    deferred = True
+                else:
+                    try:
+                        # peek_thumbnail 경로로 디코드하면 클릭 미리보기
+                        # (PIP/매핑 패널/팝오버)가 쓰는 공유 축소본 캐시가
+                        # 함께 데워져, 스트립이 채워진 뒤에는 어떤 핫스팟을
+                        # 눌러도 디코드 없이 즉시 뜬다.
+                        thumb_fn = getattr(
+                            self._slide_manager, "peek_thumbnail", None
+                        )
+                        if thumb_fn is not None:
+                            qimg = thumb_fn(i)
+                        else:
+                            qimg = self._slide_manager.peek_slide_image(i)
+                    except Exception:
+                        qimg = None
+                    if qimg is not None and not qimg.isNull():
+                        decoded += 1
+
+                        if (
+                            existing_item is not None
+                            and key is None
+                            and existing_item.data(self._SLIDE_IMAGE_ROLE)
+                            is qimg
+                        ):
+                            # 키를 못 만드는 소스: QImage 동일성 스킵 유지
+                            if existing_item.text() != label:
+                                existing_item.setText(label)
+                            if (
+                                existing_item.foreground().color()
+                                != target_color
+                            ):
+                                existing_item.setForeground(target_color)
+                            continue
+
+                        pixmap = QPixmap.fromImage(qimg)
+                        scaled = pixmap.scaled(
+                            192, 108,
+                            Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation,
+                        )
+                        icon = QIcon(scaled)
+                        if key is not None:
+                            self._icon_cache[key] = icon
+                    else:
+                        qimg = None
+                        # 아직 변환 안 됨 — load_finished 후 refresh에서 채움
+
+            # 아이콘이 없어도 아이템은 반드시 만든다: 목록 행 번호가 곧
+            # 슬라이드 인덱스이므로(select_slide) 건너뛰면 선택이 어긋난다.
+            if existing_item is not None:
+                item = existing_item
+            else:
+                item = QListWidgetItem()
+                self._list.addItem(item)
+            if icon is not None:
+                item.setIcon(icon)
+                item.setData(self._SLIDE_IMAGE_ROLE, qimg)
+                item.setData(self._SLIDE_KEY_ROLE, key)
+            else:
+                # 자리 표시자 — 실제 썸네일과 같은 크기의 아이콘으로 셀
+                # 지오메트리를 잡아 두고, 키를 비워 다음 refresh에서 재시도
+                item.setIcon(self._placeholder_icon())
+                item.setData(self._SLIDE_KEY_ROLE, None)
+            item.setText(label)
             item.setForeground(target_color)
-            self._list.addItem(item)
+            item.setData(Qt.ItemDataRole.UserRole, i)
+
+        # 이번 렌더에 안 쓰인 키는 버려 메모리 상한 유지
+        self._icon_cache = {
+            k: v for k, v in self._icon_cache.items() if k in seen_keys
+        }
+
+        if deferred:
+            from PySide6.QtCore import QTimer
+
+            # 40ms 간격으로 이어가기 — 연속 디코드로 GUI가 버벅이지 않게
+            QTimer.singleShot(40, self.refresh_slides)
 
         # Notify listeners that the thumbnail list has been rebuilt so
         # they can recompute view-derived state (e.g. patch badges).

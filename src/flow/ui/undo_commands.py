@@ -136,3 +136,30 @@ class UnlinkAllSlidesCommand(QUndoCommand):
             hotspot.set_slide_index(-1, v_idx)
         if self.update_cb:
             self.update_cb()
+
+
+class ClearSheetMappingsCommand(QUndoCommand):
+    """한 시트의 모든 핫스팟 매핑을 일괄 해제 (핫스팟 자체는 유지)"""
+
+    def __init__(self, sheet, update_cb):
+        super().__init__(f"'{sheet.name}' 시트 매핑 일괄 해제")
+        self.sheet = sheet
+        self.update_cb = update_cb
+        # 변경 전 상태 스냅샷 (undo 복구용)
+        self._saved = [
+            (h, dict(h.slide_mappings), h.slide_index) for h in sheet.hotspots
+        ]
+
+    def redo(self):
+        for h, _mappings, _legacy in self._saved:
+            h.slide_mappings = {}
+            h.slide_index = -1
+        if self.update_cb:
+            self.update_cb()
+
+    def undo(self):
+        for h, mappings, legacy in self._saved:
+            h.slide_mappings = dict(mappings)
+            h.slide_index = legacy
+        if self.update_cb:
+            self.update_cb()

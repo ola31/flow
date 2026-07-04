@@ -12,6 +12,11 @@ from typing import Any
 from flow.domain.hotspot import Hotspot
 
 
+def _posix(path_str: str) -> str:
+    """경로 문자열의 백슬래시를 posix 구분자로 정규화."""
+    return path_str.replace("\\", "/") if path_str else path_str
+
+
 @dataclass
 class ScoreSheet:
     """시트 (슬라이드 그룹)
@@ -94,19 +99,23 @@ class ScoreSheet:
         return {
             "id": self.id,
             "name": self.name,
-            "image_path": self.image_path,
-            "pptx_path": self.pptx_path,
+            "image_path": _posix(self.image_path),
+            "pptx_path": _posix(self.pptx_path),
             "hotspots": [h.to_dict() for h in self.hotspots],
         }
     
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScoreSheet:
-        """딕셔너리에서 생성 (JSON 역직렬화용)"""
+        """딕셔너리에서 생성 (JSON 역직렬화용)
+
+        Windows에서 저장된 파일의 백슬래시 경로는 로드 시 posix로
+        정규화해 어느 OS에서든 해석되게 한다.
+        """
         hotspots = [Hotspot.from_dict(h) for h in data.get("hotspots", [])]
         return cls(
             id=data["id"],
             name=data["name"],
-            image_path=data.get("image_path", ""),
-            pptx_path=data.get("pptx_path", ""),
+            image_path=_posix(data.get("image_path", "")),
+            pptx_path=_posix(data.get("pptx_path", "")),
             hotspots=hotspots,
         )

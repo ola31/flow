@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from flow.domain.song import detect_slides_file
 from flow.ui.screens._browser_widgets import (
     SORT_NAME,
     BrowserToolbar,
@@ -148,7 +149,7 @@ class LibraryScreen(QWidget):
 
     def _build_subtitle(self, song_dir: Path) -> str:
         """Compose status: 슬라이드 형식 + 악보 장수."""
-        has_pptx = (song_dir / "slides.pptx").exists()
+        has_pptx = detect_slides_file(song_dir) is not None
         has_md = (song_dir / "slides.md").exists()
         if has_pptx:
             slide_part = "PPT"

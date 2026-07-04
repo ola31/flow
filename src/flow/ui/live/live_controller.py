@@ -52,6 +52,23 @@ class LiveController(QObject):
         self._preview_hotspot = None # 슬라이드 직접 선택 시 핫스팟 미리보기 해제
         self.preview_changed.emit(f"Slide {index + 1} (Direct)")
 
+    def _emit_slide_if_available(self, slide_idx: int) -> None:
+        """캐시된 슬라이드만 송출하고, 미변환이면 이전 프레임을 유지한다.
+
+        인라인 변환(get_slide_image)은 큰 PPT에서 GUI 전체를 얼리므로
+        라이브 경로에서도 쓰지 않는다. 변환이 끝나면 MainWindow가
+        sync_live()를 다시 호출해 채워 넣는다.
+        """
+        if not self._slide_manager:
+            return
+        peek = getattr(self._slide_manager, "peek_slide_image", None)
+        if peek is not None:
+            image = peek(slide_idx)
+        else:  # 테스트 더블 등 peek이 없는 매니저 폴백
+            image = self._slide_manager.get_slide_image(slide_idx)
+        if image is not None and not image.isNull():
+            self.slide_changed.emit(image)
+
     def send_to_live(self) -> None:
         """Preview 내용을 Live로 송출"""
         if self._preview_hotspot:
@@ -70,8 +87,7 @@ class LiveController(QObject):
             self._live_slide_index = slide_idx
 
             if self._slide_manager and slide_idx >= 0:
-                image = self._slide_manager.get_slide_image(slide_idx)
-                self.slide_changed.emit(image)
+                self._emit_slide_if_available(slide_idx)
             else:
                 self.slide_changed.emit(None)
         elif self._preview_slide_index >= 0:
@@ -81,8 +97,7 @@ class LiveController(QObject):
             self.live_changed.emit(f"Slide {self._live_slide_index + 1}")
 
             if self._slide_manager:
-                image = self._slide_manager.get_slide_image(self._live_slide_index)
-                self.slide_changed.emit(image)
+                self._emit_slide_if_available(self._live_slide_index)
 
     def clear_live(self) -> None:
         """Live 내용 지우기"""
@@ -104,13 +119,11 @@ class LiveController(QObject):
             self._live_slide_index = slide_idx
 
             if self._slide_manager and slide_idx >= 0:
-                image = self._slide_manager.get_slide_image(slide_idx)
-                self.slide_changed.emit(image)
+                self._emit_slide_if_available(slide_idx)
         elif self._live_slide_index >= 0:
             self.live_changed.emit(f"Slide {self._live_slide_index + 1}")
             if self._slide_manager:
-                image = self._slide_manager.get_slide_image(self._live_slide_index)
-                self.slide_changed.emit(image)
+                self._emit_slide_if_available(self._live_slide_index)
         else:
             self.live_changed.emit("")
             self.slide_changed.emit(None)

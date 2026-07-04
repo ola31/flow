@@ -149,3 +149,38 @@ class TestHotspotSerialization:
         assert hotspot.get_slide_index(0) == 5
         assert hotspot.get_slide_index(1) == 6
         assert hotspot.lyric == "복원된 가사"
+
+
+class TestEffectiveSlideIndex:
+    """후렴(5) 폴백을 포함한 유효 매핑 조회"""
+
+    def test_explicit_verse_mapping_wins(self):
+        h = Hotspot(x=0, y=0)
+        h.set_slide_index(3, verse_index=1)
+        h.set_slide_index(7, verse_index=5)
+
+        assert h.get_effective_slide_index(1) == 3
+
+    def test_falls_back_to_chorus_when_verse_unmapped(self):
+        h = Hotspot(x=0, y=0)
+        h.set_slide_index(7, verse_index=5)
+
+        assert h.get_effective_slide_index(0) == 7
+        assert h.get_effective_slide_index(1) == 7
+        assert h.get_effective_slide_index(4) == 7
+
+    def test_no_fallback_when_chorus_unmapped(self):
+        h = Hotspot(x=0, y=0)
+        h.set_slide_index(3, verse_index=1)
+
+        assert h.get_effective_slide_index(2) == -1
+
+    def test_chorus_layer_does_not_fall_back_to_itself(self):
+        h = Hotspot(x=0, y=0)
+
+        assert h.get_effective_slide_index(5) == -1
+
+    def test_legacy_slide_index_still_used_for_verse_one(self):
+        h = Hotspot(x=0, y=0, slide_index=4)
+
+        assert h.get_effective_slide_index(0) == 4

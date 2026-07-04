@@ -45,6 +45,27 @@ resolution: "1920x1080"
     assert spec.frontmatter.resolution == (1920, 1080)
 
 
+def test_empty_frontmatter_not_treated_as_slide() -> None:
+    """빈 frontmatter(--- 바로 아래 ---)가 '---' 텍스트 슬라이드가 되면 안 된다."""
+    text = "---\n---\n\n# 제목\n\n첫 가사\n"
+    spec = parse(text)
+    assert spec.title == "제목"
+    assert [s.main for s in spec.slides] == ["첫 가사"]
+
+
+def test_blank_line_only_frontmatter_not_treated_as_slide() -> None:
+    text = "---\n\n---\n\n# 제목\n\n첫 가사\n"
+    spec = parse(text)
+    assert spec.title == "제목"
+    assert [s.main for s in spec.slides] == ["첫 가사"]
+
+
+def test_strip_frontmatter_handles_empty_block() -> None:
+    from flow.services.markdown.parser import strip_frontmatter
+
+    assert strip_frontmatter("---\n---\n가사\n") == "가사\n"
+
+
 def test_frontmatter_defaults_when_missing() -> None:
     spec = parse("# T\n\n가사\n")
     fm = spec.frontmatter
