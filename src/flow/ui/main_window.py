@@ -368,7 +368,11 @@ class MainWindow(QMainWindow):
 
             if self._web_broadcast is None:
                 self._web_broadcast = WebBroadcastServer()
+                self._web_broadcast.client_count_changed.connect(
+                    self._on_web_client_count
+                )
             self._web_broadcast.start()
+            self._update_web_status_label()
             self._live_controller.sync_live()
             self._display_action.setText("송출 중지")
         self._web_broadcast_screen.set_server(self._web_broadcast)
@@ -850,6 +854,87 @@ class MainWindow(QMainWindow):
         self._statusbar = QStatusBar()
         self.setStatusBar(self._statusbar)
         self._statusbar.showMessage("준비됨")
+
+        # 웹 송출 상시 표시 — 라이브 중에는 웹 송출 화면으로 이동할 수
+        # 없으므로 폰 접속용 URL을 여기서 항상 볼 수 있어야 한다.
+        from PySide6.QtWidgets import QLabel
+
+        from flow.ui.styles import FONT_SM, FW_MEDIUM, GREEN
+
+        self._web_status_label = QLabel()
+        self._web_status_label.setStyleSheet(
+            f"color: {GREEN}; font-size: {FONT_SM}px; "
+            f"font-weight: {FW_MEDIUM}; padding-right: 8px;"
+        )
+        self._web_status_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self._web_status_label.hide()
+        self._statusbar.addPermanentWidget(self._web_status_label)
+
+        from PySide6.QtWidgets import QPushButton
+
+        from flow.ui.styles import (
+            BORDER_STANDARD_RGBA,
+            FONT_XS,
+            RADIUS_SM,
+            SURFACE_GHOST,
+            SURFACE_SUBTLE,
+        )
+
+        self._web_qr_button = QPushButton("QR")
+        # 전역 버튼 패딩(8px/16px)이 상태바 소형 버튼에서는 텍스트를
+        # 잘라먹으므로 컴팩트 패딩으로 오버라이드
+        self._web_qr_button.setStyleSheet(
+            f"QPushButton {{ background: {SURFACE_GHOST}; "
+            f"border: 1px solid {BORDER_STANDARD_RGBA}; "
+            f"border-radius: {RADIUS_SM}px; padding: 2px 10px; "
+            f"font-size: {FONT_XS}px; }} "
+            f"QPushButton:hover {{ background: {SURFACE_SUBTLE}; }}"
+        )
+        self._web_qr_button.setFixedHeight(22)
+        self._web_qr_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._web_qr_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._web_qr_button.setToolTip("폰 카메라로 스캔할 QR 코드 표시")
+        self._web_qr_button.clicked.connect(self._show_web_qr)
+        self._web_qr_button.hide()
+        self._statusbar.addPermanentWidget(self._web_qr_button)
+
+    def _show_web_qr(self) -> None:
+        """웹 송출 접속 QR 팝업 (라이브 중에도 상태바에서 바로)."""
+        from flow.ui import dialogs
+
+        server = self._web_broadcast
+        if server is None or not server.is_running():
+            return
+        urls = server.local_urls()
+        if not urls:
+            dialogs.flow_warning(
+                self,
+                "네트워크 없음",
+                "접속 가능한 네트워크 주소가 없습니다.\n"
+                "핫스팟 또는 공유기 연결을 확인해 주세요.",
+            )
+            return
+        dialogs.flow_show_qr(self, urls[0])
+
+    def _update_web_status_label(self, count: int | None = None) -> None:
+        """웹 송출 상태 라벨 갱신 (실행 중이면 URL·접속 수 표시)."""
+        server = self._web_broadcast
+        if server is None or not server.is_running():
+            self._web_status_label.hide()
+            self._web_qr_button.hide()
+            return
+        urls = server.local_urls()
+        url = urls[0] if urls else "(네트워크 없음 — 이 기기 전용)"
+        if count is None:
+            count = server.client_count()
+        self._web_status_label.setText(f"웹 송출 {url} · {count}대 접속")
+        self._web_status_label.show()
+        self._web_qr_button.show()
+
+    def _on_web_client_count(self, count: int) -> None:
+        self._update_web_status_label(count)
 
     def _connect_signals(self) -> None:
         """시그널 연결"""
@@ -2308,13 +2393,19 @@ class MainWindow(QMainWindow):
             pass
 
     def _toggle_display(self) -> None:
-        """송출 시작/중지 토글"""
-        if self._display_window and self._display_window.isVisible():
-            self._display_window.close()
-            return
-
-        if self._web_broadcast is not None and self._web_broadcast.is_running():
-            self._stop_web_broadcast()
+        """송출 시작/중지 토글 (F11). 켜져 있으면 모니터+웹 전체 중지."""
+        display_on = bool(
+            self._display_window and self._display_window.isVisible()
+        )
+        web_on = bool(
+            self._web_broadcast is not None and self._web_broadcast.is_running()
+        )
+        if display_on or web_on:
+            # 전체 중지 — 어떤 조합으로 켜져 있든 F11 한 번으로 정리
+            if display_on:
+                self._display_window.close()
+            if web_on:
+                self._stop_web_broadcast()
             return
 
         # 송출 시작 — 모니터 선택 먼저 (사용자가 취소하면 송출 안 함)
@@ -2324,20 +2415,10 @@ class MainWindow(QMainWindow):
 
         target = result
         if target.mode == "web":
-            from flow.services.web_broadcast import WebBroadcastServer
-
-            if self._web_broadcast is None:
-                self._web_broadcast = WebBroadcastServer()
-            url = self._web_broadcast.start()
-            if not self._web_broadcast.local_urls():
-                self._statusbar.showMessage(
-                    "네트워크에 연결되어 있지 않습니다 — "
-                    "같은 기기에서만 접속 가능합니다",
-                    5000,
-                )
+            url_note = self._start_web_broadcast_if_needed()
             self._live_controller.sync_live()
             self._display_action.setText("송출 중지")
-            self._statusbar.showMessage(f"웹 송출 시작: {url} (F11로 중지)")
+            self._statusbar.showMessage(f"웹 송출 시작:{url_note} (F11로 중지)")
             return
         screen, windowed = target.screen, target.windowed
 
@@ -2347,6 +2428,10 @@ class MainWindow(QMainWindow):
 
         self._display_window.show_on_screen(screen, windowed=windowed)
 
+        web_note = ""
+        if target.with_web:
+            web_note = self._start_web_broadcast_if_needed()
+
         # [중요] 송출창이 열린 후 현재 라이브 상태를 즉시 동기화
         self._live_controller.sync_live()
 
@@ -2354,8 +2439,34 @@ class MainWindow(QMainWindow):
         screen_name = screen.name() if screen else "모니터"
         mode = "윈도우" if windowed else "전체화면"
         self._statusbar.showMessage(
-            f"송출이 시작되었습니다: {screen_name} · {mode} (F11로 중지)"
+            f"송출이 시작되었습니다: {screen_name} · {mode}{web_note} (F11로 중지)"
         )
+
+    def _start_web_broadcast_if_needed(self) -> str:
+        """웹 서버가 안 돌고 있을 때만 시작. 상태바용 부가 문구 반환.
+
+        웹 송출 화면에서 이미 켜둔 경우 이중 시작하지 않는다.
+        """
+        from flow.services.web_broadcast import WebBroadcastServer
+
+        if self._web_broadcast is None:
+            self._web_broadcast = WebBroadcastServer()
+            self._web_broadcast.client_count_changed.connect(
+                self._on_web_client_count
+            )
+        if not self._web_broadcast.is_running():
+            self._web_broadcast.start()
+        self._web_broadcast_screen.set_server(self._web_broadcast)
+        self._update_web_status_label()
+        urls = self._web_broadcast.local_urls()
+        if not urls:
+            self._statusbar.showMessage(
+                "네트워크에 연결되어 있지 않습니다 — "
+                "같은 기기에서만 접속 가능합니다",
+                5000,
+            )
+            return " + 웹"
+        return f" + 웹 {urls[0]}"
 
     def _pick_display_screen(self):
         """송출 대상/모드 결정. DisplayTarget 또는 None(취소).
@@ -2390,6 +2501,7 @@ class MainWindow(QMainWindow):
             self, screens,
             current_name=saved_name,
             default_windowed=saved_windowed,
+            default_with_web=self._config_service.get_display_with_web(),
         )
         if target is None:
             return None  # 사용자 취소
@@ -2401,6 +2513,7 @@ class MainWindow(QMainWindow):
             if target.screen is not None:
                 self._config_service.set_display_screen_name(target.screen.name())
             self._config_service.set_display_windowed_mode(target.windowed)
+            self._config_service.set_display_with_web(target.with_web)
         return target
 
     def _on_display_closed(self) -> None:
@@ -2417,6 +2530,7 @@ class MainWindow(QMainWindow):
             self._web_broadcast.stop()
         self._display_action.setText("송출 시작")
         self._web_broadcast_screen.set_server(self._web_broadcast)
+        self._update_web_status_label()
         self._statusbar.showMessage("웹 송출이 중지되었습니다")
 
     def _set_project_editable(self, editable: bool) -> None:

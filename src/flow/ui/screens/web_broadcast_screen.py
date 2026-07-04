@@ -1,8 +1,6 @@
 """Web broadcast status screen — 웹 송출 켜기/끄기, URL, QR 코드, 접속자 수."""
 from __future__ import annotations
 
-import io
-
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -218,17 +216,9 @@ class WebBroadcastScreen(QWidget):
 
     def _build_qr_pixmap(self, url: str) -> QPixmap | None:
         """QR 픽스맵 생성. qrcode 미설치 등 실패 시 None (화면은 URL만 표시)."""
-        try:
-            import qrcode
+        from flow.ui.qr import build_qr_pixmap
 
-            img = qrcode.make(url)
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            pixmap = QPixmap()
-            pixmap.loadFromData(buf.getvalue())
-            return pixmap
-        except Exception:
-            return None
+        return build_qr_pixmap(url)
 
     def _on_client_count(self, n: int) -> None:
         self._clients_label.setText(f"접속: {n}명")

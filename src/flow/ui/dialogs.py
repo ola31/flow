@@ -385,6 +385,7 @@ class DisplayTarget:
     mode: str  # "screen" | "web"
     screen: object | None = None  # QScreen (mode == "screen"일 때만)
     windowed: bool = False
+    with_web: bool = False  # 모니터 송출과 웹 송출을 동시에 (mode=="screen" 전용)
 
 
 def flow_select_screen(
@@ -393,6 +394,7 @@ def flow_select_screen(
     *,
     current_name: str = "",
     default_windowed: bool | None = None,
+    default_with_web: bool = False,
     title: str = "송출 모니터 선택",
 ) -> DisplayTarget | None:
     """송출에 사용할 대상(모니터 또는 웹) + 윈도우 모드 여부 선택.
@@ -490,6 +492,22 @@ def flow_select_screen(
     )
     body.addWidget(chk_windowed)
 
+    # 동시 송출: 모니터 송출과 함께 웹 서버도 시작
+    chk_with_web = QCheckBox("웹 송출도 함께 시작 (폰/브라우저 동시 시청)")
+    chk_with_web.setStyleSheet(
+        f"color: {TEXT_SECONDARY}; font-size: {FONT_SM}px; "
+        f"background: transparent; padding: {SP_SM}px 0;"
+    )
+    chk_with_web.setChecked(default_with_web)
+
+    def _sync_with_web_enabled() -> None:
+        # "웹으로 송출" 라디오는 그 자체가 웹 전용 모드 → 체크박스 비활성
+        chk_with_web.setEnabled(not radio_web.isChecked())
+
+    radio_web.toggled.connect(lambda _checked: _sync_with_web_enabled())
+    _sync_with_web_enabled()
+    body.addWidget(chk_with_web)
+
     btn_cancel = _make_button("취소")
     btn_cancel.clicked.connect(dlg.reject)
 
@@ -512,7 +530,10 @@ def flow_select_screen(
             chosen_screen = screen
             break
     return DisplayTarget(
-        mode="screen", screen=chosen_screen, windowed=chk_windowed.isChecked()
+        mode="screen",
+        screen=chosen_screen,
+        windowed=chk_windowed.isChecked(),
+        with_web=chk_with_web.isChecked(),
     )
 
 
@@ -680,3 +701,42 @@ def flow_show_install_guide(parent, *, platform_name: str = "") -> None:
 
     dlg.exec()
 
+
+
+# ─── QR 팝업 ────────────────────────────────────────────────────────────────
+
+
+def flow_show_qr(parent, url: str, *, title: str = "웹 송출 QR") -> None:
+    """웹 송출 URL의 QR 코드를 큰 팝업으로 표시 (폰 카메라로 스캔)."""
+    from flow.ui.qr import build_qr_pixmap
+
+    dlg = _FlowDialog(parent, title=title)
+    body = dlg.body_layout()
+
+    pixmap = build_qr_pixmap(url)
+    if pixmap is not None:
+        qr_label = QLabel()
+        qr_label.setFixedSize(280, 280)
+        qr_label.setScaledContents(True)
+        qr_label.setPixmap(pixmap)
+        body.addWidget(qr_label, 0, Qt.AlignmentFlag.AlignHCenter)
+    else:
+        missing = QLabel("QR 코드를 생성할 수 없습니다")
+        missing.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; font-size: {FONT_MD}px; "
+            "background: transparent; border: none;"
+        )
+        body.addWidget(missing, 0, Qt.AlignmentFlag.AlignHCenter)
+
+    url_label = QLabel(url)
+    url_label.setStyleSheet(
+        f"color: {TEXT_PRIMARY}; font-size: {FONT_MD}px; "
+        f"font-weight: {FW_MEDIUM}; background: transparent; border: none;"
+    )
+    url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    body.addWidget(url_label, 0, Qt.AlignmentFlag.AlignHCenter)
+
+    btn_close = _make_button("닫기", primary=True)
+    btn_close.clicked.connect(dlg.accept)
+    dlg.add_button_row([btn_close])
+    dlg.exec()
