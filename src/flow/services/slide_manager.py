@@ -638,6 +638,47 @@ class SlideManager(QObject):
         except Exception:
             return None
 
+    def register_appended_song(self, song) -> int:
+        """라이브 중 셋리스트 끝에 추가된 곡을 송출 무중단으로 등록.
+
+        슬라이드 카운트 + 오프셋 재계산만 수행하고 그 곡의 전역 오프셋을
+        반환한다 (호출 측이 shift_indices로 매핑을 전역화). 완료 신호는
+        발신하지 않는다 — songs_metadata_finished를 쏘면 핸들러의
+        globalize가 이미 전역화된 기존 곡 인덱스를 이중 시프트한다.
+        pptx면 이미지 변환을 백그라운드 큐 뒤에 예약해 둔다.
+        """
+        if not any(s is song for s in self._songs):
+            # 빈 프로젝트로 열려 매니저 목록이 프로젝트와 비동기화된 경우
+            self._songs.append(song)
+
+        source = getattr(song, "slide_source", None)
+        count = 0
+        try:
+            if source == "markdown":
+                count = int(
+                    self._markdown_converter.get_slide_count(song.markdown_path)
+                )
+            elif source == "pptx" or (source is None and song.has_slides):
+                count = len(Presentation(str(song.abs_slides_path)).slides)
+        except Exception:
+            count = 0
+        song.set_slide_count(count)
+        self._recalculate_offsets()
+
+        # pptx 이미지 변환은 백그라운드로 (큐를 비우지 않는 queue_task)
+        if (
+            count > 0
+            and source != "markdown"
+            and self._worker is not None
+        ):
+            self._worker.queue_task(
+                PPTTask(PPTTask.LOAD_SINGLE, song.abs_slides_path)
+            )
+            self._pending_conversions += 1
+            self._loading = True
+
+        return self.get_song_offset(song.name)
+
     def _ensure_background_conversion(self, path) -> None:
         """유휴 상태일 때만 해당 파일의 전체 변환을 워커에 예약.
 

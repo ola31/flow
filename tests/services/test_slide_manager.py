@@ -668,3 +668,92 @@ class TestConversionFailureBackoff:
         manager.load_error.emit("변환 실패")
         manager.peek_slide_image(0)
         assert len(tasks) == 2
+
+
+class TestRegisterAppendedSong:
+    """라이브 중 셋리스트 끝에 추가된 곡의 무중단 등록.
+
+    카운트 + 오프셋 재계산만 수행 (기존 곡 오프셋 불변, 완료 신호 없음 —
+    신호를 쏘면 핸들러의 globalize가 기존 곡 인덱스를 이중 시프트한다).
+    """
+
+    def _md_song(self, tmp_path, name, n):
+        from flow.domain.song import Song
+
+        d = tmp_path / "songs" / name
+        d.mkdir(parents=True)
+        body = "\n\n".join(f"line {i}" for i in range(n))
+        (d / "slides.md").write_text(f"# {name}\n\n{body}\n", encoding="utf-8")
+        return Song(name=name, folder=Path("songs") / name, project_dir=tmp_path)
+
+    def _pptx_song(self, tmp_path, name, n):
+        from pptx import Presentation
+
+        from flow.domain.song import Song
+
+        d = tmp_path / "songs" / name
+        d.mkdir(parents=True)
+        prs = Presentation()
+        for _ in range(n):
+            prs.slides.add_slide(prs.slide_layouts[6])
+        prs.save(d / "slides.pptx")
+        return Song(name=name, folder=Path("songs") / name, project_dir=tmp_path)
+
+    def test_appended_md_song_gets_count_and_offset(self, qapp, manager, tmp_path):
+        existing = self._md_song(tmp_path, "song_a", 3)
+        existing.set_slide_count(3)
+        songs = [existing]
+        manager._songs = songs
+        manager._recalculate_offsets()
+
+        new_song = self._md_song(tmp_path, "song_new", 2)
+        songs.append(new_song)  # 라이브 중 append (aliased list)
+
+        offset = manager.register_appended_song(new_song)
+
+        assert new_song.get_slide_count() == 2
+        assert offset == 3
+        assert manager.get_song_offset("song_a") == 0  # 기존 곡 불변
+        assert manager.get_slide_count() == 5
+
+    def test_appended_pptx_song_counted(self, qapp, manager, tmp_path):
+        existing = self._md_song(tmp_path, "song_a", 3)
+        existing.set_slide_count(3)
+        songs = [existing]
+        manager._songs = songs
+        manager._recalculate_offsets()
+
+        new_song = self._pptx_song(tmp_path, "song_ppt", 4)
+        songs.append(new_song)
+
+        offset = manager.register_appended_song(new_song)
+
+        assert new_song.get_slide_count() == 4
+        assert offset == 3
+
+    def test_no_completion_signals_emitted(self, qapp, manager, tmp_path):
+        existing = self._md_song(tmp_path, "song_a", 3)
+        existing.set_slide_count(3)
+        songs = [existing]
+        manager._songs = songs
+        manager._recalculate_offsets()
+        new_song = self._md_song(tmp_path, "song_new", 2)
+        songs.append(new_song)
+
+        fired = []
+        manager.songs_metadata_finished.connect(lambda n: fired.append(n))
+        manager.load_finished.connect(lambda n: fired.append(n))
+
+        manager.register_appended_song(new_song)
+
+        assert fired == []  # globalize 핸들러가 돌면 안 됨
+
+    def test_untracked_song_gets_adopted(self, qapp, manager, tmp_path):
+        """매니저 목록과 비동기화된 경우(빈 프로젝트로 연 라이브)도 등록."""
+        new_song = self._md_song(tmp_path, "song_solo", 2)
+        # manager._songs는 빈 별도 리스트인 상황
+
+        offset = manager.register_appended_song(new_song)
+
+        assert offset == 0
+        assert manager.get_slide_count() == 2

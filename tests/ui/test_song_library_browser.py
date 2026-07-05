@@ -13,6 +13,12 @@ _INFO = {
 }
 
 
+def _search(browser, qtbot, text: str) -> None:
+    """검색어 입력 후 디바운스 렌더 완료까지 대기."""
+    browser._search.setText(text)
+    qtbot.waitUntil(lambda: not browser._filter_timer.isActive(), timeout=2000)
+
+
 def test_card_added_state_disables_add_buttons(qtbot):
     card = _LibrarySongCard(_INFO, workspace_mode=True, added=True)
     qtbot.addWidget(card)
@@ -89,7 +95,7 @@ def test_browser_filter(qtbot, tmp_path):
     ws = _FakeWorkspace(lib)
     browser = SongLibraryBrowser(songs_dir=tmp_path, included_names=set(), workspace=ws)
     qtbot.addWidget(browser)
-    browser._search.setText("바다")
+    _search(browser, qtbot, "바다")
     names = [c._name for c in browser._cards]
     assert names == ["바다"]
 
@@ -117,15 +123,15 @@ def test_browser_filter_matches_markdown_lyrics(qtbot, tmp_path):
     qtbot.addWidget(browser)
 
     # 제목엔 없고 가사에만 있는 단어로 검색 → 해당 곡이 잡힘
-    browser._search.setText("바다")
+    _search(browser, qtbot, "바다")
     assert [c._name for c in browser._cards] == ["첫째곡"]
 
     # frontmatter 설정값(background)은 검색에 걸리지 않음
-    browser._search.setText("background")
+    _search(browser, qtbot, "background")
     assert browser._cards == []
 
     # 제목 검색은 그대로 동작
-    browser._search.setText("둘째")
+    _search(browser, qtbot, "둘째")
     assert [c._name for c in browser._cards] == ["둘째곡"]
 
 
@@ -138,11 +144,11 @@ def test_browser_shows_lyric_snippet_for_lyric_match(qtbot, tmp_path):
     qtbot.addWidget(browser)
 
     # 가사로 매칭 → 매칭된 가사 줄이 카드에 표시됨
-    browser._search.setText("바다")
+    _search(browser, qtbot, "바다")
     assert "바다가 보이네" in browser._cards[0]._match_snippet
 
     # 제목으로 매칭 → 스니펫 없음
-    browser._search.setText("곡A")
+    _search(browser, qtbot, "곡A")
     assert browser._cards[0]._match_snippet == ""
 
     # 검색어 없음 → 스니펫 없음

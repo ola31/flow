@@ -183,9 +183,12 @@ class Song:
         elif data.get("sheet"):
             score_sheets = [ScoreSheet.from_dict(data["sheet"])]
 
-        # 절대 경로로 생성 (project_dir 불필요)
+        # 절대 경로로 생성 (project_dir 불필요).
+        # name은 요청된 폴더명을 그대로 쓴다 — song.json의 name과 폴더명이
+        # 다른 곡(외부에서 가져온 곡 등)도 라이브러리 목록·셋리스트 순서·
+        # 재열기 해석이 전부 같은 이름으로 일관되게 동작해야 한다.
         return cls(
-            name=data.get("name", song_name),
+            name=song_name,
             folder=folder.resolve(),
             score_sheets=score_sheets,
             order=order,

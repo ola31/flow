@@ -128,6 +128,26 @@ def _scan_library_song(song_dir: Path) -> dict:
 
 
 
+class _ElidedLabel(QLabel):
+    """폭이 모자라면 말줄임(…)으로 줄이는 라벨 — 최소 폭을 강제하지 않아
+    좁은 패널에서도 우측 버튼이 잘리지 않는다. 전체 텍스트는 툴팁으로."""
+
+    def __init__(self, text: str, parent=None) -> None:
+        super().__init__(text, parent)
+        self._full_text = text
+        self.setToolTip(text)
+        self.setMinimumWidth(40)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        metrics = self.fontMetrics()
+        elided = metrics.elidedText(
+            self._full_text, Qt.TextElideMode.ElideRight, self.width()
+        )
+        super().setText(elided)
+        super().resizeEvent(event)
+
+
 class _LibrarySongCard(QFrame):
     """라이브러리 다이얼로그 안의 곡 카드."""
 
@@ -173,7 +193,7 @@ class _LibrarySongCard(QFrame):
         left = QVBoxLayout()
         left.setSpacing(4)
 
-        name_lbl = QLabel(info["name"])
+        name_lbl = _ElidedLabel(info["name"])
         name_lbl.setStyleSheet(
             f"font-size: {FONT_TITLE}px; font-weight: 500; color: {TEXT_PRIMARY}; background: transparent;"
         )
@@ -230,7 +250,7 @@ class _LibrarySongCard(QFrame):
 
         # 가사 검색 매칭 줄 — 가사로 검색되어 매칭 줄이 있을 때만 표시.
         if self._match_snippet:
-            snippet_lbl = QLabel(f"“{self._match_snippet}”")
+            snippet_lbl = _ElidedLabel(f"“{self._match_snippet}”")
             snippet_lbl.setStyleSheet(
                 f"font-size: {FONT_SM}px; color: {TEXT_SECONDARY};"
                 f" background: transparent;"
@@ -344,7 +364,19 @@ class SongLibraryBrowser(QWidget):
             }}
             QLineEdit:focus {{ border-color: {ACCENT}; }}
         """)
-        self._search.textChanged.connect(self._filter)
+        # 키 입력마다 카드 전체 재생성은 큰 라이브러리에서 버벅임 —
+        # 150ms 디바운스 후 한 번만 렌더
+        from PySide6.QtCore import QTimer
+
+        self._filter_timer = QTimer(self)
+        self._filter_timer.setSingleShot(True)
+        self._filter_timer.setInterval(150)
+        self._filter_timer.timeout.connect(
+            lambda: self._filter(self._search.text())
+        )
+        self._search.textChanged.connect(
+            lambda _t: self._filter_timer.start()
+        )
         root.addWidget(self._search)
 
         # 카드 스크롤 영역
@@ -1853,9 +1885,15 @@ class SongListWidget(QWidget):
             QMessageBox.warning(self, "오류", f"'{name}' 곡을 불러올 수 없습니다.")
             return
 
+        # 중복 가드 — 같은 곡이 두 번 들어가면 오프셋/매핑이 전부 꼬인다
+        if any(s.name == song.name for s in self._project.selected_songs):
+            self.refresh_list()
+            return
+
         self._project.selected_songs.append(song)
-        if name not in self._project.song_order:
-            self._project.song_order.append(name)
+        # song_order는 실제 Song.name과 일치해야 한다 (요청 폴더명이 아니라)
+        if song.name not in self._project.song_order:
+            self._project.song_order.append(song.name)
         self.refresh_list()
         if not self._main_window:
             return

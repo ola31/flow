@@ -222,7 +222,10 @@ class TestSongWorkspaceLoading:
 
         song = Song.load_from_workspace(ws, "행사A", "곡B")
         assert song is not None
-        assert song.name == "곡B(local)"  # 로컬 우선
+        # 정체성은 폴더명으로 통일 (json name이 달라도) — 로컬 우선은
+        # source/folder로 검증
+        assert song.name == "곡B"
+        assert song.source == "local"
         assert song.source == "local"
         assert song.folder == local_path.resolve()
 
@@ -305,3 +308,34 @@ class TestSlidesFileAutoDetection:
 
         (d / "slides.pptx").write_bytes(b"PK")
         assert detect_slides_file(d) == d / "slides.pptx"
+
+
+class TestWorkspaceNameIdentity:
+    """워크스페이스 곡의 정체성은 폴더명 — song.json의 name과 달라도
+    라이브러리 목록·추가·순서·재열기가 같은 이름을 쓴다."""
+
+    def test_load_uses_folder_name_when_json_name_differs(self, tmp_path):
+        import json
+
+        class _FakeWorkspace:
+            def __init__(self, root):
+                self.root = root
+
+            def resolve_song_folder(self, project_name, song_name):
+                d = self.root / "library" / song_name
+                return d if d.exists() else None
+
+            def project_dir(self, name):
+                return self.root / "projects" / name
+
+        d = tmp_path / "library" / "prefixed_song_name"
+        d.mkdir(parents=True)
+        with open(d / "song.json", "w", encoding="utf-8-sig") as f:
+            json.dump({"name": "다른 내부 이름", "sheets": []}, f, ensure_ascii=False)
+
+        song = Song.load_from_workspace(
+            _FakeWorkspace(tmp_path), "proj", "prefixed_song_name"
+        )
+
+        assert song is not None
+        assert song.name == "prefixed_song_name"  # 폴더명이 정체성

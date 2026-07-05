@@ -2127,7 +2127,28 @@ class MainWindow(QMainWindow):
         if self._project is None:
             return
         # 송출 무중단: 슬라이드 reload는 하지 않고(broadcast 영향 X) 목록만 갱신.
+        before_ids = {id(s) for s in self._project.selected_songs}
         self._song_list._add_existing_song(name, source, reload_slides=False)
+
+        # [중요] 추가된 곡을 매니저에 등록하고 매핑을 전역화 — 건너뛰면
+        # 로컬 인덱스(0부터)가 전역으로 오해돼 핫스팟이 프로젝트의 첫
+        # 슬라이드를 가리킨다. 끝에 추가되므로 기존 곡 오프셋은 불변이고
+        # 완료 신호도 없어 송출은 영향받지 않는다. 곡 탐지는 객체 기준 —
+        # 요청한 폴더명과 Song.name이 어긋나도 안전하다.
+        added = next(
+            (
+                s
+                for s in self._project.selected_songs
+                if id(s) not in before_ids
+            ),
+            None,
+        )
+        if added is not None:
+            offset = self._slide_manager.register_appended_song(added)
+            if offset > 0:
+                added.shift_indices(offset)
+            self._slide_preview.refresh_slides()
+
         self._save_project()
         if isinstance(self._live_side_panel, LiveSongAddPanel):
             self._live_side_panel.mark_added(name)

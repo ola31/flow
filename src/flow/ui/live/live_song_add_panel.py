@@ -78,14 +78,21 @@ class LiveSongAddPanel(QWidget):
         self._browser.mark_added(name)
 
     def set_active(self, active: bool) -> None:
+        # setStyleSheet를 다시 설정하면 하위 위젯 전체(카드 수백 개)가
+        # 리폴리시돼 Tab 전환이 버벅인다 — 동적 프로퍼티 + 자기 자신만 재계산
         self._active = active
-        self._apply_active_style()
+        self.setProperty("activePanel", active)
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     def _apply_active_style(self) -> None:
-        left = ACCENT if self._active else BORDER
+        # 스타일시트는 1회만 설정 (activePanel 프로퍼티 셀렉터로 상태 표현)
+        self.setProperty("activePanel", self._active)
         self.setStyleSheet(
             f"QWidget#LiveSongAddPanel {{ background: {BG_SURFACE};"
-            f" border-left: 3px solid {left}; }}"
+            f" border-left: 3px solid {BORDER}; }}"
+            f"QWidget#LiveSongAddPanel[activePanel=\"true\"] {{"
+            f" border-left-color: {ACCENT}; }}"
         )
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802

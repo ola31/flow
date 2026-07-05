@@ -214,7 +214,15 @@ class ProjectScreen(QWidget):
         self.setObjectName("projectScreen")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._setup_ui()
-        self.set_focus_active(False)
+        # 스타일시트는 1회만 설정 — set_focus_active마다 setStyleSheet하면
+        # 화면 전체(캔버스·썸네일·카드)가 리폴리시돼 Tab 전환이 버벅인다.
+        self.setProperty("focusActive", False)
+        self.setStyleSheet(
+            f"#projectScreen {{ border: 4px solid transparent; "
+            f"border-radius: 6px; }} "
+            f"#projectScreen[focusActive=\"true\"] {{ "
+            f"border-color: {ACCENT}; }}"
+        )
 
     def set_focus_active(self, active: bool) -> None:
         """Show / hide a full ACCENT outline around this screen.
@@ -222,13 +230,12 @@ class ProjectScreen(QWidget):
         Used by MainWindow during emergency-patch sessions to indicate
         that the live area (this screen) is the focused side rather than
         the patch panel. The border width is reserved when inactive
-        (transparent color) so toggling doesn't shift the layout.
+        (transparent) so toggling doesn't shift the layout. 동적
+        프로퍼티 + 자기 자신만 재계산 (하위 위젯 리폴리시 방지).
         """
-        color = ACCENT if active else "transparent"
-        self.setStyleSheet(
-            f"#projectScreen {{ border: 4px solid {color}; "
-            f"border-radius: 6px; }}"
-        )
+        self.setProperty("focusActive", active)
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     @property
     def toolbar_container(self) -> QWidget:
