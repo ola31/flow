@@ -9,6 +9,37 @@ import sys
 
 from flow import __version__
 
+# 크래시 로그 파일 핸들 — GC로 닫히지 않게 모듈 전역으로 유지
+_CRASH_LOG_HANDLE = None
+
+
+def _setup_crash_log() -> None:
+    """Segfault 시 스택 트레이스를 영구 파일(~/.flow/crash.log)에 남긴다.
+
+    데스크톱 아이콘으로 실행하면 stderr가 세션 종료와 함께 사라지므로,
+    stderr만으로는 "그냥 꺼졌다"는 크래시를 사후 진단할 수 없다.
+    """
+    global _CRASH_LOG_HANDLE
+    try:
+        from datetime import datetime
+        from pathlib import Path
+
+        crash_dir = Path.home() / ".flow"
+        crash_dir.mkdir(exist_ok=True)
+        f = open(
+            crash_dir / "crash.log", "a", buffering=1, encoding="utf-8"
+        )
+        f.write(
+            f"\n=== Flow {__version__} 시작: "
+            f"{datetime.now().isoformat(timespec='seconds')} ===\n"
+        )
+        faulthandler.enable(file=f)
+        _CRASH_LOG_HANDLE = f
+    except Exception:
+        # 파일을 못 열어도 크래시 추적은 stderr로라도 살려 둔다
+        if sys.stderr is not None:
+            faulthandler.enable()
+
 
 def _append_qt_logging_rules(*rules: str) -> None:
     """Qt 로그 필터를 기존 사용자 설정을 보존하며 추가한다."""
@@ -114,9 +145,9 @@ def main() -> int:
     # Wayland busy-cursor 회피를 위해 PySide 임포트 전에 플랫폼을 고정한다.
     _prefer_xcb_on_linux()
 
-    # Segfault 발생 시 C-level 스택 트레이스를 stderr에 출력
-    if sys.stderr is not None:
-        faulthandler.enable()
+    # Segfault 발생 시 스택 트레이스를 ~/.flow/crash.log에 영구 기록
+    # (stderr는 데스크톱 실행에서 사라짐)
+    _setup_crash_log()
 
     _append_qt_logging_rules(
         "qt.qpa.services.warning=false",
