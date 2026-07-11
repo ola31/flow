@@ -4,11 +4,10 @@ import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QPoint, Signal
-from PySide6.QtGui import QAction, QColor, QFont
+from PySide6.QtGui import QAction, QFont
 from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
-    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -69,15 +68,6 @@ def _project_song_count(project_path: str) -> str:
         return f"{count}곡" if count else ""
     except Exception:
         return ""
-
-
-def _shadow(parent, blur: int = 24, offset: int = 4, opacity: int = 80) -> None:
-    """드롭 섀도우를 위젯에 적용."""
-    effect = QGraphicsDropShadowEffect(parent)
-    effect.setBlurRadius(blur)
-    effect.setOffset(0, offset)
-    effect.setColor(QColor(0, 0, 0, opacity))
-    parent.setGraphicsEffect(effect)
 
 
 # ─── 최근 항목 카드 ──────────────────────────────────────────────────────────
@@ -204,7 +194,8 @@ class _Panel(QFrame):
                 background: transparent;
             }}
         """)
-        _shadow(self, blur=32, offset=6, opacity=60)
+        # 거대 패널의 블러 섀도우는 페인트마다 전체 블러를 유발해
+        # 페이지 전환/스크롤을 느리게 한다 — 깊이는 배경 톤 차이로 표현
 
         root = QVBoxLayout(self)
         root.setContentsMargins(SP_LG + 4, SP_LG + 4, SP_LG + 4, SP_LG + 4)
@@ -520,6 +511,26 @@ class ProjectLauncher(QWidget):
         if self._workspace is None:
             return
 
+        # 내용이 안 바뀌었으면 카드 재생성 생략 (홈 전환 속도)
+        def _entry(p):
+            try:
+                sj = p / "song.json" if p.is_dir() else p
+                return (p.name, p.stat().st_mtime,
+                        sj.stat().st_mtime if sj.exists() else 0.0)
+            except OSError:
+                return (p.name, 0.0, 0.0)
+
+        try:
+            fp = (
+                tuple(_entry(d) for d in self._workspace.list_projects()),
+                tuple(_entry(d) for d in self._workspace.list_library_songs()),
+            )
+        except OSError:
+            fp = None
+        if fp is not None and fp == getattr(self, "_ws_fingerprint", None):
+            return
+        self._ws_fingerprint = fp
+
         # 프로젝트 카드 (projects/ 하위)
         proj_cards = []
         for proj_dir in self._workspace.list_projects():
@@ -557,6 +568,15 @@ class ProjectLauncher(QWidget):
         self._song_panel.set_cards(song_cards)
 
     def set_recent_items(self, projects: list[str], songs: list[str]) -> None:
+        # 홈 방문마다 카드를 재생성하면 전환이 느려진다 — 목록과 각 항목의
+        # 상태가 모두 같으면 기존 카드를 유지한다.
+        statuses = tuple(_song_status(s_path) for s_path in songs)
+        p_statuses = tuple(_project_song_count(p_path) for p_path in projects)
+        fp = (tuple(projects), tuple(songs), statuses, p_statuses)
+        if fp == getattr(self, "_recent_fingerprint", None):
+            return
+        self._recent_fingerprint = fp
+
         # 곡 카드
         song_cards = []
         for s_path in songs:

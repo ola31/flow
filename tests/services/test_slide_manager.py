@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from unittest.mock import MagicMock, patch
 from pathlib import Path
@@ -97,6 +99,21 @@ class TestSlideWorker:
 
         assert worker._abort_requested is False
         assert not worker._task_queue.empty()
+
+    def test_stop_returns_quickly_when_idle(self, mock_converter):
+        """stop()은 GUI 스레드에서 불린다 — 유휴 워커가 큐 get(timeout=0.5)에
+        잠들어 있어도 즉시 깨워서 반환해야 한다. 안 그러면 홈 버튼 클릭마다
+        (reset_worker 경로) UI가 최대 0.5초 멈춘다."""
+        worker = SlideWorker(mock_converter)
+        worker.start()
+        time.sleep(0.1)  # 워커가 큐 대기에 들어간 시점
+
+        t0 = time.time()
+        worker.stop()
+        elapsed = time.time() - t0
+
+        assert elapsed < 0.2, f"stop()이 {elapsed:.2f}s 블로킹 — 즉시 깨워야 함"
+        assert not worker.isRunning()
 
 
 class TestFileWatcherPause:

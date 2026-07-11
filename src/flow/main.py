@@ -292,6 +292,13 @@ def main() -> int:
         frame.moveCenter(screen.availableGeometry().center())
         window.move(frame.topLeft())
 
+    # 페이지 전환·이벤트 루프 스톨을 ~/.flow/perf.log에 기록 (FLOW_PERF=0으로 끔).
+    # crash.log처럼 사후 진단용 — 기록량은 전환당 두 줄 수준이다.
+    if os.environ.get("FLOW_PERF", "1") != "0":
+        from flow.perf_probe import install as install_perf_probe
+
+        install_perf_probe(window)
+
     window.show()
     window.activateWindow()
     window.raise_()

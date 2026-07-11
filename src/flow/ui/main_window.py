@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QAction, QKeySequence, QPixmap, QUndoStack
 from PySide6 import QtGui
-from PySide6.QtCore import Qt, QEvent
+from PySide6.QtCore import Qt, QEvent, QTimer
 from flow.ui.undo_commands import (
     AddHotspotCommand,
     RemoveHotspotCommand,
@@ -89,6 +89,9 @@ def _default_song_markdown(name: str) -> str:
 class MainWindow(QMainWindow):
     """Flow 메인 윈도우"""
 
+    # 핫스팟 프리웜 지연(ms) — 시작 직후 부하를 피해 살짝 미룸
+    _HOTSPOT_PREWARM_DELAY_MS = 1500
+
     def __init__(self, workspace=None) -> None:
         super().__init__()
 
@@ -106,6 +109,9 @@ class MainWindow(QMainWindow):
         # 송출 관련
         self._display_window: DisplayWindow | None = None
         self._web_broadcast = None
+        # 핫스팟 매니저를 시작 직후 백그라운드로 만들어 캡티브 검사
+        # 프리웜(~800ms)이 첫 웹 송출 페이지 방문 전에 끝나게 한다
+        QTimer.singleShot(self._HOTSPOT_PREWARM_DELAY_MS, self._get_hotspot)
         self._hotspot = None
         self._slide_manager = SlideManager()
         self._engine_dialog_shown = False
@@ -467,6 +473,9 @@ class MainWindow(QMainWindow):
     def _on_captive_install_finished(
         self, exit_code: int, then_start_hotspot: bool = False
     ) -> None:
+        # 설치 스크립트가 파일/방화벽 상태를 바꿨으니 캐시 무효화
+        if self._hotspot is not None:
+            self._hotspot.invalidate_captive_cache()
         if exit_code != 0:
             from flow.ui.dialogs import flow_warning
 
@@ -950,6 +959,7 @@ class MainWindow(QMainWindow):
 
         # 곡 목록 시그널
         self._song_list.song_selected.connect(self._on_song_selected)
+        self._song_list.song_open_requested.connect(self._open_song_by_path)
         self._song_list.song_added.connect(self._on_song_added)
         self._song_list.song_edit_requested.connect(self._enter_song_edit_mode)
 

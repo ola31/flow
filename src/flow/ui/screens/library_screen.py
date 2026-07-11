@@ -97,7 +97,37 @@ class LibraryScreen(QWidget):
         self._workspace = workspace
         self.refresh()
 
+    def _fingerprint(self, paths) -> tuple:
+        """카드 재구성 필요 여부 판정용 지문.
+
+        곡 추가/삭제(폴더 목록), 저장(song.json mtime), 파일 추가/제거
+        (폴더 mtime)를 감지한다. 검색어·정렬 변경도 재구성 대상.
+        """
+        entries = []
+        for p in paths:
+            try:
+                sj = p / "song.json"
+                entries.append((
+                    p.name,
+                    p.stat().st_mtime,
+                    sj.stat().st_mtime if sj.exists() else 0.0,
+                ))
+            except OSError:
+                entries.append((p.name, 0.0, 0.0))
+        return (self._search_text, self._sort_mode, tuple(entries))
+
     def refresh(self) -> None:
+        # 페이지 전환마다 카드 수백 개를 재생성하면 전환이 느려진다 —
+        # 내용이 안 바뀌었으면 기존 카드를 그대로 둔다.
+        if self._workspace is not None:
+            paths_for_fp = self._workspace.list_library_songs()
+            fp = self._fingerprint(paths_for_fp)
+            if fp == getattr(self, "_last_fingerprint", None):
+                return
+            self._last_fingerprint = fp
+        else:
+            self._last_fingerprint = None
+
         # Clear existing cards (everything before the trailing stretch)
         while self._cards_layout.count() > 1:
             item = self._cards_layout.takeAt(0)

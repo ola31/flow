@@ -105,6 +105,10 @@ class SlideWorker(QThread):
         self._is_running = False
         self._abort_requested = True
         self.requestInterruption()
+        # 유휴 워커는 큐 get(timeout=0.5)에 잠들어 있다 — 센티널로 즉시
+        # 깨우지 않으면 GUI 스레드의 wait()가 최대 0.5초 블로킹된다
+        # (홈 버튼마다 reset_worker가 이 경로를 밟음).
+        self._task_queue.put(None)
         self.wait(1000)
 
     def run(self):
@@ -114,6 +118,9 @@ class SlideWorker(QThread):
             except queue.Empty:
                 if self.isInterruptionRequested():
                     break
+                continue
+
+            if task is None:  # stop()의 깨우기 센티널
                 continue
 
             self._abort_requested = False

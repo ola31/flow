@@ -392,3 +392,45 @@ def test_windows_backend_unsupported_without_winsdk():
     assert "Windows" in be.support_message()
     assert be.captive_portal_installed() is False
     assert be.captive_portal_install_command() == []
+
+
+class TestCaptiveInstalledCache:
+    """captive_portal_installed는 firewall-cmd 3회(~800ms)를 부르는 비싼
+    검사 — 페이지 전환마다 재실행하지 않도록 매니저가 캐시하고, 설치/제거
+    액션 후에만 무효화한다."""
+
+    class _CountingBackend:
+        def __init__(self):
+            self.calls = 0
+
+        def is_supported(self):
+            return True
+
+        def is_active(self):
+            return False
+
+        def captive_portal_installed(self):
+            self.calls += 1
+            return True
+
+    def test_second_call_uses_cache(self, qapp):
+        from flow.services.hotspot import HotspotManager
+
+        backend = self._CountingBackend()
+        mgr = HotspotManager(backend=backend)
+
+        assert mgr.captive_portal_installed() is True
+        assert mgr.captive_portal_installed() is True
+        assert backend.calls == 1  # 캐시 히트
+
+    def test_invalidate_forces_recheck(self, qapp):
+        from flow.services.hotspot import HotspotManager
+
+        backend = self._CountingBackend()
+        mgr = HotspotManager(backend=backend)
+
+        mgr.captive_portal_installed()
+        mgr.invalidate_captive_cache()
+        mgr.captive_portal_installed()
+
+        assert backend.calls == 2

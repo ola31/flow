@@ -479,6 +479,7 @@ class HotspotManager(QObject):
 
     def __init__(self, backend=None, parent: QObject | None = None) -> None:
         super().__init__(parent)
+        injected = backend is not None
         if backend is None:
             if sys.platform.startswith("linux"):
                 backend = _LinuxHotspot()
@@ -492,10 +493,29 @@ class HotspotManager(QObject):
         # periodically rather than only right after our own start()/stop()
         # calls — otherwise the toggle button drifts from reality.
         self._last_known_active = backend.is_active()
+        # captive_portal_installed는 firewall-cmd 조회 3회(~800ms)라 비쌈 —
+        # 설치 상태는 설치/제거 액션 때만 바뀌므로 캐시한다.
+        self._captive_installed_cache: bool | None = None
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(self._POLL_INTERVAL_MS)
         self._poll_timer.timeout.connect(self._poll_active_state)
         self._poll_timer.start()
+
+        # 캡티브 설치 검사(firewall-cmd 3회, ~800ms)를 백그라운드로 미리
+        # 데워 첫 웹 송출 페이지 전환이 느려지지 않게 한다. 주입된 테스트
+        # 백엔드에는 적용하지 않는다 (결정적 테스트 유지).
+        if not injected:
+            import threading
+
+            def _prewarm() -> None:
+                try:
+                    result = self._backend.captive_portal_installed()
+                    if self._captive_installed_cache is None:
+                        self._captive_installed_cache = result
+                except Exception:
+                    pass
+
+            threading.Thread(target=_prewarm, daemon=True).start()
 
     def _poll_active_state(self) -> None:
         active = self._backend.is_active()
@@ -504,10 +524,21 @@ class HotspotManager(QObject):
             self.state_changed.emit()
 
     def is_supported(self) -> bool:
-        return self._backend.is_supported()
+        # 하드웨어 지원 여부는 세션 중 변하지 않음 — nmcli 재호출 방지
+        if not hasattr(self, "_supported_cache"):
+            self._supported_cache = self._backend.is_supported()
+        return self._supported_cache
 
     def is_active(self) -> bool:
         return self._backend.is_active()
+
+    def last_known_active(self) -> bool:
+        """폴러가 유지하는 최근 상태 — UI 표시용 (nmcli 호출 없음).
+
+        3초 폴링 + start/stop 훅이 갱신하므로 표시 용도로 충분하다.
+        실제 동작 판단(토글 등)은 is_active()를 쓸 것.
+        """
+        return self._last_known_active
 
     def last_error(self) -> str:
         return self._backend.last_error()
@@ -519,7 +550,15 @@ class HotspotManager(QObject):
         return self._backend.support_message()
 
     def captive_portal_installed(self) -> bool:
-        return self._backend.captive_portal_installed()
+        if self._captive_installed_cache is None:
+            self._captive_installed_cache = (
+                self._backend.captive_portal_installed()
+            )
+        return self._captive_installed_cache
+
+    def invalidate_captive_cache(self) -> None:
+        """설치/제거 스크립트 실행 후 호출 — 다음 조회 때 재검사."""
+        self._captive_installed_cache = None
 
     def captive_portal_install_command(self) -> list[str]:
         return self._backend.captive_portal_install_command()

@@ -263,7 +263,12 @@ class WebBroadcastScreen(QWidget):
             return
 
         self._hotspot_toggle_btn.setVisible(True)
-        active = self._hotspot.is_active()
+        # 표시용 상태는 폴러가 유지하는 값 사용 — 페이지 전환마다 nmcli를
+        # 부르면 전환이 느려진다 (실제 토글 동작은 is_active를 씀)
+        if hasattr(self._hotspot, "last_known_active"):
+            active = self._hotspot.last_known_active()
+        else:
+            active = self._hotspot.is_active()
         self._hotspot_toggle_btn.setText("핫스팟 끄기" if active else "핫스팟 켜기")
 
         if active:

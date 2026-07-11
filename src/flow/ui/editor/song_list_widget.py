@@ -992,6 +992,156 @@ class _SongCard(QFrame):
 # ─── 단독 곡 편집 패널 (standalone 모드) ────────────────────────────────────
 
 
+class _SwitcherRow(QPushButton):
+    """곡 전환 목록의 한 줄 — 곡 이름만 표시하는 평평한 버튼."""
+
+    def __init__(self, name: str, is_current: bool, parent=None) -> None:
+        super().__init__(name, parent)
+        self._name = name
+        self._is_current = is_current
+        self.setFixedHeight(28)
+        self.setCursor(
+            Qt.CursorShape.ArrowCursor if is_current
+            else Qt.CursorShape.PointingHandCursor
+        )
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setToolTip(name)
+        if is_current:
+            self.setStyleSheet(
+                f"QPushButton {{ background: {SURFACE_SUBTLE}; text-align: left; "
+                f"padding: 0 10px; border: none; "
+                f"border-left: 3px solid {ACCENT_INTER}; "
+                f"border-radius: {RADIUS_SM}px; color: {ACCENT_INTER}; "
+                f"font-size: {FONT_MD}px; font-weight: {FW_SEMI}; }}"
+            )
+        else:
+            self.setStyleSheet(
+                f"QPushButton {{ background: transparent; text-align: left; "
+                f"padding: 0 13px; border: none; border-radius: {RADIUS_SM}px; "
+                f"color: {TEXT_SECONDARY}; font-size: {FONT_MD}px; }}"
+                f"QPushButton:hover {{ background: {SURFACE_SUBTLE}; "
+                f"color: {TEXT_PRIMARY}; }}"
+            )
+
+
+class _LibrarySongSwitcher(QWidget):
+    """단독 곡 편집 좌측의 곡 전환 목록.
+
+    라이브러리 페이지로 돌아가지 않고 다른 곡을 바로 연다. 클릭 시
+    song_open_requested(폴더 경로)를 발신 — 저장 확인은 기존
+    _open_song_by_path 경로가 처리한다.
+    """
+
+    song_open_requested = Signal(str)
+    collapse_toggled = Signal(bool)
+
+    def __init__(
+        self, library_dir: Path, current_name: str,
+        collapsed: bool = False, parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._library_dir = library_dir
+        self._current_name = current_name
+        self._rows: list[_SwitcherRow] = []
+        self._collapsed = collapsed
+        self._setup_ui()
+        self._populate()
+        self._apply_collapsed()
+
+    def _setup_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(4)
+
+        self._header_btn = QPushButton("곡 전환")
+        self._header_btn.setFixedHeight(26)
+        self._header_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._header_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._header_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; text-align: left; "
+            f"padding: 0 2px; border: none; color: {TEXT_TERTIARY}; "
+            f"font-size: {FONT_SM}px; font-weight: {FW_SEMI}; }}"
+            f"QPushButton:hover {{ color: {TEXT_SECONDARY}; }}"
+        )
+        self._header_btn.clicked.connect(self._toggle_collapsed)
+        root.addWidget(self._header_btn)
+
+        self._body = QWidget()
+        body = QVBoxLayout(self._body)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(4)
+
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("곡 검색...")
+        self._search.setFixedHeight(30)
+        self._search.setStyleSheet(
+            f"QLineEdit {{ background: {BG_INPUT}; color: {TEXT_PRIMARY}; "
+            f"border: 1px solid {BORDER}; border-radius: {RADIUS_MD}px; "
+            f"padding: 0 8px; font-size: {FONT_SM}px; }}"
+            f"QLineEdit:focus {{ border-color: {ACCENT}; }}"
+        )
+        self._search.textChanged.connect(self._filter)
+        body.addWidget(self._search)
+
+        self._list_scroll = QScrollArea()
+        self._list_scroll.setWidgetResizable(True)
+        self._list_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._list_scroll.setMaximumHeight(220)
+        self._list_scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+        )
+        self._list_container = QWidget()
+        self._list_container.setStyleSheet("background: transparent;")
+        self._list_layout = QVBoxLayout(self._list_container)
+        self._list_layout.setContentsMargins(0, 0, 0, 0)
+        self._list_layout.setSpacing(2)
+        self._list_layout.addStretch()
+        self._list_scroll.setWidget(self._list_container)
+        body.addWidget(self._list_scroll)
+
+        root.addWidget(self._body)
+
+        divider = QFrame()
+        divider.setFrameShape(QFrame.Shape.HLine)
+        divider.setFixedHeight(1)
+        divider.setStyleSheet(f"background: {BORDER_SUBTLE_RGBA}; border: none;")
+        root.addWidget(divider)
+
+    def _populate(self) -> None:
+        try:
+            folders = sorted(
+                d for d in self._library_dir.iterdir()
+                if d.is_dir() and (d / "song.json").exists()
+            )
+        except OSError:
+            folders = []
+        for d in folders:
+            row = _SwitcherRow(d.name, d.name == self._current_name)
+            if not row._is_current:
+                row.clicked.connect(
+                    lambda _c=False, path=str(d): self.song_open_requested.emit(
+                        path
+                    )
+                )
+            self._rows.append(row)
+            self._list_layout.insertWidget(self._list_layout.count() - 1, row)
+
+    def _filter(self, query: str) -> None:
+        q = query.strip().lower()
+        for row in self._rows:
+            row.setVisible(not q or q in row._name.lower())
+
+    def _toggle_collapsed(self) -> None:
+        self._collapsed = not self._collapsed
+        self._apply_collapsed()
+        self.collapse_toggled.emit(self._collapsed)
+
+    def _apply_collapsed(self) -> None:
+        self._body.setVisible(not self._collapsed)
+        arrow = "▸" if self._collapsed else "▾"
+        self._header_btn.setText(f"{arrow}  곡 전환")
+
+
 class _StandalonePanel(QWidget):
     """단독 곡 편집 모드 전용 — 시트 페이지 탭 목록."""
 
@@ -1307,6 +1457,7 @@ class SongListWidget(QWidget):
     song_removed = Signal(str)
     song_reload_requested = Signal(object)
     song_edit_requested = Signal(object)
+    song_open_requested = Signal(str)    # 단독 편집: 다른 라이브러리 곡 열기
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1318,6 +1469,8 @@ class SongListWidget(QWidget):
         self._standalone_panel: _StandalonePanel | None = None
         # 위치 이동 모드: {"kind": "sheet"|"song", "obj": ..., "start": int}
         self._move_mode: dict | None = None
+        self._song_switcher: _LibrarySongSwitcher | None = None
+        self._switcher_collapsed = False  # 세션 내 접힘 상태 유지
         self._setup_ui()
 
     # ── UI 구성 ──────────────────────────────────────────────────────────
@@ -1467,6 +1620,9 @@ class SongListWidget(QWidget):
                 btn_edit.setToolTip(
                     "" if editable else "라이브 모드 중에는 편집할 수 없습니다"
                 )
+
+    def _on_switcher_collapse(self, collapsed: bool) -> None:
+        self._switcher_collapsed = collapsed
 
     # ── 위치 이동 모드 (방향키) ──────────────────────────────────────────
 
@@ -1635,6 +1791,10 @@ class SongListWidget(QWidget):
             self._cards_layout.removeWidget(self._standalone_panel)
             self._standalone_panel.deleteLater()
             self._standalone_panel = None
+        if self._song_switcher:
+            self._cards_layout.removeWidget(self._song_switcher)
+            self._song_switcher.deleteLater()
+            self._song_switcher = None
 
         if not self._project:
             self._count_label.setText("")
@@ -1656,6 +1816,24 @@ class SongListWidget(QWidget):
         )
         current_sheet = self._project.get_current_score_sheet()
         current_id = current_sheet.id if current_sheet else None
+
+        # 곡 전환 목록 — 라이브러리로 돌아가지 않고 다른 곡을 바로 연다
+        workspace = getattr(self._main_window, "_workspace", None)
+        if workspace is not None and song is not None:
+            self._song_switcher = _LibrarySongSwitcher(
+                workspace.library_dir,
+                song.name,
+                collapsed=self._switcher_collapsed,
+            )
+            self._song_switcher.song_open_requested.connect(
+                self.song_open_requested.emit
+            )
+            self._song_switcher.collapse_toggled.connect(
+                self._on_switcher_collapse
+            )
+            self._cards_layout.insertWidget(
+                self._cards_layout.count() - 1, self._song_switcher
+            )
 
         panel = _StandalonePanel()
         panel.set_song(song, current_id)

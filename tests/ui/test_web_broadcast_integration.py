@@ -121,6 +121,9 @@ def test_hotspot_toggle_starts_when_confirmed(qapp, monkeypatch):
         started = {}
 
         class _FakeHS:
+            def invalidate_captive_cache(self):
+                pass
+
             def is_active(self):
                 return started.get("on", False)
 
@@ -165,6 +168,9 @@ def test_hotspot_toggle_cancel_does_not_start(qapp, monkeypatch):
         started = {}
 
         class _FakeHS:
+            def invalidate_captive_cache(self):
+                pass
+
             def is_active(self):
                 return False
 
@@ -224,6 +230,9 @@ def test_hotspot_toggle_auto_installs_captive_before_starting(
         calls = []
 
         class _FakeHS:
+            def invalidate_captive_cache(self):
+                pass
+
             def is_active(self):
                 return False
 
@@ -263,6 +272,9 @@ def test_hotspot_toggle_starts_directly_when_already_installed(qapp, monkeypatch
         calls = []
 
         class _FakeHS:
+            def invalidate_captive_cache(self):
+                pass
+
             def is_active(self):
                 return False
 
@@ -301,6 +313,9 @@ def test_captive_install_finished_success_restarts_active_hotspot(qapp):
         calls = []
 
         class _FakeHS:
+            def invalidate_captive_cache(self):
+                pass
+
             def is_active(self):
                 return True
 
@@ -329,6 +344,9 @@ def test_hotspot_toggle_stops_when_active(qapp):
         state = {"on": True}
 
         class _FakeHS:
+            def invalidate_captive_cache(self):
+                pass
+
             def is_active(self):
                 return state["on"]
 
