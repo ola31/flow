@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal, QEvent, QPoint
+from PySide6.QtCore import Qt, Signal, QEvent, QPoint, QTimer
 from PySide6.QtGui import QAction, QColor, QFont
 from PySide6.QtWidgets import (
     QDialog,
@@ -1930,10 +1930,21 @@ class SongListWidget(QWidget):
                 self._standalone_panel.set_current_sheet(sheet_id)
             return
 
+        selected_card = None
         for card in self._cards:
             song_sheet_ids = {s.id for s in card._song.score_sheets}
             is_selected = sheet_id in song_sheet_ids
             card.set_selected(is_selected, sheet_id if is_selected else None)
+            if is_selected:
+                selected_card = card
+
+        # 방향키 곡 전환 시 선택 카드가 스크롤 밖에 숨지 않게. 선택하면
+        # 시트 탭이 펼쳐져 카드 높이가 바뀌므로 레이아웃 반영 후 스크롤.
+        if selected_card is not None:
+            QTimer.singleShot(
+                0,
+                lambda c=selected_card: self._scroll.ensureWidgetVisible(c, 0, 8),
+            )
 
     # ── 탐색 (MainWindow에서 호출) ────────────────────────────────────────
 

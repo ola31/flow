@@ -111,3 +111,58 @@ class TestSongListWidgetSignals:
             song_list._on_sheet_selected_direct(sheet2)
 
         assert blocker.args[0].name == "테스트곡2"
+
+
+class TestKeyboardSelectionAutoScroll:
+    """방향키 곡 전환 시 선택 카드가 스크롤 밖에 숨지 않아야 함"""
+
+    def _visible_in_viewport(self, song_list, card) -> bool:
+        viewport = song_list._scroll.viewport()
+        top = card.mapTo(viewport, card.rect().topLeft()).y()
+        bottom = card.mapTo(viewport, card.rect().bottomLeft()).y()
+        return top < viewport.height() and bottom > 0
+
+    def test_select_next_song_scrolls_selected_card_into_view(
+        self, song_list, qtbot
+    ):
+        project = Project(name="테스트")
+        project.selected_songs = [
+            _make_song(f"곡{i:02d}", [f"시트{i:02d}"]) for i in range(15)
+        ]
+        song_list.set_project(project)
+        song_list.resize(260, 320)  # 셋리스트가 스크롤될 만큼 낮은 높이
+        song_list.show()
+        qtbot.waitExposed(song_list)
+        song_list.set_current_index(0)
+        qtbot.wait(50)
+
+        for _ in range(14):
+            assert song_list.select_next_song()
+        qtbot.wait(80)  # 선택 시 시트 탭 펼침 → 레이아웃 반영 대기
+
+        assert self._visible_in_viewport(song_list, song_list._cards[14]), (
+            "마지막 곡으로 전환했지만 선택 카드가 뷰포트 밖에 있음"
+        )
+
+    def test_select_previous_song_scrolls_back_up(self, song_list, qtbot):
+        project = Project(name="테스트")
+        project.selected_songs = [
+            _make_song(f"곡{i:02d}", [f"시트{i:02d}"]) for i in range(15)
+        ]
+        song_list.set_project(project)
+        song_list.resize(260, 320)
+        song_list.show()
+        qtbot.waitExposed(song_list)
+        song_list.set_current_index(14)
+        song_list._scroll.verticalScrollBar().setValue(
+            song_list._scroll.verticalScrollBar().maximum()
+        )
+        qtbot.wait(50)
+
+        for _ in range(14):
+            assert song_list.select_previous_song()
+        qtbot.wait(80)
+
+        assert self._visible_in_viewport(song_list, song_list._cards[0]), (
+            "첫 곡으로 전환했지만 선택 카드가 뷰포트 밖에 있음"
+        )
