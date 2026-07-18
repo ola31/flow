@@ -776,20 +776,19 @@ class _SongCard(QFrame):
 
         root.addLayout(top_row)
 
-        # ── 상태 행: 악보·PPT·매핑 텍스트
-        self._status_row = QHBoxLayout()
-        self._status_row.setContentsMargins(30, 0, 0, 0)
-        self._status_row.setSpacing(SP_MD)
-        self._lbl_sheets = QLabel()
-        self._lbl_ppt = QLabel()
-        self._lbl_mapping = QLabel()
-        for lbl in (self._lbl_sheets, self._lbl_ppt, self._lbl_mapping):
-            lbl.setStyleSheet("font-size: 10px; background: transparent;")
-        self._status_row.addWidget(self._lbl_sheets)
-        self._status_row.addWidget(self._lbl_ppt)
-        self._status_row.addWidget(self._lbl_mapping)
-        self._status_row.addStretch()
-        root.addLayout(self._status_row)
+        # ── 상태 행: 문제가 있을 때만 앰버 경고 (정상은 조용히)
+        self._status_widget = QWidget()
+        status_row = QHBoxLayout(self._status_widget)
+        status_row.setContentsMargins(30, 0, 0, 0)
+        status_row.setSpacing(SP_MD)
+        self._lbl_warnings = QLabel()
+        self._lbl_warnings.setStyleSheet(
+            f"font-size: 10px; color: {AMBER}; background: transparent;"
+        )
+        status_row.addWidget(self._lbl_warnings)
+        status_row.addStretch()
+        self._status_widget.hide()
+        root.addWidget(self._status_widget)
 
         # ── 시트 탭 영역 (선택 시만 표시) — 줄바꿈 그리드로 N개 이상도 안전
         from PySide6.QtWidgets import QGridLayout
@@ -808,28 +807,23 @@ class _SongCard(QFrame):
 
     def refresh_status(self) -> None:
         st = _song_status(self._song)
+        has_slides = st["has_ppt"] or st["has_md"]
 
-        def _set(lbl, text, color):
-            lbl.setText(text)
-            lbl.setStyleSheet(f"font-size: 10px; color: {color}; background: transparent;")
+        warnings = []
+        if not st["has_sheets"]:
+            warnings.append("악보 없음")
+        if not has_slides:
+            warnings.append("슬라이드 없음")
+        if st["has_sheets"] and has_slides:
+            # 악보·슬라이드가 있어야 매핑이 의미 있음 — 원인 경고만 표시
+            total, mapped = st["total_hotspots"], st["mapped_hotspots"]
+            if mapped == 0:
+                warnings.append("매핑 없음")
+            elif mapped < total:
+                warnings.append(f"매핑 {mapped}/{total}")
 
-        _set(self._lbl_sheets, "악보" if st["has_sheets"] else "악보 없음",
-             GREEN if st["has_sheets"] else AMBER)
-        if st["has_ppt"]:
-            _set(self._lbl_ppt, "PPT", GREEN)
-        elif st.get("has_md"):
-            _set(self._lbl_ppt, "마크다운", GREEN)
-        else:
-            _set(self._lbl_ppt, "슬라이드 없음", AMBER)
-
-        total = st["total_hotspots"]
-        mapped = st["mapped_hotspots"]
-        if total == 0:
-            _set(self._lbl_mapping, "", TEXT_TERTIARY)
-        elif mapped == total:
-            _set(self._lbl_mapping, f"매핑 {total}개 완료", GREEN)
-        else:
-            _set(self._lbl_mapping, f"매핑 {mapped}/{total}", AMBER)
+        self._lbl_warnings.setText(" · ".join(warnings))
+        self._status_widget.setVisible(bool(warnings))
 
     def set_selected(self, selected: bool, current_sheet_id: str | None = None) -> None:
         self._is_selected = selected
