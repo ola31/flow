@@ -103,16 +103,21 @@ def _scan_library_song(song_dir: Path) -> dict:
     """라이브러리의 곡 폴더를 스캔해 상태 정보 반환."""
     result = {"name": song_dir.name, "path": song_dir}
 
-    # 악보 이미지 확인
+    # 악보 이미지 확인 (미리보기용 첫 장 경로 포함)
     sheet_count = 0
+    first_sheet = None
     for sub in ("sheets", "sheet"):
         d = song_dir / sub
         if d.is_dir():
-            sheet_count += sum(
-                1 for f in d.iterdir()
+            imgs = sorted(
+                f for f in d.iterdir()
                 if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}
             )
+            sheet_count += len(imgs)
+            if first_sheet is None and imgs:
+                first_sheet = imgs[0]
     result["sheet_count"] = sheet_count
+    result["first_sheet"] = first_sheet
 
     # PPT / 마크다운 확인
     result["has_ppt"] = detect_slides_file(song_dir) is not None
@@ -169,6 +174,7 @@ class _LibrarySongCard(QFrame):
     """라이브러리 다이얼로그 안의 곡 카드."""
 
     add_clicked = Signal(str, str)  # (song name, source: "library" | "local")
+    toggle_preview_requested = Signal(str)  # song name — 카드 본체 클릭
 
     def __init__(
         self,
@@ -185,8 +191,76 @@ class _LibrarySongCard(QFrame):
         self._match_snippet = match_snippet
         self._add_buttons: list[QPushButton] = []
         self._added: bool = False
+        # 추가 전 미리보기 (첫 악보 + 가사) — 펼칠 때 처음 로드
+        self._first_sheet = info.get("first_sheet")
+        self._preview_lyrics = info.get("lyrics", "")
+        self._preview_expanded = False
+        self._preview_widget: QWidget | None = None
         self._setup_ui(info)
         self.set_added(added)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        # 버튼 밖 카드 본체 클릭 = 미리보기 토글 (하나만 펼침은 브라우저가 조정)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.toggle_preview_requested.emit(self._name)
+        super().mousePressEvent(event)
+
+    def set_preview_expanded(self, expanded: bool) -> None:
+        if expanded == self._preview_expanded:
+            return
+        self._preview_expanded = expanded
+        if expanded and self._preview_widget is None:
+            self._preview_widget = self._build_preview()
+            self._outer.addWidget(self._preview_widget)
+        if self._preview_widget is not None:
+            self._preview_widget.setVisible(expanded)
+
+    def _build_preview(self) -> QWidget:
+        from PySide6.QtGui import QPixmap
+
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        lay = QHBoxLayout(w)
+        lay.setContentsMargins(0, SP_XS, 0, 0)
+        lay.setSpacing(SP_MD)
+
+        has_content = False
+        if self._first_sheet is not None:
+            pm = QPixmap(str(self._first_sheet))
+            if not pm.isNull():
+                thumb = QLabel()
+                thumb.setPixmap(
+                    pm.scaledToHeight(
+                        120, Qt.TransformationMode.SmoothTransformation
+                    )
+                )
+                thumb.setStyleSheet("background: transparent;")
+                lay.addWidget(thumb)
+                has_content = True
+
+        lines = [
+            ln.strip() for ln in self._preview_lyrics.splitlines()
+            if ln.strip() and not ln.lstrip().startswith("#")
+        ][:6]
+        if lines:
+            lyr = QLabel("\n".join(lines))
+            lyr.setStyleSheet(
+                f"font-size: {FONT_SM}px; color: {TEXT_SECONDARY};"
+                f" background: transparent;"
+            )
+            lyr.setWordWrap(True)
+            lay.addWidget(lyr, 1)
+            has_content = True
+
+        if not has_content:
+            empty = QLabel("미리볼 내용 없음")
+            empty.setStyleSheet(
+                f"font-size: {FONT_SM}px; color: {TEXT_TERTIARY};"
+                f" background: transparent;"
+            )
+            lay.addWidget(empty)
+        lay.addStretch()
+        return w
 
     def _setup_ui(self, info: dict) -> None:
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -202,9 +276,15 @@ class _LibrarySongCard(QFrame):
             }}
         """)
 
-        root = QHBoxLayout(self)
-        root.setContentsMargins(SP_MD, SP_SM, SP_MD, SP_SM)
+        # 세로 구조: [상단 행(이름/상태/버튼)] + [펼침 미리보기]
+        self._outer = QVBoxLayout(self)
+        self._outer.setContentsMargins(SP_MD, SP_SM, SP_MD, SP_SM)
+        self._outer.setSpacing(SP_XS)
+
+        root = QHBoxLayout()
+        root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(SP_MD)
+        self._outer.addLayout(root)
 
         # 왼쪽: 이름 + 상태
         left = QVBoxLayout()
@@ -482,8 +562,18 @@ class SongLibraryBrowser(QWidget):
                 match_snippet=snippet,
             )
             card.add_clicked.connect(self._on_song_added)
+            card.toggle_preview_requested.connect(self._on_toggle_preview)
             self._cards.append(card)
             self._list_layout.insertWidget(self._list_layout.count() - 1, card)
+
+    def _on_toggle_preview(self, name: str) -> None:
+        """카드 본체 클릭 → 미리보기 토글 (한 번에 하나만 펼침)."""
+        target = next((c for c in self._cards if c._name == name), None)
+        if target is None:
+            return
+        new_state = not target._preview_expanded
+        for card in self._cards:
+            card.set_preview_expanded(card is target and new_state)
 
     def _show_empty(
         self, icon: str = "search", title: str = "", description: str = ""
