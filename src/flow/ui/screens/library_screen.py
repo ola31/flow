@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -178,7 +179,7 @@ class LibraryScreen(QWidget):
             self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
 
     def _build_subtitle(self, song_dir: Path) -> str:
-        """Compose status: 슬라이드 형식 + 악보 장수."""
+        """Compose status: 슬라이드 형식 + 악보 장수 (+ 매핑 경고 꼬리)."""
         has_pptx = detect_slides_file(song_dir) is not None
         has_md = (song_dir / "slides.md").exists()
         if has_pptx:
@@ -196,7 +197,44 @@ class LibraryScreen(QWidget):
                     if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}
                 )
         sheet_part = f"악보 {sheet_count}장" if sheet_count else "악보 없음"
-        return f"{slide_part} · {sheet_part}"
+
+        subtitle = f"{slide_part} · {sheet_part}"
+        mapping_part = self._mapping_part(
+            song_dir, has_pptx or has_md, sheet_count
+        )
+        if mapping_part:
+            subtitle += f" · {mapping_part}"
+        return subtitle
+
+    def _mapping_part(
+        self, song_dir: Path, has_slides: bool, sheet_count: int
+    ) -> str:
+        """매핑에 문제가 있을 때만 경고 꼬리 (정상·판단불가는 '').
+
+        악보나 슬라이드가 없으면 매핑이 없는 건 당연하므로 생략 —
+        부제의 원인 경고(악보/슬라이드 없음)가 대신한다.
+        """
+        if not has_slides or sheet_count == 0:
+            return ""
+        song_json = song_dir / "song.json"
+        if not song_json.exists():
+            return ""
+        try:
+            with open(song_json, encoding="utf-8-sig") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return ""
+        total, mapped = 0, 0
+        for sheet_data in data.get("sheets", []):
+            for h in sheet_data.get("hotspots", []):
+                total += 1
+                if h.get("slide_mappings") or h.get("slide_index", -1) >= 0:
+                    mapped += 1
+        if mapped == 0:
+            return "매핑 없음"
+        if mapped < total:
+            return f"매핑 {mapped}/{total}"
+        return ""
 
     def _on_search_changed(self, text: str) -> None:
         self._search_text = text.strip()
