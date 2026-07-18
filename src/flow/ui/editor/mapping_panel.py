@@ -27,6 +27,20 @@ _PANEL_W = 260
 _THUMB_W = _PANEL_W - 32  # left/right padding
 _THUMB_H = int(_THUMB_W * 9 / 16)
 
+
+def _scaled_thumb(qimg, dpr: float) -> QPixmap:
+    """HiDPI 대응 썸네일 스케일 — 논리 크기로만 스케일하면 고배율
+    화면에서 Qt가 다시 확대해 흐려진다. DPR만큼 큰 픽스맵을 만들고
+    devicePixelRatio를 지정한다."""
+    pm = QPixmap.fromImage(qimg).scaled(
+        int(_THUMB_W * dpr),
+        int(_THUMB_H * dpr),
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    pm.setDevicePixelRatio(dpr)
+    return pm
+
 _VERSE_NAMES = ["1절", "2절", "3절", "4절", "5절", "후렴"]
 # 절 라벨용 차분한 무채색 — 액센트는 active 상태에만 등장하도록
 _VERSE_LABEL_COLOR = TEXT_SECONDARY
@@ -112,11 +126,7 @@ class _VerseRow(QFrame):
             try:
                 qimg = get_image_fn(slide_index)
                 if qimg:
-                    pm = QPixmap.fromImage(qimg).scaled(
-                        _THUMB_W, _THUMB_H,
-                        Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.SmoothTransformation,
-                    )
+                    pm = _scaled_thumb(qimg, self.devicePixelRatioF())
                     self._thumb.setPixmap(pm)
                     self._thumb.setText("")
                     self._slide_label.setText(f"슬라이드 {slide_index + 1}")

@@ -71,3 +71,20 @@ class TestMappedWithoutThumbnail:
         assert row._is_mapped
         assert not row.isHidden()
         assert "슬라이드 4" in row._slide_label.text()
+
+
+class TestThumbnailDpiAware:
+    def test_thumb_scaled_for_device_pixel_ratio(self):
+        """논리 크기로만 스케일하면 HiDPI에서 흐리다 — DPR만큼 큰 픽스맵을
+        만들고 devicePixelRatio를 지정해야 선명하다."""
+        from PySide6.QtGui import QColor, QImage
+
+        from flow.ui.editor.mapping_panel import _THUMB_W, _scaled_thumb
+
+        src = QImage(480, 270, QImage.Format.Format_RGB32)
+        src.fill(QColor("#334455"))
+
+        pm = _scaled_thumb(src, dpr=2.0)
+
+        assert pm.devicePixelRatio() == 2.0
+        assert pm.width() > _THUMB_W  # 물리 픽셀은 논리 크기보다 커야 함
