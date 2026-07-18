@@ -116,3 +116,87 @@ class TestFormatTagOnSelection:
         card = make_card(song)
         card.set_selected(True, song.score_sheets[0].id)
         assert card._fmt_tag.isHidden()
+
+
+class TestWarningColors:
+    def test_mapping_missing_is_red(self, make_card, tmp_path):
+        from flow.ui.styles import RED
+
+        song = _song(tmp_path, hotspots=[])
+        card = make_card(song)
+        assert RED in card._lbl_warnings.styleSheet()
+
+    def test_other_warnings_stay_amber(self, make_card, tmp_path):
+        from flow.ui.styles import AMBER, RED
+
+        song = _song(tmp_path, slides=False, hotspots=[])
+        card = make_card(song)
+        assert AMBER in card._lbl_warnings.styleSheet()
+        assert RED not in card._lbl_warnings.styleSheet()
+
+
+class TestLibraryAddPopupCard:
+    """곡 추가 팝업(라이브 중 추가 패널 공용) 카드 — 빨간 경고만, 카운트 없음."""
+
+    def _info(self, **over):
+        base = {
+            "name": "song_x",
+            "sheet_count": 2,
+            "has_ppt": True,
+            "has_md": False,
+            "total_hotspots": 2,
+            "mapped_hotspots": 2,
+        }
+        base.update(over)
+        return base
+
+    def _texts(self, card):
+        from PySide6.QtWidgets import QLabel
+
+        return [lbl.text() for lbl in card.findChildren(QLabel)]
+
+    def _make(self, qtbot, info):
+        from flow.ui.editor.song_list_widget import _LibrarySongCard
+
+        card = _LibrarySongCard(info)
+        qtbot.addWidget(card)
+        return card
+
+    def test_complete_song_shows_no_status(self, qtbot):
+        card = self._make(qtbot, self._info())
+        texts = self._texts(card)
+        assert "2/2" not in texts  # 완료 카운트 제거
+        assert "악보 2장" not in texts
+        assert "PPT" not in texts
+
+    def test_partial_mapping_shows_no_count(self, qtbot):
+        card = self._make(qtbot, self._info(mapped_hotspots=1))
+        assert "1/2" not in self._texts(card)
+
+    def test_unmapped_song_shows_red_warning(self, qtbot):
+        from PySide6.QtWidgets import QLabel
+
+        from flow.ui.styles import RED
+
+        card = self._make(qtbot, self._info(mapped_hotspots=0))
+        warn = [
+            lbl for lbl in card.findChildren(QLabel)
+            if lbl.text() == "매핑 없음"
+        ]
+        assert warn and RED in warn[0].styleSheet()
+
+    def test_no_sheets_shows_red_and_suppresses_mapping(self, qtbot):
+        card = self._make(
+            qtbot, self._info(sheet_count=0, mapped_hotspots=0)
+        )
+        texts = self._texts(card)
+        assert "악보 없음" in texts
+        assert "매핑 없음" not in texts
+
+    def test_no_slides_shows_red_and_suppresses_mapping(self, qtbot):
+        card = self._make(
+            qtbot, self._info(has_ppt=False, mapped_hotspots=0)
+        )
+        texts = self._texts(card)
+        assert "슬라이드 없음" in texts
+        assert "매핑 없음" not in texts

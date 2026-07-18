@@ -27,6 +27,7 @@ from flow.ui.styles import (
     BG_DEEP,
     BORDER_FOCUS,
     FONT_MD,
+    RED,
     SP_LG,
     SP_MD,
     SP_SM,
@@ -231,7 +232,8 @@ class LibraryScreen(QWidget):
                 if h.get("slide_mappings") or h.get("slide_index", -1) >= 0:
                     mapped += 1
         if mapped == 0:
-            return "매핑 없음"
+            # QLabel이 rich text로 렌더 — 매핑 없음만 빨강으로 강조
+            return f'<span style="color:{RED}">매핑 없음</span>'
         if mapped < total:
             return f"매핑 {mapped}/{total}"
         return ""

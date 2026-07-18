@@ -38,13 +38,21 @@ class TestMappingSubtitleTail:
         d = _make_song_dir(tmp_path, "song_a", hotspots=[{"slide_index": 0}])
         assert "매핑" not in screen._build_subtitle(d)
 
-    def test_zero_hotspots_shows_missing(self, screen, tmp_path):
-        d = _make_song_dir(tmp_path, "song_b", hotspots=[])
-        assert screen._build_subtitle(d).endswith("· 매핑 없음")
+    def test_zero_hotspots_shows_missing_in_red(self, screen, tmp_path):
+        from flow.ui.styles import RED
 
-    def test_unmapped_hotspots_show_missing(self, screen, tmp_path):
+        d = _make_song_dir(tmp_path, "song_b", hotspots=[])
+        assert screen._build_subtitle(d).endswith(
+            f'· <span style="color:{RED}">매핑 없음</span>'
+        )
+
+    def test_unmapped_hotspots_show_missing_in_red(self, screen, tmp_path):
+        from flow.ui.styles import RED
+
         d = _make_song_dir(tmp_path, "song_c", hotspots=[{"slide_index": -1}])
-        assert screen._build_subtitle(d).endswith("· 매핑 없음")
+        assert screen._build_subtitle(d).endswith(
+            f'· <span style="color:{RED}">매핑 없음</span>'
+        )
 
     def test_partial_mapping_shows_ratio(self, screen, tmp_path):
         d = _make_song_dir(

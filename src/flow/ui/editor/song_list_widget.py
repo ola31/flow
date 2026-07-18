@@ -35,7 +35,7 @@ from flow.ui.styles import (
     ACCENT, ACCENT_INTER, ACCENT_HOVER, ACCENT_MUTED, ACCENT_SURFACE,
     SURFACE_GHOST, SURFACE_SUBTLE, SURFACE_RAISED,
     BORDER_SUBTLE_RGBA, BORDER_STANDARD_RGBA,
-    GREEN, GREEN_MUTED, AMBER, AMBER_MUTED, RED,
+    GREEN_MUTED, AMBER, AMBER_MUTED, RED,
     RADIUS_SM, RADIUS_MD, RADIUS_LG, FONT_SM, FONT_MD, FONT_LG, FONT_TITLE,
     FW_REGULAR, FW_MEDIUM, FW_SEMI,
     SP_XS, SP_SM, SP_MD, SP_LG,
@@ -199,41 +199,26 @@ class _LibrarySongCard(QFrame):
         )
         left.addWidget(name_lbl)
 
-        _ok = f"font-size: {FONT_SM}px; color: {GREEN}; background: transparent;"
-        _dim = f"font-size: {FONT_SM}px; color: {TEXT_TERTIARY}; background: transparent;"
-
         status_row = QHBoxLayout()
         status_row.setSpacing(10)
 
-        # 악보
+        # 문제가 있을 때만 빨간 경고 (정상은 조용히, 완료 카운트 없음).
+        # 악보·슬라이드가 있어야 매핑 판정이 의미 있음 — 원인 경고만.
         sc = info["sheet_count"]
-        if sc > 0:
-            s_lbl = QLabel(f"악보 {sc}장")
-            s_lbl.setStyleSheet(_ok)
-        else:
-            s_lbl = QLabel("악보 없음")
-            s_lbl.setStyleSheet(_dim)
-        status_row.addWidget(s_lbl)
-
-        # 슬라이드 (PPT / 마크다운 / 없음)
-        if info["has_ppt"]:
-            p_lbl = QLabel("PPT")
-            p_lbl.setStyleSheet(_ok)
-        elif info.get("has_md"):
-            p_lbl = QLabel("마크다운")
-            p_lbl.setStyleSheet(_ok)
-        else:
-            p_lbl = QLabel("슬라이드 없음")
-            p_lbl.setStyleSheet(_dim)
-        status_row.addWidget(p_lbl)
-
-        # 매핑
-        total, mapped = info["total_hotspots"], info["mapped_hotspots"]
-        if total > 0:
-            m_lbl = QLabel(f"{mapped}/{total}")
-            color = GREEN if mapped == total else AMBER
-            m_lbl.setStyleSheet(f"font-size: {FONT_SM}px; color: {color}; background: transparent;")
-            status_row.addWidget(m_lbl)
+        has_slides = info["has_ppt"] or info.get("has_md")
+        warnings = []
+        if sc == 0:
+            warnings.append("악보 없음")
+        if not has_slides:
+            warnings.append("슬라이드 없음")
+        if sc > 0 and has_slides and info["mapped_hotspots"] == 0:
+            warnings.append("매핑 없음")
+        for text in warnings:
+            lbl = QLabel(text)
+            lbl.setStyleSheet(
+                f"font-size: {FONT_SM}px; color: {RED}; background: transparent;"
+            )
+            status_row.addWidget(lbl)
 
         status_row.addStretch()
         left.addLayout(status_row)
@@ -831,6 +816,11 @@ class _SongCard(QFrame):
                 warnings.append(f"매핑 {mapped}/{total}")
 
         self._lbl_warnings.setText(" · ".join(warnings))
+        # 매핑 없음은 연쇄 억제 덕에 항상 단독 — 라벨 색만 바꾸면 된다
+        color = RED if warnings == ["매핑 없음"] else AMBER
+        self._lbl_warnings.setStyleSheet(
+            f"font-size: 10px; color: {color}; background: transparent;"
+        )
         self._status_widget.setVisible(bool(warnings))
 
         if st["has_ppt"]:
