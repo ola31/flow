@@ -1,0 +1,73 @@
+"""매핑 패널 — 매핑 없는 절 행 숨기기 (활성 절은 예외).
+
+6개 절 행을 항상 다 보여주면 빈 슬롯이 화면을 차지한다. 매핑된 절과
+현재 활성 절(더블클릭 매핑 대상)만 보여준다.
+"""
+from __future__ import annotations
+
+import pytest
+
+from flow.domain.hotspot import Hotspot
+from flow.ui.editor.mapping_panel import MappingPanel
+
+
+@pytest.fixture
+def panel(qtbot):
+    p = MappingPanel()
+    qtbot.addWidget(p)
+    return p
+
+
+def _visible_verses(panel) -> list[int]:
+    return [i for i, r in enumerate(panel._rows) if not r.isHidden()]
+
+
+class TestHideUnmappedVerseRows:
+    def test_only_mapped_and_active_visible(self, panel):
+        h = Hotspot(x=1, y=1, slide_mappings={"0": 2, "1": 3})
+        panel.show_for_hotspot(h, active_verse=0, get_image_fn=None)
+
+        assert _visible_verses(panel) == [0, 1]
+
+    def test_chorus_only_shows_chorus_and_active(self, panel):
+        h = Hotspot(x=1, y=1, slide_mappings={"5": 7})
+        panel.show_for_hotspot(h, active_verse=0, get_image_fn=None)
+
+        assert _visible_verses(panel) == [0, 5]  # 활성(0) + 후렴
+
+    def test_all_mapped_all_visible(self, panel):
+        h = Hotspot(
+            x=1, y=1,
+            slide_mappings={str(i): i for i in range(6)},
+        )
+        panel.show_for_hotspot(h, active_verse=2, get_image_fn=None)
+
+        assert _visible_verses(panel) == [0, 1, 2, 3, 4, 5]
+
+    def test_active_verse_change_updates_visibility(self, panel):
+        h = Hotspot(x=1, y=1, slide_mappings={"1": 3})
+        panel.show_for_hotspot(h, active_verse=0, get_image_fn=None)
+        assert _visible_verses(panel) == [0, 1]
+
+        panel.set_active_verse(3)
+
+        assert _visible_verses(panel) == [1, 3]  # 0은 숨고 3이 나타남
+
+    def test_no_mapping_shows_only_active(self, panel):
+        h = Hotspot(x=1, y=1)
+        panel.show_for_hotspot(h, active_verse=5, get_image_fn=None)
+
+        assert _visible_verses(panel) == [5]
+
+
+class TestMappedWithoutThumbnail:
+    def test_mapped_row_stays_mapped_when_thumbnail_missing(self, panel):
+        """변환 전엔 썸네일이 없어도 매핑 사실은 유지 — 행이 숨지 않고
+        슬라이드 번호와 해제 버튼이 보여야 한다."""
+        h = Hotspot(x=1, y=1, slide_mappings={"1": 3})
+        panel.show_for_hotspot(h, active_verse=0, get_image_fn=None)
+
+        row = panel._rows[1]
+        assert row._is_mapped
+        assert not row.isHidden()
+        assert "슬라이드 4" in row._slide_label.text()

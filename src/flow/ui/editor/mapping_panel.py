@@ -129,6 +129,19 @@ class _VerseRow(QFrame):
             except Exception:
                 pass
 
+        if self._is_mapped:
+            # 매핑은 있으나 썸네일이 아직 없음 (변환 전) — 매핑 사실은
+            # 유지해야 행 숨김/해제 버튼이 올바르게 동작한다
+            self._thumb.setPixmap(QPixmap())
+            self._thumb.setText("변환 중…")
+            self._slide_label.setText(f"슬라이드 {slide_index + 1}")
+            self._slide_label.setStyleSheet(
+                f"font-size: {FONT_SM}px; color: {GREEN}; border: none;"
+            )
+            self._btn_unmap.show()
+            self._refresh_style()
+            return
+
         # 매핑 없음
         self._thumb.setPixmap(QPixmap())
         self._thumb.setText("없음")
@@ -137,7 +150,6 @@ class _VerseRow(QFrame):
             f"font-size: {FONT_SM}px; color: {TEXT_QUAT}; border: none;"
         )
         self._btn_unmap.hide()
-        self._is_mapped = False
         self._refresh_style()
 
     def set_active(self, active: bool) -> None:
@@ -321,6 +333,16 @@ class MappingPanel(QFrame):
         self._active_verse = verse_index
         for i, row in enumerate(self._rows):
             row.set_active(i == verse_index)
+        self._update_row_visibility()
+
+    def _update_row_visibility(self) -> None:
+        """매핑 없는 절 행은 숨긴다 — 빈 슬롯이 화면을 차지하지 않게.
+
+        단 현재 활성 절은 매핑이 없어도 표시한다 (더블클릭 매핑 대상을
+        시각적으로 유지 — 빈 행은 최대 1개).
+        """
+        for i, row in enumerate(self._rows):
+            row.setVisible(row._is_mapped or i == self._active_verse)
 
     def _refresh(self) -> None:
         if not self._hotspot:
@@ -334,6 +356,7 @@ class MappingPanel(QFrame):
             slide_idx = self._hotspot.get_slide_index(i)
             row.set_mapped(slide_idx, self._get_image)
             row.set_active(i == self._active_verse)
+        self._update_row_visibility()
 
     def _on_close(self) -> None:
         self.hide()
