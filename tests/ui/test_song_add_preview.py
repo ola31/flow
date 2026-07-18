@@ -147,3 +147,24 @@ class TestBrowserSingleExpand:
         c1.toggle_preview_requested.emit(c1._name)
 
         assert not c1._preview_expanded
+
+
+class TestPreviewSheetReadable:
+    """악보 썸네일이 손톱만 하면 의미가 없다 — 카드 폭에 맞춰 크게."""
+
+    def test_sheet_scales_to_card_width(self, qtbot, tmp_path):
+        sheet = _png(tmp_path / "page1.png")
+        card = _LibrarySongCard(_info(first_sheet=sheet))
+        qtbot.addWidget(card)
+        card.resize(320, 80)
+        card.show()
+
+        card.set_preview_expanded(True)
+
+        thumb = next(
+            lbl for lbl in card.findChildren(QLabel)
+            if lbl.pixmap() is not None and not lbl.pixmap().isNull()
+        )
+        assert thumb.pixmap().width() >= 240, (
+            f"썸네일 폭 {thumb.pixmap().width()}px — 카드 폭에 맞춰야 함"
+        )

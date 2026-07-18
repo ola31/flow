@@ -220,24 +220,11 @@ class _LibrarySongCard(QFrame):
 
         w = QWidget()
         w.setStyleSheet("background: transparent;")
-        lay = QHBoxLayout(w)
+        lay = QVBoxLayout(w)
         lay.setContentsMargins(0, SP_XS, 0, 0)
-        lay.setSpacing(SP_MD)
+        lay.setSpacing(SP_SM)
 
         has_content = False
-        if self._first_sheet is not None:
-            pm = QPixmap(str(self._first_sheet))
-            if not pm.isNull():
-                thumb = QLabel()
-                thumb.setPixmap(
-                    pm.scaledToHeight(
-                        120, Qt.TransformationMode.SmoothTransformation
-                    )
-                )
-                thumb.setStyleSheet("background: transparent;")
-                lay.addWidget(thumb)
-                has_content = True
-
         lines = [
             ln.strip() for ln in self._preview_lyrics.splitlines()
             if ln.strip() and not ln.lstrip().startswith("#")
@@ -249,8 +236,25 @@ class _LibrarySongCard(QFrame):
                 f" background: transparent;"
             )
             lyr.setWordWrap(True)
-            lay.addWidget(lyr, 1)
+            lay.addWidget(lyr)
             has_content = True
+
+        if self._first_sheet is not None:
+            pm = QPixmap(str(self._first_sheet))
+            if not pm.isNull():
+                # 손톱만 한 썸네일은 형체만 보인다 — 카드 폭에 맞춰 크게.
+                # 펼치는 시점엔 카드가 이미 레이아웃돼 있어 폭을 알 수 있다.
+                avail = max(self.width() - 2 * SP_MD, 240)
+                thumb = QLabel()
+                thumb.setPixmap(
+                    pm.scaledToWidth(
+                        min(avail, 560),
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+                thumb.setStyleSheet("background: transparent;")
+                lay.addWidget(thumb)
+                has_content = True
 
         if not has_content:
             empty = QLabel("미리볼 내용 없음")
@@ -259,7 +263,6 @@ class _LibrarySongCard(QFrame):
                 f" background: transparent;"
             )
             lay.addWidget(empty)
-        lay.addStretch()
         return w
 
     def _setup_ui(self, info: dict) -> None:
