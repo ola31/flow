@@ -738,6 +738,14 @@ class _SongCard(QFrame):
         self._name_label.setToolTip(self._song.name)
         top_row.addWidget(self._name_label, 1)
 
+        # 형식 태그 — 선택된 카드에서만 표시 (중립 정보, 경고 아님)
+        self._fmt_tag = QLabel()
+        self._fmt_tag.setStyleSheet(
+            f"font-size: 10px; color: {TEXT_TERTIARY}; background: transparent;"
+        )
+        self._fmt_tag.hide()
+        top_row.addWidget(self._fmt_tag)
+
         # 편집 버튼 (hover 시 표시)
         self._btn_edit = QPushButton("편집")
         self._btn_edit.setFixedHeight(24)
@@ -825,6 +833,14 @@ class _SongCard(QFrame):
         self._lbl_warnings.setText(" · ".join(warnings))
         self._status_widget.setVisible(bool(warnings))
 
+        if st["has_ppt"]:
+            self._fmt_tag.setText("PPT")
+        elif st["has_md"]:
+            self._fmt_tag.setText("마크다운")
+        else:
+            self._fmt_tag.setText("")
+        self._fmt_tag.setVisible(self._is_selected and bool(self._fmt_tag.text()))
+
     def set_selected(self, selected: bool, current_sheet_id: str | None = None) -> None:
         self._is_selected = selected
         self._current_sheet_id = current_sheet_id
@@ -844,6 +860,7 @@ class _SongCard(QFrame):
         )
         self._refresh_tabs(current_sheet_id)
         self._tabs_container.setVisible(selected and bool(self._sheet_tabs))
+        self._fmt_tag.setVisible(selected and bool(self._fmt_tag.text()))
         self._refresh_frame_style()
 
     # 시트 탭 한 행에 들어갈 최대 개수

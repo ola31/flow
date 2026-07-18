@@ -83,3 +83,36 @@ class TestWarningOnlyStatusRow:
         song = _song(tmp_path, sheets=False, hotspots=[])
         card = make_card(song)
         assert card._lbl_warnings.text() == "악보 없음"
+
+
+class TestFormatTagOnSelection:
+    def test_tag_hidden_when_not_selected(self, make_card, tmp_path):
+        song = _song(tmp_path, hotspots=[_hotspot(True)])
+        card = make_card(song)
+        assert card._fmt_tag.isHidden()
+
+    def test_tag_visible_on_selected_ppt_song(self, make_card, tmp_path):
+        song = _song(tmp_path, hotspots=[_hotspot(True)])
+        card = make_card(song)
+        card.set_selected(True, song.score_sheets[0].id)
+        assert not card._fmt_tag.isHidden()
+        assert card._fmt_tag.text() == "PPT"
+
+    def test_markdown_song_shows_markdown_tag(self, make_card, tmp_path):
+        song = _song(tmp_path, slides=False, md=True, hotspots=[_hotspot(True)])
+        card = make_card(song)
+        card.set_selected(True, song.score_sheets[0].id)
+        assert card._fmt_tag.text() == "마크다운"
+
+    def test_tag_hides_again_on_deselect(self, make_card, tmp_path):
+        song = _song(tmp_path, hotspots=[_hotspot(True)])
+        card = make_card(song)
+        card.set_selected(True, song.score_sheets[0].id)
+        card.set_selected(False)
+        assert card._fmt_tag.isHidden()
+
+    def test_no_tag_for_song_without_slides(self, make_card, tmp_path):
+        song = _song(tmp_path, slides=False)
+        card = make_card(song)
+        card.set_selected(True, song.score_sheets[0].id)
+        assert card._fmt_tag.isHidden()
