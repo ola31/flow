@@ -113,7 +113,8 @@ class ScoreSheet:
         """
         hotspots = [Hotspot.from_dict(h) for h in data.get("hotspots", [])]
         return cls(
-            id=data["id"],
+            # 구버전/수동 편집 파일엔 id가 없을 수 있음 — 없으면 생성
+            id=data.get("id") or str(uuid.uuid4()),
             name=data["name"],
             image_path=_posix(data.get("image_path", "")),
             pptx_path=_posix(data.get("pptx_path", "")),

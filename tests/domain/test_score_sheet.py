@@ -202,3 +202,24 @@ class TestPathNormalization:
             "image_path": "sheets/ok.jpg",
         })
         assert sheet.image_path == "sheets/ok.jpg"
+
+
+class TestFromDictMissingId:
+    """구버전/수동 편집 song.json엔 id가 없을 수 있다 — 없으면 생성해서
+    로드해야 한다 (KeyError로 곡 열기가 통째로 실패하면 안 됨)."""
+
+    def test_sheet_without_id_gets_generated(self):
+        from flow.domain.score_sheet import ScoreSheet
+
+        sheet = ScoreSheet.from_dict(
+            {"name": "p1", "image_path": "sheets/p1.png", "hotspots": []}
+        )
+        assert sheet.name == "p1"
+        assert sheet.id  # 자동 생성
+
+    def test_hotspot_without_id_gets_generated(self):
+        from flow.domain.hotspot import Hotspot
+
+        h = Hotspot.from_dict({"x": 10, "y": 20})
+        assert h.x == 10 and h.y == 20
+        assert h.id

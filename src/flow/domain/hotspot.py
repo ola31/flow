@@ -86,7 +86,8 @@ class Hotspot:
     def from_dict(cls, data: dict[str, Any]) -> Hotspot:
         """딕셔너리에서 생성 (JSON 역직렬화용)"""
         return cls(
-            id=data["id"],
+            # 구버전/수동 편집 파일엔 id가 없을 수 있음 — 없으면 생성
+            id=data.get("id") or str(uuid.uuid4()),
             x=data["x"],
             y=data["y"],
             order=data.get("order", 0),

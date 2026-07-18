@@ -355,3 +355,47 @@ class TestSwitcherReuse:
         sw = widget._song_switcher
         assert sw is not sw1  # 곡 추가 → 재구성
         assert "song_delta" in [r._name for r in sw._rows]
+
+
+class TestImmediateSheetDisplay:
+    """곡을 열면 시트·핫스팟이 메타데이터 로딩(수백 ms)을 기다리지 않고
+    즉시 캔버스에 떠야 한다. 단독 곡은 슬라이드 오프셋이 0이라 안전."""
+
+    def test_canvas_set_before_metadata_finishes(
+        self, qtbot, tmp_path, monkeypatch
+    ):
+        from flow.services.slide_manager import SlideManager
+        from flow.ui.main_window import MainWindow
+
+        # 메타데이터 로딩이 영영 끝나지 않는 상황 시뮬레이션
+        monkeypatch.setattr(SlideManager, "load_songs", lambda self, songs: None)
+
+        song_dir = tmp_path / "quick_song"
+        (song_dir / "sheets").mkdir(parents=True)
+        (song_dir / "sheets" / "p1.png").touch()
+        with open(song_dir / "song.json", "w", encoding="utf-8-sig") as f:
+            json.dump(
+                {
+                    "name": "quick_song",
+                    "sheets": [
+                        {
+                            "name": "p1",
+                            "image_path": "sheets/p1.png",
+                            "hotspots": [],
+                        }
+                    ],
+                },
+                f,
+            )
+
+        mw = MainWindow()
+        qtbot.addWidget(mw)
+        try:
+            mw._open_song_by_path(str(song_dir))
+            sheet = mw._canvas._score_sheet
+            assert sheet is not None, "메타데이터 완료 전에 시트가 안 뜸"
+            assert sheet.name == "p1"
+        finally:
+            mw._slide_manager.shutdown()
+            mw._clear_dirty()
+            mw.close()

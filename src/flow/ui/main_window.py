@@ -1605,6 +1605,18 @@ class MainWindow(QMainWindow):
             self._canvas.set_verse_index(v_idx)
             self._update_mapped_slides_ui()
 
+            # 시트·핫스팟은 메타데이터 로딩(수백 ms)을 기다릴 필요가 없다 —
+            # 즉시 표시한다. 단독 곡은 슬라이드 오프셋이 항상 0이라
+            # 전역화 전에도 매핑이 안전하다. 완료 콜백은 기존대로
+            # 전역화·슬라이드 동기화를 수행한다.
+            all_sheets = self._project.all_score_sheets
+            if all_sheets:
+                idx = self._project.current_sheet_index
+                if not (0 <= idx < len(all_sheets)):
+                    idx = 0
+                self._on_song_selected(all_sheets[idx])
+                self._song_list.set_current_index(idx)
+
             if self._project.selected_songs:
                 self._slide_manager.load_songs(self._project.selected_songs)
 
