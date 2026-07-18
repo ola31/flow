@@ -1081,7 +1081,7 @@ class _LibrarySongSwitcher(QWidget):
 
     def __init__(
         self, library_dir: Path, current_name: str,
-        collapsed: bool = False, parent=None,
+        collapsed: bool = False, search_text: str = "", parent=None,
     ) -> None:
         super().__init__(parent)
         self._library_dir = library_dir
@@ -1090,7 +1090,18 @@ class _LibrarySongSwitcher(QWidget):
         self._collapsed = collapsed
         self._setup_ui()
         self._populate()
+        if search_text:
+            self._search.setText(search_text)  # textChanged → _filter
         self._apply_collapsed()
+        # 곡 전환으로 재생성되면 스크롤이 맨 위로 리셋됨 — 레이아웃 반영 후
+        # 현재 곡 행이 보이게 스크롤
+        QTimer.singleShot(0, self._scroll_to_current)
+
+    def _scroll_to_current(self) -> None:
+        for row in self._rows:
+            if row._is_current and not row.isHidden():
+                self._list_scroll.ensureWidgetVisible(row, 0, 8)
+                return
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -1523,6 +1534,7 @@ class SongListWidget(QWidget):
         self._move_mode: dict | None = None
         self._song_switcher: _LibrarySongSwitcher | None = None
         self._switcher_collapsed = False  # 세션 내 접힘 상태 유지
+        self._switcher_search = ""  # 곡 전환 시 검색어 유지
         self._setup_ui()
 
     # ── UI 구성 ──────────────────────────────────────────────────────────
@@ -1844,6 +1856,7 @@ class SongListWidget(QWidget):
             self._standalone_panel.deleteLater()
             self._standalone_panel = None
         if self._song_switcher:
+            self._switcher_search = self._song_switcher._search.text()
             self._cards_layout.removeWidget(self._song_switcher)
             self._song_switcher.deleteLater()
             self._song_switcher = None
@@ -1876,6 +1889,7 @@ class SongListWidget(QWidget):
                 workspace.library_dir,
                 song.name,
                 collapsed=self._switcher_collapsed,
+                search_text=self._switcher_search,
             )
             self._song_switcher.song_open_requested.connect(
                 self.song_open_requested.emit

@@ -225,3 +225,49 @@ class TestSwitcherWarnings:
         assert warn and AMBER in warn[0].styleSheet()
         # 경고는 이름 옆이 아니라 둘째 줄 — 정상 행보다 높아야 한다
         assert row.height() > self._row(w, "song_ok").height()
+
+
+class TestSwitcherStatePreservedAcrossSwitch:
+    """곡을 열면 목록이 재생성되는데, 검색어가 유지되고 현재 곡이 보여야 한다."""
+
+    def test_search_text_survives_refresh(self, widget):
+        widget._song_switcher._search.setText("gamma")
+
+        widget.refresh_list()  # 곡 전환 시 재생성 경로
+
+        sw = widget._song_switcher
+        assert sw._search.text() == "gamma"
+        visible = [r._name for r in sw._rows if not r.isHidden()]
+        assert visible == ["song_gamma"]
+
+    def test_current_row_scrolled_into_view(self, qtbot, tmp_path):
+        names = [f"song_{i:02d}" for i in range(30)]
+        lib = _make_library(tmp_path, names)
+        current = "song_25"
+        song_dir = lib / current
+        song = Song(
+            name=current,
+            folder=song_dir,
+            score_sheets=[ScoreSheet(name="page", image_path="a.png")],
+            project_dir=song_dir,
+        )
+        w = SongListWidget()
+        qtbot.addWidget(w)
+        w.set_main_window(_FakeMainWindow(song_dir, workspace=_FakeWorkspace(lib)))
+        w.set_standalone(True)
+        project = Project(name=f"[곡 편집] {current}")
+        project.selected_songs = [song]
+        w.set_project(project)
+        w.resize(260, 600)
+        w.show()
+        qtbot.waitExposed(w)
+        qtbot.wait(80)  # 레이아웃 후 singleShot 스크롤 대기
+
+        sw = w._song_switcher
+        row = next(r for r in sw._rows if r._is_current)
+        viewport = sw._list_scroll.viewport()
+        top = row.mapTo(viewport, row.rect().topLeft()).y()
+        bottom = row.mapTo(viewport, row.rect().bottomLeft()).y()
+        assert top < viewport.height() and bottom > 0, (
+            "현재 곡 행이 전환 목록 스크롤 밖에 있음"
+        )
