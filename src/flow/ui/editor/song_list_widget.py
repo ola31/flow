@@ -957,13 +957,27 @@ class _SongCard(QFrame):
     _TABS_PER_ROW = 4
 
     def _refresh_tabs(self, current_sheet_id: str | None) -> None:
+        valid_sheets = [s for s in self._song.score_sheets if s.image_path]
+
+        # 시트 구성이 같으면 탭을 재사용하고 활성 상태만 갱신 — 시트가
+        # 많은 곡은 탭 재생성(setStyleSheet ~40ms)이 방향키 전환을 끊는다.
+        fp = (
+            self._song.show_sheet_names,
+            tuple((s.id, s.name) for s in valid_sheets),
+        )
+        if fp == getattr(self, "_tabs_fp", None):
+            for tab in self._sheet_tabs:
+                want = tab._sheet.id == current_sheet_id
+                if tab.isChecked() != want:
+                    tab.set_current(want)
+            return
+        self._tabs_fp = fp
+
         # 기존 탭 제거
         for tab in self._sheet_tabs:
             self._tabs_layout.removeWidget(tab)
             tab.deleteLater()
         self._sheet_tabs.clear()
-
-        valid_sheets = [s for s in self._song.score_sheets if s.image_path]
         for i, sheet in enumerate(valid_sheets):
             tab = _SheetTab(
                 sheet,
@@ -2228,9 +2242,14 @@ class SongListWidget(QWidget):
         for card in self._cards:
             song_sheet_ids = {s.id for s in card._song.score_sheets}
             is_selected = sheet_id in song_sheet_ids
-            card.set_selected(is_selected, sheet_id if is_selected else None)
             if is_selected:
                 selected_card = card
+            # 상태가 실제로 바뀐 카드만 재스타일 — 방향키마다 전 카드
+            # setStyleSheet(~28ms)를 다시 먹이지 않는다
+            if is_selected != card._is_selected or (
+                is_selected and card._current_sheet_id != sheet_id
+            ):
+                card.set_selected(is_selected, sheet_id if is_selected else None)
 
         # 방향키 곡 전환 시 선택 카드가 스크롤 밖에 숨지 않게. 선택하면
         # 시트 탭이 펼쳐져 카드 높이가 바뀌므로 레이아웃 반영 후 스크롤.

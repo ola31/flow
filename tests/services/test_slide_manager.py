@@ -774,3 +774,33 @@ class TestRegisterAppendedSong:
 
         assert offset == 0
         assert manager.get_slide_count() == 2
+
+
+class TestWatcherSamePathSkip:
+    def test_same_path_does_not_restart_observer(self, manager, tmp_path):
+        """방향키로 같은 곡 시트를 오갈 때마다 감시자를 재시작(조인 ~35ms)
+        하면 전환이 느려진다 — 같은 파일이면 그대로 둔다."""
+        pptx = tmp_path / "slides.pptx"
+        pptx.touch()
+
+        manager.start_watching(str(pptx))
+        first = manager._observer
+        assert first is not None
+
+        manager.start_watching(str(pptx))
+
+        assert manager._observer is first  # 재시작 없음
+        manager.stop_watching()
+
+    def test_different_path_restarts(self, manager, tmp_path):
+        a = tmp_path / "a" / "slides.pptx"
+        b = tmp_path / "b" / "slides.pptx"
+        a.parent.mkdir(); b.parent.mkdir()
+        a.touch(); b.touch()
+
+        manager.start_watching(str(a))
+        first = manager._observer
+        manager.start_watching(str(b))
+
+        assert manager._observer is not first
+        manager.stop_watching()

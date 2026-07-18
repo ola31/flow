@@ -52,6 +52,7 @@ class ScoreCanvas(QWidget):
     slide_dropped_on_hotspot = Signal(object, int)
     live_hotspot_clicked = Signal(object)
     emergency_patch_requested = Signal(object)  # Hotspot
+    _prefetch_ready = Signal(str, object)  # (path_key, QImage) — 내부용
 
     HOTSPOT_RADIUS = 15
     HOTSPOT_COLOR = QColor(*HOTSPOT_DEFAULT_FILL)
@@ -98,10 +99,44 @@ class ScoreCanvas(QWidget):
         self._mouse_pos: QPoint | None = None  # 위젯 좌표 (고스트용)
 
         self._pixmap_cache = {}
+        # 이웃 시트 프리페치 — 디코드는 백그라운드, QPixmap 변환만 GUI에서
+        self._prefetch_ready.connect(self._on_prefetch_ready)
+        self._prefetching: set[str] = set()
 
         # press 시점엔 팝오버를 띄우지 않고 예약만 해 둔다 — release에서
         # 드래그(이동)가 없었을 때만 표시 (드래그 화면 가림 방지).
         self._pending_popover_hotspot_id: str | None = None
+
+    def prefetch_images(self, paths: list[str]) -> None:
+        """이웃 시트 악보를 미리 디코드해 캐시에 넣는다 (방향키 전환 대비).
+
+        큰 이미지 디코드(~100ms)가 전환 시점의 GUI를 막지 않도록
+        백그라운드 스레드에서 QImage로 읽고, GUI에서 QPixmap으로 바꾼다.
+        """
+        todo = [
+            p for p in paths
+            if p and p not in self._pixmap_cache and p not in self._prefetching
+        ]
+        if not todo:
+            return
+        self._prefetching.update(todo)
+
+        import threading
+
+        def _load() -> None:
+            from PySide6.QtGui import QImage
+
+            for p in todo:
+                img = QImage(p)
+                if not img.isNull():
+                    self._prefetch_ready.emit(p, img)
+
+        threading.Thread(target=_load, daemon=True).start()
+
+    def _on_prefetch_ready(self, path_key: str, image) -> None:
+        self._prefetching.discard(path_key)
+        if path_key not in self._pixmap_cache:
+            self._pixmap_cache[path_key] = QPixmap.fromImage(image)
 
     def is_hotspot_editable(self, hotspot: Hotspot, verse_index: int) -> bool:
         """현재 레이어에서 이 핫스팟이 편집 가능한지 판별"""

@@ -2770,6 +2770,49 @@ class MainWindow(QMainWindow):
 
     # === 이벤트 핸들러 ===
 
+    def _prefetch_adjacent_sheets(self, sheet: ScoreSheet) -> None:
+        """방향키 곡 전환 대비 — 이웃 시트 악보를 미리 디코드해 둔다."""
+        if not self._project:
+            return
+        sheets = self._project.all_score_sheets
+        ids = [s.id for s in sheets]
+        try:
+            i = ids.index(sheet.id)
+        except ValueError:
+            return
+        paths = []
+        for j in (i - 1, i + 1, i + 2):
+            if 0 <= j < len(sheets) and sheets[j].image_path:
+                resolved = self._resolve_sheet_image_path(sheets[j])
+                if resolved:
+                    paths.append(resolved)
+        self._canvas.prefetch_images(paths)
+
+    def _resolve_sheet_image_path(self, sheet: ScoreSheet) -> str | None:
+        """캔버스와 같은 폴백 규칙(sheet↔sheets)으로 실제 존재하는 악보
+        경로를 찾는다 — 키가 어긋나면 프리페치가 캐시 미스로 무효가 된다."""
+        from pathlib import Path
+
+        img = Path(sheet.image_path)
+        if img.is_absolute():
+            return str(img.resolve()) if img.exists() else None
+        base = self._get_song_base_path(sheet)
+        if not base:
+            return None
+        base = Path(base)
+        candidates = [base / img]
+        text = sheet.image_path
+        if "sheets/" in text:
+            candidates.append(base / text.replace("sheets/", "sheet/"))
+        elif "sheet/" in text:
+            candidates.append(base / text.replace("sheet/", "sheets/"))
+        candidates += [base / sub / img.name for sub in ("sheet", "sheets")]
+        for cand in candidates:
+            cand = cand.resolve()
+            if cand.exists():
+                return str(cand)
+        return None
+
     def _on_song_selected(self, sheet: ScoreSheet) -> None:
         """곡 선택됨"""
         if sheet is None:
@@ -2779,6 +2822,7 @@ class MainWindow(QMainWindow):
 
         base_path = self._get_song_base_path(sheet)
         self._canvas.set_score_sheet(sheet, base_path)
+        self._prefetch_adjacent_sheets(sheet)
 
         # PPT 로드 (다중 곡 모드인 경우 생략 - 이미 load_songs로 로드됨)
         if self._project and self._project.selected_songs:

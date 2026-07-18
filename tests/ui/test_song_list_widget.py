@@ -166,3 +166,107 @@ class TestKeyboardSelectionAutoScroll:
         assert self._visible_in_viewport(song_list, song_list._cards[0]), (
             "첫 곡으로 전환했지만 선택 카드가 뷰포트 밖에 있음"
         )
+
+
+class TestArrowSwitchCost:
+    """방향키 곡 전환 시 바뀐 카드(이전/새 선택)만 재스타일해야 한다 —
+    카드 전체 setStyleSheet는 전환마다 ~28ms를 먹는다."""
+
+    def test_only_changed_cards_restyled(self, song_list, monkeypatch):
+        from flow.ui.editor.song_list_widget import _SongCard
+
+        project = Project(name="테스트")
+        project.selected_songs = [
+            _make_song(f"곡{i}", [f"시트{i}"]) for i in range(5)
+        ]
+        song_list.set_project(project)
+        song_list.set_current_index(0)
+
+        calls = []
+        orig = _SongCard.set_selected
+
+        def spy(self, *a, **k):
+            calls.append(self._song.name)
+            return orig(self, *a, **k)
+
+        monkeypatch.setattr(_SongCard, "set_selected", spy)
+
+        song_list.select_next_song()
+
+        assert sorted(calls) == ["곡0", "곡1"], (
+            f"바뀐 카드 2장만 재스타일해야 함: {calls}"
+        )
+
+
+class TestSheetPrefetch:
+    """방향키 전환 시 처음 가는 곡은 악보 디코드(~100ms)로 느리다 —
+    이웃 시트를 백그라운드에서 미리 디코드해 캐시에 넣는다."""
+
+    def test_prefetch_fills_canvas_cache(self, qtbot, tmp_path):
+        from PySide6.QtGui import QColor, QImage
+
+        from flow.ui.editor.score_canvas import ScoreCanvas
+
+        img_path = tmp_path / "page_next.png"
+        img = QImage(16, 16, QImage.Format.Format_RGB32)
+        img.fill(QColor("#204060"))
+        img.save(str(img_path))
+
+        canvas = ScoreCanvas()
+        qtbot.addWidget(canvas)
+        key = str(img_path)
+        assert key not in canvas._pixmap_cache
+
+        canvas.prefetch_images([key])
+
+        qtbot.waitUntil(lambda: key in canvas._pixmap_cache, timeout=3000)
+        assert not canvas._pixmap_cache[key].isNull()
+
+    def test_prefetch_skips_cached_and_invalid(self, qtbot, tmp_path):
+        from flow.ui.editor.score_canvas import ScoreCanvas
+
+        canvas = ScoreCanvas()
+        qtbot.addWidget(canvas)
+
+        # 존재하지 않는 경로·빈 경로는 조용히 무시돼야 함
+        canvas.prefetch_images(["", str(tmp_path / "no.png")])
+        qtbot.wait(200)
+        assert str(tmp_path / "no.png") not in canvas._pixmap_cache
+
+
+class TestSheetTabsReuse:
+    """시트가 많은 곡은 탭 재생성(setStyleSheet ~40ms)이 방향키 전환을
+    끊는다 — 시트 구성이 같으면 탭을 재사용하고 활성 상태만 갱신한다."""
+
+    def _card(self, qtbot, song_list):
+        project = Project(name="테스트")
+        project.selected_songs = [
+            _make_song("곡0", [f"시트{i}" for i in range(5)]),
+        ]
+        song_list.set_project(project)
+        return song_list._cards[0], project.selected_songs[0]
+
+    def test_same_structure_reuses_tabs(self, qtbot, song_list):
+        card, song = self._card(qtbot, song_list)
+        card.set_selected(True, song.score_sheets[0].id)
+        tabs_before = card._sheet_tabs[:]
+        assert len(tabs_before) == 5
+
+        card.set_selected(True, song.score_sheets[1].id)  # 같은 곡 내 이동
+
+        assert card._sheet_tabs[0] is tabs_before[0]  # 재생성 없음
+        assert not card._sheet_tabs[0].isChecked()
+        assert card._sheet_tabs[1].isChecked()
+
+    def test_structure_change_rebuilds(self, qtbot, song_list):
+        from flow.domain.score_sheet import ScoreSheet
+
+        card, song = self._card(qtbot, song_list)
+        card.set_selected(True, song.score_sheets[0].id)
+        tabs_before = card._sheet_tabs[:]
+
+        song.score_sheets.append(ScoreSheet(name="새시트", image_path="n.png"))
+        card.set_selected(True, song.score_sheets[0].id)
+
+        assert card._sheet_tabs[0] is not tabs_before[0]
+        assert len(card._sheet_tabs) == 6

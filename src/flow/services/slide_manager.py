@@ -726,8 +726,19 @@ class SlideManager(QObject):
         if self._watch_paused:
             return
 
+        resolved = self._pptx_path.resolve()
+        # 같은 파일을 이미 감시 중이면 그대로 둔다 — 방향키 곡 전환마다
+        # 옵저버 재시작(정지+조인 ~35ms)이 GUI를 막는 것 방지
+        if (
+            self._observer is not None
+            and getattr(self, "_watched_path", None) == resolved
+        ):
+            self._pptx_path = resolved
+            return
+
         self.stop_watching()
-        self._pptx_path = self._pptx_path.resolve()
+        self._pptx_path = resolved
+        self._watched_path = resolved
         self._observer = Observer()
         handler = SlideUpdateHandler(self._pptx_path, self._on_watch_event)
         self._observer.schedule(handler, str(self._pptx_path.parent), recursive=False)
@@ -748,12 +759,23 @@ class SlideManager(QObject):
 
     def stop_watching(self):
         if self._observer:
+            # join으로 GUI를 막지 않는다 — 곡 전환마다 ~35ms씩 걸리던 비용.
+            # 정지 요청만 하고 스레드는 뒤에서 끝나게 둔다 (shutdown에서 join).
             self._observer.stop()
-            self._observer.join(timeout=1)
+            self._dying_observers = [
+                o for o in getattr(self, "_dying_observers", [])
+                if o.is_alive()
+            ]
+            self._dying_observers.append(self._observer)
             self._observer = None
+        self._watched_path = None
 
     def shutdown(self):
         self.stop_watching()
+        # 앱 종료 시엔 비동기로 정지 요청한 옵저버들도 확실히 정리
+        for obs in getattr(self, "_dying_observers", []):
+            obs.join(timeout=1)
+        self._dying_observers = []
         for worker in (self._worker, self._markdown_worker):
             if worker is not None:
                 worker.stop()
