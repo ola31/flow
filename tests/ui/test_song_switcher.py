@@ -208,15 +208,20 @@ class TestSwitcherWarnings:
         w = self._widget(qtbot, tmp_path, lib)
         assert self._row(w, "song_unmapped")._warning == "매핑 없음"
 
-    def test_warning_label_is_amber(self, qtbot, tmp_path):
+    def test_warning_label_is_amber_on_second_line(self, qtbot, tmp_path):
         from PySide6.QtWidgets import QLabel
 
         from flow.ui.styles import AMBER
 
         lib = _make_library(tmp_path, ["song_beta"])
+        self._make_full_song(lib, "song_ok")
         self._make_full_song(lib, "song_unmapped", mapped=False)
         w = self._widget(qtbot, tmp_path, lib)
         row = self._row(w, "song_unmapped")
-        lbl = row.findChild(QLabel)
-        assert lbl is not None
-        assert AMBER in lbl.styleSheet()
+        warn = [
+            lbl for lbl in row.findChildren(QLabel)
+            if lbl.text() == "매핑 없음"
+        ]
+        assert warn and AMBER in warn[0].styleSheet()
+        # 경고는 이름 옆이 아니라 둘째 줄 — 정상 행보다 높아야 한다
+        assert row.height() > self._row(w, "song_ok").height()

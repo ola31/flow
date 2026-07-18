@@ -219,7 +219,7 @@ class _LibrarySongCard(QFrame):
         status_row = QHBoxLayout()
         status_row.setSpacing(10)
 
-        # 문제가 있을 때만 빨간 경고 (정상은 조용히, 완료 카운트 없음)
+        # 문제가 있을 때만 앰버 경고 (정상은 조용히, 완료 카운트 없음)
         warnings = _completeness_warnings(
             info["sheet_count"],
             info["has_ppt"] or info.get("has_md"),
@@ -228,7 +228,7 @@ class _LibrarySongCard(QFrame):
         for text in warnings:
             lbl = QLabel(text)
             lbl.setStyleSheet(
-                f"font-size: {FONT_SM}px; color: {RED}; background: transparent;"
+                f"font-size: {FONT_SM}px; color: {AMBER}; background: transparent;"
             )
             status_row.addWidget(lbl)
 
@@ -828,11 +828,6 @@ class _SongCard(QFrame):
                 warnings.append(f"매핑 {mapped}/{total}")
 
         self._lbl_warnings.setText(" · ".join(warnings))
-        # 매핑 없음은 연쇄 억제 덕에 항상 단독 — 라벨 색만 바꾸면 된다
-        color = RED if warnings == ["매핑 없음"] else AMBER
-        self._lbl_warnings.setStyleSheet(
-            f"font-size: 10px; color: {color}; background: transparent;"
-        )
         self._status_widget.setVisible(bool(warnings))
 
         if st["has_ppt"]:
@@ -1006,49 +1001,70 @@ class _SongCard(QFrame):
 
 
 class _SwitcherRow(QPushButton):
-    """곡 전환 목록의 한 줄 — 곡 이름 + (문제 시) 앰버 경고."""
+    """곡 전환 목록의 한 줄 — 곡 이름 + (문제 시) 둘째 줄 앰버 경고.
+
+    경고를 이름 옆에 붙이면 좁은 패널에서 잘리므로 별도 줄로 내린다.
+    텍스트는 내부 라벨로 그린다 (버튼 텍스트는 세로 중앙 고정이라 2줄 불가).
+    """
 
     def __init__(
         self, name: str, is_current: bool, warning: str = "", parent=None
     ) -> None:
-        super().__init__(name, parent)
+        super().__init__("", parent)
         self._name = name
         self._is_current = is_current
         self._warning = warning
-        self.setFixedHeight(28)
-        if warning:
-            warn_lbl = QLabel(warning)
-            warn_lbl.setStyleSheet(
-                f"color: {AMBER}; font-size: 10px; background: transparent;"
-            )
-            warn_lbl.setAttribute(
-                Qt.WidgetAttribute.WA_TransparentForMouseEvents
-            )
-            row = QHBoxLayout(self)
-            row.setContentsMargins(0, 0, 10, 0)
-            row.addStretch()
-            row.addWidget(warn_lbl)
+        self.setFixedHeight(44 if warning else 28)
         self.setCursor(
             Qt.CursorShape.ArrowCursor if is_current
             else Qt.CursorShape.PointingHandCursor
         )
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setToolTip(name)
+
+        name_lbl = QLabel(name)
+        name_lbl.setStyleSheet(
+            f"color: {ACCENT_INTER}; font-size: {FONT_MD}px; "
+            f"font-weight: {FW_SEMI}; background: transparent;"
+            if is_current else
+            f"color: {TEXT_SECONDARY}; font-size: {FONT_MD}px; "
+            f"background: transparent;"
+        )
+        name_lbl.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
+        )
+        name_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+        body = QVBoxLayout(self)
+        body.setContentsMargins(10 if is_current else 13, 3, 10, 3)
+        body.setSpacing(0)
+        body.addStretch()
+        body.addWidget(name_lbl)
+        if warning:
+            warn_lbl = QLabel(warning)
+            warn_lbl.setStyleSheet(
+                f"color: {AMBER}; font-size: 10px; background: transparent;"
+            )
+            warn_lbl.setSizePolicy(
+                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
+            )
+            warn_lbl.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents
+            )
+            body.addWidget(warn_lbl)
+        body.addStretch()
+
         if is_current:
             self.setStyleSheet(
-                f"QPushButton {{ background: {SURFACE_SUBTLE}; text-align: left; "
-                f"padding: 0 10px; border: none; "
+                f"QPushButton {{ background: {SURFACE_SUBTLE}; border: none; "
                 f"border-left: 3px solid {ACCENT_INTER}; "
-                f"border-radius: {RADIUS_SM}px; color: {ACCENT_INTER}; "
-                f"font-size: {FONT_MD}px; font-weight: {FW_SEMI}; }}"
+                f"border-radius: {RADIUS_SM}px; }}"
             )
         else:
             self.setStyleSheet(
-                f"QPushButton {{ background: transparent; text-align: left; "
-                f"padding: 0 13px; border: none; border-radius: {RADIUS_SM}px; "
-                f"color: {TEXT_SECONDARY}; font-size: {FONT_MD}px; }}"
-                f"QPushButton:hover {{ background: {SURFACE_SUBTLE}; "
-                f"color: {TEXT_PRIMARY}; }}"
+                f"QPushButton {{ background: transparent; border: none; "
+                f"border-radius: {RADIUS_SM}px; }}"
+                f"QPushButton:hover {{ background: {SURFACE_SUBTLE}; }}"
             )
 
 

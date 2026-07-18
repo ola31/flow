@@ -119,24 +119,23 @@ class TestFormatTagOnSelection:
 
 
 class TestWarningColors:
-    def test_mapping_missing_is_red(self, make_card, tmp_path):
-        from flow.ui.styles import RED
+    def test_mapping_missing_is_amber(self, make_card, tmp_path):
+        from flow.ui.styles import AMBER
 
         song = _song(tmp_path, hotspots=[])
         card = make_card(song)
-        assert RED in card._lbl_warnings.styleSheet()
+        assert AMBER in card._lbl_warnings.styleSheet()
 
-    def test_other_warnings_stay_amber(self, make_card, tmp_path):
-        from flow.ui.styles import AMBER, RED
+    def test_other_warnings_are_amber_too(self, make_card, tmp_path):
+        from flow.ui.styles import AMBER
 
         song = _song(tmp_path, slides=False, hotspots=[])
         card = make_card(song)
         assert AMBER in card._lbl_warnings.styleSheet()
-        assert RED not in card._lbl_warnings.styleSheet()
 
 
 class TestLibraryAddPopupCard:
-    """곡 추가 팝업(라이브 중 추가 패널 공용) 카드 — 빨간 경고만, 카운트 없음."""
+    """곡 추가 팝업(라이브 중 추가 패널 공용) 카드 — 앰버 경고만, 카운트 없음."""
 
     def _info(self, **over):
         base = {
@@ -173,19 +172,19 @@ class TestLibraryAddPopupCard:
         card = self._make(qtbot, self._info(mapped_hotspots=1))
         assert "1/2" not in self._texts(card)
 
-    def test_unmapped_song_shows_red_warning(self, qtbot):
+    def test_unmapped_song_shows_amber_warning(self, qtbot):
         from PySide6.QtWidgets import QLabel
 
-        from flow.ui.styles import RED
+        from flow.ui.styles import AMBER
 
         card = self._make(qtbot, self._info(mapped_hotspots=0))
         warn = [
             lbl for lbl in card.findChildren(QLabel)
             if lbl.text() == "매핑 없음"
         ]
-        assert warn and RED in warn[0].styleSheet()
+        assert warn and AMBER in warn[0].styleSheet()
 
-    def test_no_sheets_shows_red_and_suppresses_mapping(self, qtbot):
+    def test_no_sheets_shows_warning_and_suppresses_mapping(self, qtbot):
         card = self._make(
             qtbot, self._info(sheet_count=0, mapped_hotspots=0)
         )
@@ -193,7 +192,7 @@ class TestLibraryAddPopupCard:
         assert "악보 없음" in texts
         assert "매핑 없음" not in texts
 
-    def test_no_slides_shows_red_and_suppresses_mapping(self, qtbot):
+    def test_no_slides_shows_warning_and_suppresses_mapping(self, qtbot):
         card = self._make(
             qtbot, self._info(has_ppt=False, mapped_hotspots=0)
         )
