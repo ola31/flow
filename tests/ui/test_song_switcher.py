@@ -261,7 +261,7 @@ class TestSwitcherStatePreservedAcrossSwitch:
         w.resize(260, 600)
         w.show()
         qtbot.waitExposed(w)
-        qtbot.wait(80)  # 레이아웃 후 singleShot 스크롤 대기
+        qtbot.wait(300)  # 표시 후 재시도 스크롤(30ms 폴링) 대기
 
         sw = w._song_switcher
         row = next(r for r in sw._rows if r._is_current)
@@ -271,3 +271,28 @@ class TestSwitcherStatePreservedAcrossSwitch:
         assert top < viewport.height() and bottom > 0, (
             "현재 곡 행이 전환 목록 스크롤 밖에 있음"
         )
+
+
+class TestCurrentMatchByFolderName:
+    """워크스페이스 곡 정체성은 폴더명 — song.json의 표시 이름이 폴더명과
+    달라도 현재 곡 행을 찾아야 한다 (못 찾으면 하이라이트/스크롤 다 깨짐)."""
+
+    def test_display_name_differs_from_folder(self, qtbot, tmp_path):
+        lib = _make_library(tmp_path, ["song_alpha", "new_song_x"])
+        song_dir = lib / "new_song_x"
+        song = Song(
+            name="song_x",  # song.json 표시 이름 (폴더명과 다름)
+            folder=song_dir,
+            score_sheets=[ScoreSheet(name="page", image_path="a.png")],
+            project_dir=song_dir,
+        )
+        w = SongListWidget()
+        qtbot.addWidget(w)
+        w.set_main_window(_FakeMainWindow(song_dir, workspace=_FakeWorkspace(lib)))
+        w.set_standalone(True)
+        project = Project(name="[곡 편집] song_x")
+        project.selected_songs = [song]
+        w.set_project(project)
+
+        current = [r._name for r in w._song_switcher._rows if r._is_current]
+        assert current == ["new_song_x"]

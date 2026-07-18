@@ -1094,14 +1094,26 @@ class _LibrarySongSwitcher(QWidget):
             self._search.setText(search_text)  # textChanged → _filter
         self._apply_collapsed()
         # 곡 전환으로 재생성되면 스크롤이 맨 위로 리셋됨 — 레이아웃 반영 후
-        # 현재 곡 행이 보이게 스크롤
-        QTimer.singleShot(0, self._scroll_to_current)
+        # 현재 곡 행이 보이게 스크롤. receiver=self로 위젯 파괴 시 콜백도
+        # 함께 사라진다 (재생성 직후 죽은 행 접근 방지).
+        QTimer.singleShot(0, self, self._scroll_to_current)
 
-    def _scroll_to_current(self) -> None:
-        for row in self._rows:
-            if row._is_current and not row.isHidden():
-                self._list_scroll.ensureWidgetVisible(row, 0, 8)
-                return
+    def _scroll_to_current(self, attempt: int = 0) -> None:
+        row = next(
+            (r for r in self._rows if r._is_current and not r.isHidden()),
+            None,
+        )
+        if row is None:
+            return
+        # 생성 직후엔 행들이 아직 레이아웃되지 않아 전부 (0,0)에 있고,
+        # 그 상태의 ensureWidgetVisible은 "이미 보임"으로 판단해 무효가
+        # 된다. 목록이 실제로 표시된 뒤(레이아웃 완료 보장) 스크롤한다.
+        if not self._list_scroll.isVisible() and attempt < 20:
+            QTimer.singleShot(
+                30, self, lambda: self._scroll_to_current(attempt + 1)
+            )
+            return
+        self._list_scroll.ensureWidgetVisible(row, 0, 8)
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -1885,9 +1897,13 @@ class SongListWidget(QWidget):
         # 곡 전환 목록 — 라이브러리로 돌아가지 않고 다른 곡을 바로 연다
         workspace = getattr(self._main_window, "_workspace", None)
         if workspace is not None and song is not None:
+            # 현재 곡 매칭은 폴더명 기준 — song.name(표시 이름)은 폴더명과
+            # 다를 수 있다 (워크스페이스 곡 정체성 = 폴더명)
+            project_path = getattr(self._main_window, "_project_path", None)
+            current_folder = Path(project_path).name if project_path else song.name
             self._song_switcher = _LibrarySongSwitcher(
                 workspace.library_dir,
-                song.name,
+                current_folder,
                 collapsed=self._switcher_collapsed,
                 search_text=self._switcher_search,
             )
