@@ -442,3 +442,38 @@ class TestSwitcherLyricsSearch:
 
         visible = [r._name for r in sw._rows if not r.isHidden()]
         assert visible == ["song_gamma"]
+
+    def test_matched_lyric_snippet_shown_below_title(self, qtbot, tmp_path):
+        from PySide6.QtWidgets import QLabel
+
+        w = self._widget_with_lyrics(qtbot, tmp_path)
+        sw = w._song_switcher
+
+        sw._search.setText("별처럼")
+
+        row = next(r for r in sw._rows if r._name == "song_alpha")
+        texts = [lbl.text() for lbl in row.findChildren(QLabel)]
+        assert any("별처럼" in t and t != "song_alpha" for t in texts), (
+            f"매칭 가사 스니펫이 없음: {texts}"
+        )
+
+    def test_snippet_removed_when_search_cleared(self, qtbot, tmp_path):
+        from PySide6.QtWidgets import QLabel
+
+        w = self._widget_with_lyrics(qtbot, tmp_path)
+        sw = w._song_switcher
+        sw._search.setText("별처럼")
+        sw._search.setText("")
+
+        row = next(r for r in sw._rows if r._name == "song_alpha")
+        texts = [lbl.text() for lbl in row.findChildren(QLabel)]
+        assert not any("별처럼" in t for t in texts)
+
+    def test_name_match_shows_no_snippet(self, qtbot, tmp_path):
+        w = self._widget_with_lyrics(qtbot, tmp_path)
+        sw = w._song_switcher
+
+        sw._search.setText("gamma")
+
+        row = next(r for r in sw._rows if r._name == "song_gamma")
+        assert row._snippet == ""

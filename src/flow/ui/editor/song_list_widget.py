@@ -1013,6 +1013,8 @@ class _SwitcherRow(QPushButton):
         super().__init__("", parent)
         self._name = name
         self._warning = warning
+        self._snippet = ""
+        self._snippet_lbl: QLabel | None = None
         self.setFixedHeight(44 if warning else 28)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setToolTip(name)
@@ -1044,6 +1046,30 @@ class _SwitcherRow(QPushButton):
         self._body.addStretch()
 
         self.set_current(is_current)
+
+    def set_snippet(self, text: str) -> None:
+        """가사 검색 매칭 줄 표시/제거 — 매칭된 행에만 붙는다."""
+        if text == self._snippet:
+            return
+        self._snippet = text
+        if text and self._snippet_lbl is None:
+            lbl = QLabel()
+            lbl.setStyleSheet(
+                f"color: {TEXT_TERTIARY}; font-size: 10px; "
+                f"background: transparent;"
+            )
+            lbl.setSizePolicy(
+                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
+            )
+            lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            # 마지막 스트레치 앞에 삽입 (이름/경고 아래 줄)
+            self._body.insertWidget(self._body.count() - 1, lbl)
+            self._snippet_lbl = lbl
+        if self._snippet_lbl is not None:
+            self._snippet_lbl.setText(f"“{text}”" if text else "")
+            self._snippet_lbl.setVisible(bool(text))
+        lines = 1 + (1 if self._warning else 0) + (1 if text else 0)
+        self.setFixedHeight(28 + 16 * (lines - 1))
 
     def set_current(self, is_current: bool) -> None:
         """현재 곡 표시 갱신 — 목록 재사용 시 재생성 없이 스타일만 바꾼다."""
@@ -1214,6 +1240,7 @@ class _LibrarySongSwitcher(QWidget):
         st = st or _scan_library_song(song_dir)
         row = _SwitcherRow(song_dir.name, is_current, self._warning_from(st))
         # 가사 검색용 — 스캔 시 이미 읽으므로 추가 비용 없음
+        row._lyrics_raw = st["lyrics"]
         row._lyrics = st["lyrics"].lower()
         # 모든 행을 연결하고 현재 곡만 가드 — 재사용 시 현재 곡이
         # 바뀌어도 연결을 다시 만들 필요가 없다
@@ -1253,6 +1280,7 @@ class _LibrarySongSwitcher(QWidget):
                 else:
                     row.set_current(False)
                     # 방금까지 편집한 곡 — 가사도 바뀌었을 수 있음
+                    row._lyrics_raw = st["lyrics"]
                     row._lyrics = st["lyrics"].lower()
             elif row._name == folder_name:
                 row.set_current(True)
@@ -1260,12 +1288,21 @@ class _LibrarySongSwitcher(QWidget):
         QTimer.singleShot(0, self, self._scroll_to_current)
 
     def _filter(self, query: str) -> None:
+        from flow.services.markdown import lyric_snippet
+
         q = query.strip().lower()
         for row in self._rows:
-            row.setVisible(
-                not q
-                or q in row._name.lower()
-                or q in getattr(row, "_lyrics", "")
+            name_hit = not q or q in row._name.lower()
+            lyric_hit = (
+                bool(q)
+                and not name_hit
+                and q in getattr(row, "_lyrics", "")
+            )
+            row.setVisible(name_hit or lyric_hit)
+            # 가사로 매칭된 행은 제목 아래에 매칭 줄을 보여준다
+            row.set_snippet(
+                lyric_snippet(getattr(row, "_lyrics_raw", ""), q)
+                if lyric_hit else ""
             )
 
     def _toggle_collapsed(self) -> None:
