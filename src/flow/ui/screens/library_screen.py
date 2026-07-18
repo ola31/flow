@@ -24,15 +24,20 @@ from flow.ui.screens._browser_widgets import (
     sort_paths,
 )
 from flow.ui.styles import (
+    AMBER,
     BG_DEEP,
     BORDER_FOCUS,
     FONT_MD,
-    RED,
     SP_LG,
     SP_MD,
     SP_SM,
     TEXT_TERTIARY,
 )
+
+
+def _amber(text: str) -> str:
+    """부제 QLabel이 rich text로 렌더 — 문제 텍스트만 앰버로 강조."""
+    return f'<span style="color:{AMBER}">{text}</span>'
 
 
 class LibraryScreen(QWidget):
@@ -188,7 +193,7 @@ class LibraryScreen(QWidget):
         elif has_md:
             slide_part = "마크다운"
         else:
-            slide_part = "슬라이드 없음"
+            slide_part = _amber("슬라이드 없음")
 
         sheet_count = 0
         for d in (song_dir / "sheets", song_dir / "sheet"):
@@ -197,7 +202,9 @@ class LibraryScreen(QWidget):
                     1 for f in d.iterdir()
                     if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}
                 )
-        sheet_part = f"악보 {sheet_count}장" if sheet_count else "악보 없음"
+        sheet_part = (
+            f"악보 {sheet_count}장" if sheet_count else _amber("악보 없음")
+        )
 
         subtitle = f"{slide_part} · {sheet_part}"
         mapping_part = self._mapping_part(
@@ -232,10 +239,9 @@ class LibraryScreen(QWidget):
                 if h.get("slide_mappings") or h.get("slide_index", -1) >= 0:
                     mapped += 1
         if mapped == 0:
-            # QLabel이 rich text로 렌더 — 매핑 없음만 빨강으로 강조
-            return f'<span style="color:{RED}">매핑 없음</span>'
+            return _amber("매핑 없음")
         if mapped < total:
-            return f"매핑 {mapped}/{total}"
+            return _amber(f"매핑 {mapped}/{total}")
         return ""
 
     def _on_search_changed(self, text: str) -> None:

@@ -82,6 +82,23 @@ def _song_status(song: Song) -> dict:
     }
 
 
+def _completeness_warnings(
+    sheet_count: int, has_slides: bool, mapped: int
+) -> list[str]:
+    """악보/슬라이드/매핑 없음 경고 목록 (정상은 빈 리스트).
+
+    악보·슬라이드가 있어야 매핑 판정이 의미 있음 — 원인 경고만 남긴다.
+    """
+    warnings = []
+    if sheet_count == 0:
+        warnings.append("악보 없음")
+    if not has_slides:
+        warnings.append("슬라이드 없음")
+    if sheet_count > 0 and has_slides and mapped == 0:
+        warnings.append("매핑 없음")
+    return warnings
+
+
 def _scan_library_song(song_dir: Path) -> dict:
     """라이브러리의 곡 폴더를 스캔해 상태 정보 반환."""
     result = {"name": song_dir.name, "path": song_dir}
@@ -202,17 +219,12 @@ class _LibrarySongCard(QFrame):
         status_row = QHBoxLayout()
         status_row.setSpacing(10)
 
-        # 문제가 있을 때만 빨간 경고 (정상은 조용히, 완료 카운트 없음).
-        # 악보·슬라이드가 있어야 매핑 판정이 의미 있음 — 원인 경고만.
-        sc = info["sheet_count"]
-        has_slides = info["has_ppt"] or info.get("has_md")
-        warnings = []
-        if sc == 0:
-            warnings.append("악보 없음")
-        if not has_slides:
-            warnings.append("슬라이드 없음")
-        if sc > 0 and has_slides and info["mapped_hotspots"] == 0:
-            warnings.append("매핑 없음")
+        # 문제가 있을 때만 빨간 경고 (정상은 조용히, 완료 카운트 없음)
+        warnings = _completeness_warnings(
+            info["sheet_count"],
+            info["has_ppt"] or info.get("has_md"),
+            info["mapped_hotspots"],
+        )
         for text in warnings:
             lbl = QLabel(text)
             lbl.setStyleSheet(
@@ -994,13 +1006,28 @@ class _SongCard(QFrame):
 
 
 class _SwitcherRow(QPushButton):
-    """곡 전환 목록의 한 줄 — 곡 이름만 표시하는 평평한 버튼."""
+    """곡 전환 목록의 한 줄 — 곡 이름 + (문제 시) 앰버 경고."""
 
-    def __init__(self, name: str, is_current: bool, parent=None) -> None:
+    def __init__(
+        self, name: str, is_current: bool, warning: str = "", parent=None
+    ) -> None:
         super().__init__(name, parent)
         self._name = name
         self._is_current = is_current
+        self._warning = warning
         self.setFixedHeight(28)
+        if warning:
+            warn_lbl = QLabel(warning)
+            warn_lbl.setStyleSheet(
+                f"color: {AMBER}; font-size: 10px; background: transparent;"
+            )
+            warn_lbl.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents
+            )
+            row = QHBoxLayout(self)
+            row.setContentsMargins(0, 0, 10, 0)
+            row.addStretch()
+            row.addWidget(warn_lbl)
         self.setCursor(
             Qt.CursorShape.ArrowCursor if is_current
             else Qt.CursorShape.PointingHandCursor
@@ -1117,7 +1144,15 @@ class _LibrarySongSwitcher(QWidget):
         except OSError:
             folders = []
         for d in folders:
-            row = _SwitcherRow(d.name, d.name == self._current_name)
+            st = _scan_library_song(d)
+            warning = " · ".join(
+                _completeness_warnings(
+                    st["sheet_count"],
+                    st["has_ppt"] or st["has_md"],
+                    st["mapped_hotspots"],
+                )
+            )
+            row = _SwitcherRow(d.name, d.name == self._current_name, warning)
             if not row._is_current:
                 row.clicked.connect(
                     lambda _c=False, path=str(d): self.song_open_requested.emit(

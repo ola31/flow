@@ -151,3 +151,72 @@ class TestMainWindowWiring:
             mw._slide_manager.shutdown()
             mw._clear_dirty()
             mw.close()
+
+
+class TestSwitcherWarnings:
+    """곡 전환 목록 — 문제가 있는 곡은 앰버 경고를 이름 오른쪽에 표시."""
+
+    def _make_full_song(self, lib, name, *, mapped=True):
+        import json as _json
+
+        d = lib / name
+        (d / "sheets").mkdir(parents=True, exist_ok=True)
+        (d / "sheets" / "page1.png").touch()
+        (d / "slides.pptx").touch()
+        data = {
+            "name": name,
+            "sheets": [{"hotspots": [{"slide_index": 0 if mapped else -1}]}],
+        }
+        with open(d / "song.json", "w", encoding="utf-8-sig") as f:
+            _json.dump(data, f)
+
+    def _widget(self, qtbot, tmp_path, lib):
+        song_dir = lib / "song_beta"
+        song = Song(
+            name="song_beta",
+            folder=song_dir,
+            score_sheets=[ScoreSheet(name="page", image_path="a.png")],
+            project_dir=song_dir,
+        )
+        w = SongListWidget()
+        qtbot.addWidget(w)
+        w.set_main_window(_FakeMainWindow(song_dir, workspace=_FakeWorkspace(lib)))
+        w.set_standalone(True)
+        project = Project(name="[곡 편집] song_beta")
+        project.selected_songs = [song]
+        w.set_project(project)
+        return w
+
+    def _row(self, widget, name):
+        return next(r for r in widget._song_switcher._rows if r._name == name)
+
+    def test_complete_song_has_no_warning(self, qtbot, tmp_path):
+        lib = _make_library(tmp_path, ["song_beta"])
+        self._make_full_song(lib, "song_ok")
+        w = self._widget(qtbot, tmp_path, lib)
+        assert self._row(w, "song_ok")._warning == ""
+
+    def test_song_without_sheets_warns(self, qtbot, tmp_path):
+        lib = _make_library(tmp_path, ["song_beta", "song_nosheet"])
+        (lib / "song_nosheet" / "slides.pptx").touch()
+        w = self._widget(qtbot, tmp_path, lib)
+        assert "악보 없음" in self._row(w, "song_nosheet")._warning
+
+    def test_unmapped_song_warns(self, qtbot, tmp_path):
+        lib = _make_library(tmp_path, ["song_beta"])
+        self._make_full_song(lib, "song_unmapped", mapped=False)
+        w = self._widget(qtbot, tmp_path, lib)
+        assert self._row(w, "song_unmapped")._warning == "매핑 없음"
+
+    def test_warning_label_is_amber(self, qtbot, tmp_path):
+        from PySide6.QtWidgets import QLabel
+
+        from flow.ui.styles import AMBER
+
+        lib = _make_library(tmp_path, ["song_beta"])
+        self._make_full_song(lib, "song_unmapped", mapped=False)
+        w = self._widget(qtbot, tmp_path, lib)
+        row = self._row(w, "song_unmapped")
+        lbl = row.findChild(QLabel)
+        assert lbl is not None
+        assert AMBER in lbl.styleSheet()
