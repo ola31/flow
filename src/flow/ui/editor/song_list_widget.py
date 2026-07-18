@@ -1105,15 +1105,21 @@ class _LibrarySongSwitcher(QWidget):
         )
         if row is None:
             return
-        # 생성 직후엔 행들이 아직 레이아웃되지 않아 전부 (0,0)에 있고,
-        # 그 상태의 ensureWidgetVisible은 "이미 보임"으로 판단해 무효가
-        # 된다. 목록이 실제로 표시된 뒤(레이아웃 완료 보장) 스크롤한다.
-        if not self._list_scroll.isVisible() and attempt < 20:
+        # 첫 페인트 전에 스크롤을 끝내야 '맨 위였다가 점프'하는 깜빡임이
+        # 없다. 표시 전엔 행들이 아직 (0,0)이므로 레이아웃을 강제 확정한
+        # 뒤, 현재 곡이 가운데 오도록 스크롤바 값을 직접 계산한다
+        # (ensureWidgetVisible의 최소 스크롤은 행을 하단 끝에 붙인다).
+        self._list_layout.activate()
+        viewport_h = self._list_scroll.viewport().height() or 220
+        target = max(0, row.pos().y() - (viewport_h - row.height()) // 2)
+        bar = self._list_scroll.verticalScrollBar()
+        if bar.maximum() == 0 and target > 0 and attempt < 10:
+            # 스크롤 범위가 아직 안 잡힘 — 잡힌 뒤 재시도
             QTimer.singleShot(
                 30, self, lambda: self._scroll_to_current(attempt + 1)
             )
             return
-        self._list_scroll.ensureWidgetVisible(row, 0, 8)
+        bar.setValue(target)  # 범위를 넘으면 Qt가 클램프
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)

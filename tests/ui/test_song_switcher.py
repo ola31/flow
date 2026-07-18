@@ -271,6 +271,13 @@ class TestSwitcherStatePreservedAcrossSwitch:
         assert top < viewport.height() and bottom > 0, (
             "현재 곡 행이 전환 목록 스크롤 밖에 있음"
         )
+        # 최소 스크롤(ensureWidgetVisible)은 행을 하단 끝에 붙인다 —
+        # 가운데 근처에 와야 위아래 곡이 함께 보인다
+        row_center = (top + bottom) / 2
+        assert abs(row_center - viewport.height() / 2) <= row.height(), (
+            f"현재 곡이 가운데가 아님 (center={row_center}, "
+            f"vp_h={viewport.height()})"
+        )
 
 
 class TestCurrentMatchByFolderName:
