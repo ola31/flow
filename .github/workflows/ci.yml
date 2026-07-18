@@ -45,7 +45,10 @@ jobs:
       - name: Run pytest
         env:
           QT_QPA_PLATFORM: offscreen
-        run: pytest -q
+        # xdist 워커 격리: PySide 테스트 스위트의 프로세스 전역 teardown
+        # 크래시(간헐 segfault)가 전체 실행을 죽이지 않게 한다. 크래시한
+        # 워커는 재시작되고 해당 테스트는 1회 재실행된다.
+        run: pytest -q -n auto --reruns 1 --max-worker-restart 2
 
   smoke-build:
     name: PyInstaller smoke build (Linux)

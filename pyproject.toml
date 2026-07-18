@@ -30,6 +30,7 @@ dev = [
     "pytest-qt>=4.2.0",
     "pytest-cov>=4.0.0",
     "pytest-xdist>=3.5.0",
+    "pytest-rerunfailures>=14.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
