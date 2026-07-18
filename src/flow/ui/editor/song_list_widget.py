@@ -1012,34 +1012,23 @@ class _SwitcherRow(QPushButton):
     ) -> None:
         super().__init__("", parent)
         self._name = name
-        self._is_current = is_current
         self._warning = warning
         self.setFixedHeight(44 if warning else 28)
-        self.setCursor(
-            Qt.CursorShape.ArrowCursor if is_current
-            else Qt.CursorShape.PointingHandCursor
-        )
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setToolTip(name)
 
-        name_lbl = QLabel(name)
-        name_lbl.setStyleSheet(
-            f"color: {ACCENT_INTER}; font-size: {FONT_MD}px; "
-            f"font-weight: {FW_SEMI}; background: transparent;"
-            if is_current else
-            f"color: {TEXT_SECONDARY}; font-size: {FONT_MD}px; "
-            f"background: transparent;"
-        )
-        name_lbl.setSizePolicy(
+        self._name_lbl = QLabel(name)
+        self._name_lbl.setSizePolicy(
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
         )
-        name_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._name_lbl.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents
+        )
 
-        body = QVBoxLayout(self)
-        body.setContentsMargins(10 if is_current else 13, 3, 10, 3)
-        body.setSpacing(0)
-        body.addStretch()
-        body.addWidget(name_lbl)
+        self._body = QVBoxLayout(self)
+        self._body.setSpacing(0)
+        self._body.addStretch()
+        self._body.addWidget(self._name_lbl)
         if warning:
             warn_lbl = QLabel(warning)
             warn_lbl.setStyleSheet(
@@ -1051,9 +1040,26 @@ class _SwitcherRow(QPushButton):
             warn_lbl.setAttribute(
                 Qt.WidgetAttribute.WA_TransparentForMouseEvents
             )
-            body.addWidget(warn_lbl)
-        body.addStretch()
+            self._body.addWidget(warn_lbl)
+        self._body.addStretch()
 
+        self.set_current(is_current)
+
+    def set_current(self, is_current: bool) -> None:
+        """현재 곡 표시 갱신 — 목록 재사용 시 재생성 없이 스타일만 바꾼다."""
+        self._is_current = is_current
+        self.setCursor(
+            Qt.CursorShape.ArrowCursor if is_current
+            else Qt.CursorShape.PointingHandCursor
+        )
+        self._name_lbl.setStyleSheet(
+            f"color: {ACCENT_INTER}; font-size: {FONT_MD}px; "
+            f"font-weight: {FW_SEMI}; background: transparent;"
+            if is_current else
+            f"color: {TEXT_SECONDARY}; font-size: {FONT_MD}px; "
+            f"background: transparent;"
+        )
+        self._body.setContentsMargins(10 if is_current else 13, 3, 10, 3)
         if is_current:
             self.setStyleSheet(
                 f"QPushButton {{ background: {SURFACE_SUBTLE}; border: none; "
@@ -1180,32 +1186,76 @@ class _LibrarySongSwitcher(QWidget):
         divider.setStyleSheet(f"background: {BORDER_SUBTLE_RGBA}; border: none;")
         root.addWidget(divider)
 
-    def _populate(self) -> None:
+    def _list_folders(self) -> list[Path]:
         try:
-            folders = sorted(
+            return sorted(
                 d for d in self._library_dir.iterdir()
                 if d.is_dir() and (d / "song.json").exists()
             )
         except OSError:
-            folders = []
-        for d in folders:
-            st = _scan_library_song(d)
-            warning = " · ".join(
-                _completeness_warnings(
-                    st["sheet_count"],
-                    st["has_ppt"] or st["has_md"],
-                    st["mapped_hotspots"],
-                )
+            return []
+
+    def folder_names(self) -> list[str]:
+        return [r._name for r in self._rows]
+
+    @staticmethod
+    def _warning_for(song_dir: Path) -> str:
+        st = _scan_library_song(song_dir)
+        return " · ".join(
+            _completeness_warnings(
+                st["sheet_count"],
+                st["has_ppt"] or st["has_md"],
+                st["mapped_hotspots"],
             )
-            row = _SwitcherRow(d.name, d.name == self._current_name, warning)
-            if not row._is_current:
-                row.clicked.connect(
-                    lambda _c=False, path=str(d): self.song_open_requested.emit(
-                        path
-                    )
-                )
+        )
+
+    def _make_row(
+        self, song_dir: Path, is_current: bool, warning: str
+    ) -> _SwitcherRow:
+        row = _SwitcherRow(song_dir.name, is_current, warning)
+        # 모든 행을 연결하고 현재 곡만 가드 — 재사용 시 현재 곡이
+        # 바뀌어도 연결을 다시 만들 필요가 없다
+        row.clicked.connect(
+            lambda _c=False, name=song_dir.name, path=str(song_dir): (
+                None if name == self._current_name
+                else self.song_open_requested.emit(path)
+            )
+        )
+        return row
+
+    def _populate(self) -> None:
+        for d in self._list_folders():
+            row = self._make_row(
+                d, d.name == self._current_name, self._warning_for(d)
+            )
             self._rows.append(row)
             self._list_layout.insertWidget(self._list_layout.count() - 1, row)
+
+    def update_current(self, folder_name: str) -> None:
+        """재사용 경로: 현재 곡 표시만 갱신 (140행 재생성 방지, ~160ms 절약).
+
+        이전 현재 곡은 방금까지 편집한 곡이라 상태가 바뀌었을 수 있으므로
+        경고를 다시 계산해 그 행만 교체한다.
+        """
+        old = self._current_name
+        self._current_name = folder_name
+        for i, row in enumerate(self._rows):
+            if row._name == old:
+                d = self._library_dir / old
+                warning = self._warning_for(d)
+                if warning != row._warning:
+                    new_row = self._make_row(d, False, warning)
+                    idx = self._list_layout.indexOf(row)
+                    self._list_layout.removeWidget(row)
+                    row.deleteLater()
+                    self._list_layout.insertWidget(idx, new_row)
+                    self._rows[i] = new_row
+                else:
+                    row.set_current(False)
+            elif row._name == folder_name:
+                row.set_current(True)
+        self._filter(self._search.text())
+        QTimer.singleShot(0, self, self._scroll_to_current)
 
     def _filter(self, query: str) -> None:
         q = query.strip().lower()
@@ -1873,22 +1923,29 @@ class SongListWidget(QWidget):
             self._cards_layout.removeWidget(self._standalone_panel)
             self._standalone_panel.deleteLater()
             self._standalone_panel = None
-        if self._song_switcher:
-            self._switcher_search = self._song_switcher._search.text()
-            self._cards_layout.removeWidget(self._song_switcher)
-            self._song_switcher.deleteLater()
-            self._song_switcher = None
+        # 곡 전환 목록은 여기서 떼지 않는다 — 분리(setParent)만 95ms가 들어
+        # 재사용 의미가 없어진다. 유지/재생성은 _refresh_standalone이,
+        # 비단독 경로 정리는 _drop_switcher가 담당.
 
         if not self._project:
             self._count_label.setText("")
+            self._drop_switcher()
             return
 
         if self._is_standalone:
             self._refresh_standalone()
         else:
+            self._drop_switcher()
             self._refresh_project()
 
         self._apply_move_mode_visuals()
+
+    def _drop_switcher(self) -> None:
+        if self._song_switcher is not None:
+            self._switcher_search = self._song_switcher._search.text()
+            self._cards_layout.removeWidget(self._song_switcher)
+            self._song_switcher.deleteLater()
+            self._song_switcher = None
 
     def _refresh_standalone(self) -> None:
         """단독 곡 편집 모드: 시트 페이지 패널."""
@@ -1907,21 +1964,34 @@ class SongListWidget(QWidget):
             # 다를 수 있다 (워크스페이스 곡 정체성 = 폴더명)
             project_path = getattr(self._main_window, "_project_path", None)
             current_folder = Path(project_path).name if project_path else song.name
-            self._song_switcher = _LibrarySongSwitcher(
-                workspace.library_dir,
-                current_folder,
-                collapsed=self._switcher_collapsed,
-                search_text=self._switcher_search,
+            sw = self._song_switcher
+            reusable = (
+                sw is not None
+                and sw._library_dir == workspace.library_dir
+                and sw.folder_names() == [d.name for d in sw._list_folders()]
             )
-            self._song_switcher.song_open_requested.connect(
-                self.song_open_requested.emit
-            )
-            self._song_switcher.collapse_toggled.connect(
-                self._on_switcher_collapse
-            )
-            self._cards_layout.insertWidget(
-                self._cards_layout.count() - 1, self._song_switcher
-            )
+            if reusable:
+                # 곡 전환마다 140행을 재생성하면 열기가 ~160ms 느려진다 —
+                # 라이브러리 구성이 같으면 레이아웃에 붙여둔 채 현재 곡
+                # 표시만 갱신 (분리/재삽입도 각각 수십 ms라 하지 않는다)
+                sw.update_current(current_folder)
+            else:
+                self._drop_switcher()
+                self._song_switcher = _LibrarySongSwitcher(
+                    workspace.library_dir,
+                    current_folder,
+                    collapsed=self._switcher_collapsed,
+                    search_text=self._switcher_search,
+                )
+                self._song_switcher.song_open_requested.connect(
+                    self.song_open_requested.emit
+                )
+                self._song_switcher.collapse_toggled.connect(
+                    self._on_switcher_collapse
+                )
+                self._cards_layout.insertWidget(0, self._song_switcher)
+        else:
+            self._drop_switcher()
 
         panel = _StandalonePanel()
         panel.set_song(song, current_id)

@@ -303,3 +303,55 @@ class TestCurrentMatchByFolderName:
 
         current = [r._name for r in w._song_switcher._rows if r._is_current]
         assert current == ["new_song_x"]
+
+
+class TestSwitcherReuse:
+    """곡 전환마다 140행을 재생성하면 열기가 ~160ms 느려진다 — 라이브러리
+    구성이 같으면 기존 목록을 재사용하고 현재 곡 표시만 갱신한다."""
+
+    def test_switcher_instance_reused(self, widget):
+        sw1 = widget._song_switcher
+        widget.refresh_list()
+        assert widget._song_switcher is sw1
+
+    def test_reuse_updates_current_row(self, widget, tmp_path):
+        sw1 = widget._song_switcher
+        # song_gamma로 전환한 것처럼 상태 변경
+        mw = widget._main_window
+        gamma_dir = mw._project_path.parent / "song_gamma"
+        mw._project_path = gamma_dir
+        widget._project.selected_songs[0].name = "song_gamma"
+
+        widget.refresh_list()
+
+        sw = widget._song_switcher
+        assert sw is sw1  # 재사용
+        current = [r._name for r in sw._rows if r._is_current]
+        assert current == ["song_gamma"]
+
+    def test_old_current_row_clickable_after_reuse(self, widget, qtbot):
+        mw = widget._main_window
+        gamma_dir = mw._project_path.parent / "song_gamma"
+        mw._project_path = gamma_dir
+        widget._project.selected_songs[0].name = "song_gamma"
+        widget.refresh_list()
+
+        opened = []
+        widget.song_open_requested.connect(opened.append)
+        row = next(r for r in widget._song_switcher._rows if r._name == "song_beta")
+        row.click()  # 이전 현재 곡 — 이제 다시 열 수 있어야 함
+
+        assert len(opened) == 1 and opened[0].endswith("song_beta")
+
+    def test_library_change_rebuilds(self, widget, tmp_path):
+        sw1 = widget._song_switcher
+        lib = widget._main_window._workspace.library_dir
+        d = lib / "song_delta"
+        d.mkdir()
+        (d / "song.json").write_text('{"name": "song_delta"}', encoding="utf-8-sig")
+
+        widget.refresh_list()
+
+        sw = widget._song_switcher
+        assert sw is not sw1  # 곡 추가 → 재구성
+        assert "song_delta" in [r._name for r in sw._rows]
