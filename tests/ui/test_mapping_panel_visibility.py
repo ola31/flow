@@ -23,17 +23,17 @@ def _visible_verses(panel) -> list[int]:
 
 
 class TestHideUnmappedVerseRows:
-    def test_only_mapped_and_active_visible(self, panel):
+    def test_only_mapped_visible(self, panel):
         h = Hotspot(x=1, y=1, slide_mappings={"0": 2, "1": 3})
-        panel.show_for_hotspot(h, active_verse=0, get_image_fn=None)
+        panel.show_for_hotspot(h, active_verse=3, get_image_fn=None)
 
-        assert _visible_verses(panel) == [0, 1]
+        assert _visible_verses(panel) == [0, 1]  # 활성(3)이라도 미매핑은 숨김
 
-    def test_chorus_only_shows_chorus_and_active(self, panel):
+    def test_chorus_only_shows_chorus_only(self, panel):
         h = Hotspot(x=1, y=1, slide_mappings={"5": 7})
         panel.show_for_hotspot(h, active_verse=0, get_image_fn=None)
 
-        assert _visible_verses(panel) == [0, 5]  # 활성(0) + 후렴
+        assert _visible_verses(panel) == [5]  # 1절(활성)이라도 빈 행은 숨김
 
     def test_all_mapped_all_visible(self, panel):
         h = Hotspot(
@@ -44,14 +44,14 @@ class TestHideUnmappedVerseRows:
 
         assert _visible_verses(panel) == [0, 1, 2, 3, 4, 5]
 
-    def test_active_verse_change_updates_visibility(self, panel):
+    def test_active_verse_change_keeps_mapped_only(self, panel):
         h = Hotspot(x=1, y=1, slide_mappings={"1": 3})
         panel.show_for_hotspot(h, active_verse=0, get_image_fn=None)
-        assert _visible_verses(panel) == [0, 1]
+        assert _visible_verses(panel) == [1]
 
         panel.set_active_verse(3)
 
-        assert _visible_verses(panel) == [1, 3]  # 0은 숨고 3이 나타남
+        assert _visible_verses(panel) == [1]  # 미매핑 활성 절은 표시 안 함
 
     def test_no_mapping_shows_only_active(self, panel):
         h = Hotspot(x=1, y=1)

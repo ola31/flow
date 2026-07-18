@@ -336,13 +336,17 @@ class MappingPanel(QFrame):
         self._update_row_visibility()
 
     def _update_row_visibility(self) -> None:
-        """매핑 없는 절 행은 숨긴다 — 빈 슬롯이 화면을 차지하지 않게.
+        """매핑된 절 행만 보여준다 — 빈 슬롯이 화면을 차지하지 않게.
 
-        단 현재 활성 절은 매핑이 없어도 표시한다 (더블클릭 매핑 대상을
-        시각적으로 유지 — 빈 행은 최대 1개).
+        아무 매핑도 없을 때만 활성 절 행 하나를 남긴다 (패널이 텅 비지
+        않게 + 더블클릭 매핑 대상 표시).
         """
+        any_mapped = any(r._is_mapped for r in self._rows)
         for i, row in enumerate(self._rows):
-            row.setVisible(row._is_mapped or i == self._active_verse)
+            row.setVisible(
+                row._is_mapped
+                or (not any_mapped and i == self._active_verse)
+            )
 
     def _refresh(self) -> None:
         if not self._hotspot:
