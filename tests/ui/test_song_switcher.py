@@ -399,3 +399,46 @@ class TestImmediateSheetDisplay:
             mw._slide_manager.shutdown()
             mw._clear_dirty()
             mw.close()
+
+
+class TestSwitcherLyricsSearch:
+    """곡 전환 목록 검색은 이름뿐 아니라 가사(slides.md)도 매칭해야 한다."""
+
+    def _widget_with_lyrics(self, qtbot, tmp_path):
+        lib = _make_library(tmp_path, ["song_alpha", "song_beta", "song_gamma"])
+        (lib / "song_alpha" / "slides.md").write_text(
+            "# 페이지\n하늘의 별처럼 빛나는\n", encoding="utf-8"
+        )
+        song_dir = lib / "song_beta"
+        song = Song(
+            name="song_beta",
+            folder=song_dir,
+            score_sheets=[ScoreSheet(name="page", image_path="a.png")],
+            project_dir=song_dir,
+        )
+        w = SongListWidget()
+        qtbot.addWidget(w)
+        w.set_main_window(_FakeMainWindow(song_dir, workspace=_FakeWorkspace(lib)))
+        w.set_standalone(True)
+        project = Project(name="[곡 편집] song_beta")
+        project.selected_songs = [song]
+        w.set_project(project)
+        return w
+
+    def test_lyrics_match_filters_rows(self, qtbot, tmp_path):
+        w = self._widget_with_lyrics(qtbot, tmp_path)
+        sw = w._song_switcher
+
+        sw._search.setText("별처럼")
+
+        visible = [r._name for r in sw._rows if not r.isHidden()]
+        assert visible == ["song_alpha"]
+
+    def test_name_match_still_works(self, qtbot, tmp_path):
+        w = self._widget_with_lyrics(qtbot, tmp_path)
+        sw = w._song_switcher
+
+        sw._search.setText("gamma")
+
+        visible = [r._name for r in sw._rows if not r.isHidden()]
+        assert visible == ["song_gamma"]

@@ -1199,8 +1199,7 @@ class _LibrarySongSwitcher(QWidget):
         return [r._name for r in self._rows]
 
     @staticmethod
-    def _warning_for(song_dir: Path) -> str:
-        st = _scan_library_song(song_dir)
+    def _warning_from(st: dict) -> str:
         return " · ".join(
             _completeness_warnings(
                 st["sheet_count"],
@@ -1210,9 +1209,12 @@ class _LibrarySongSwitcher(QWidget):
         )
 
     def _make_row(
-        self, song_dir: Path, is_current: bool, warning: str
+        self, song_dir: Path, is_current: bool, st: dict | None = None
     ) -> _SwitcherRow:
-        row = _SwitcherRow(song_dir.name, is_current, warning)
+        st = st or _scan_library_song(song_dir)
+        row = _SwitcherRow(song_dir.name, is_current, self._warning_from(st))
+        # 가사 검색용 — 스캔 시 이미 읽으므로 추가 비용 없음
+        row._lyrics = st["lyrics"].lower()
         # 모든 행을 연결하고 현재 곡만 가드 — 재사용 시 현재 곡이
         # 바뀌어도 연결을 다시 만들 필요가 없다
         row.clicked.connect(
@@ -1225,9 +1227,7 @@ class _LibrarySongSwitcher(QWidget):
 
     def _populate(self) -> None:
         for d in self._list_folders():
-            row = self._make_row(
-                d, d.name == self._current_name, self._warning_for(d)
-            )
+            row = self._make_row(d, d.name == self._current_name)
             self._rows.append(row)
             self._list_layout.insertWidget(self._list_layout.count() - 1, row)
 
@@ -1242,9 +1242,9 @@ class _LibrarySongSwitcher(QWidget):
         for i, row in enumerate(self._rows):
             if row._name == old:
                 d = self._library_dir / old
-                warning = self._warning_for(d)
-                if warning != row._warning:
-                    new_row = self._make_row(d, False, warning)
+                st = _scan_library_song(d)
+                if self._warning_from(st) != row._warning:
+                    new_row = self._make_row(d, False, st)
                     idx = self._list_layout.indexOf(row)
                     self._list_layout.removeWidget(row)
                     row.deleteLater()
@@ -1252,6 +1252,8 @@ class _LibrarySongSwitcher(QWidget):
                     self._rows[i] = new_row
                 else:
                     row.set_current(False)
+                    # 방금까지 편집한 곡 — 가사도 바뀌었을 수 있음
+                    row._lyrics = st["lyrics"].lower()
             elif row._name == folder_name:
                 row.set_current(True)
         self._filter(self._search.text())
@@ -1260,7 +1262,11 @@ class _LibrarySongSwitcher(QWidget):
     def _filter(self, query: str) -> None:
         q = query.strip().lower()
         for row in self._rows:
-            row.setVisible(not q or q in row._name.lower())
+            row.setVisible(
+                not q
+                or q in row._name.lower()
+                or q in getattr(row, "_lyrics", "")
+            )
 
     def _toggle_collapsed(self) -> None:
         self._collapsed = not self._collapsed
