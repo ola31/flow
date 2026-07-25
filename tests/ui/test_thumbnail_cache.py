@@ -265,3 +265,54 @@ class TestThumbnailIconCache:
         assert mgr.peek_calls == []
         assert "●" in panel._list.item(1).text()
         assert "●" not in panel._list.item(0).text()
+
+
+class TestRefreshDoesNotEmitSelection:
+    """프로그램이 목록을 다시 채울 때 slide_selected가 나가면 안 된다.
+
+    takeItem/clear가 현재 항목을 지우면 Qt가 current를 다른 행으로 옮기며
+    currentItemChanged를 쏜다. MainWindow는 그 신호를 "사용자가 슬라이드를
+    골랐다"로 보고 선택된 핫스팟에 매핑을 걸어 undo를 push한다 — 곡 편집에
+    들어갔다 나오기만 해도 프로젝트가 변경됨으로 표시되던 원인.
+    """
+
+    def test_truncating_list_emits_nothing(self, qtbot):
+        mgr = _FakeManager(count=5)
+        panel = _make_panel(qtbot, mgr)
+        panel.refresh_slides()
+        panel.select_slide(4)  # 마지막 항목이 현재 선택
+
+        emitted: list[int] = []
+        panel.slide_selected.connect(emitted.append)
+
+        mgr.count = 2  # 곡 편집 진입 — 슬라이드 수가 줄어듦
+        panel.refresh_slides()
+
+        assert emitted == []
+
+    def test_growing_list_emits_nothing(self, qtbot):
+        mgr = _FakeManager(count=1)
+        panel = _make_panel(qtbot, mgr)
+        panel.refresh_slides()
+        panel.select_slide(0)
+
+        emitted: list[int] = []
+        panel.slide_selected.connect(emitted.append)
+
+        mgr.count = 4  # 프로젝트로 복귀 — 슬라이드 수가 늘어남
+        panel.refresh_slides()
+
+        assert emitted == []
+
+    def test_user_click_still_emits(self, qtbot):
+        mgr = _FakeManager(count=3)
+        panel = _make_panel(qtbot, mgr)
+        panel.refresh_slides()
+
+        emitted: list[int] = []
+        panel.slide_selected.connect(emitted.append)
+
+        # 실제 사용자 선택은 신호가 그대로 나가야 한다
+        panel._list.setCurrentRow(1)
+
+        assert emitted == [1]

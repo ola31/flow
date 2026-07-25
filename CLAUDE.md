@@ -55,7 +55,8 @@ PPT→image conversion (via LibreOffice + pdf2image) must run on a `QThread` wor
 
 - **Verse index encoding**: `0–4` = verses 1–5 (user-facing), `5` = **chorus** (fallback when no verse-specific mapping exists). Getters that accept a verse index must honor this fallback.
 - **Signal wiring**: connect `currentItemChanged` OR `itemClicked`, never both — connecting both fires duplicate handlers.
-- **Number-key verse change**: after changing verse in live mode, `LiveController.sync_live()` must be called or the display window drifts out of sync.
+- **Verse change is preview-only in live mode**: changing the verse (number keys / nav bar) must move Preview only — Live changes solely on Enter/Space. `send_to_live()` commits `_live_slide_index` (+ `_live_verse_index`); `sync_live()` re-emits that committed index and must **not** recompute from `project.current_verse_index`, or the output screen jumps the moment a verse button is pressed.
+- **Live slides that aren't converted yet**: `LiveController` keeps the last frame and polls `_pending_slide_index` until the image lands. Never rely on `load_finished` alone — it's suppressed during screen transitions and lost when the worker queue is flushed. Any code that empties the worker queue (`stop_workers`, `reset_worker`, `add_task`) must also reset `_pending_conversions`/`_loading`, or `SlideManager` stops scheduling conversions entirely.
 - **JSON path serialization**: always `Path.as_posix()` before writing so Windows backslashes don't leak into cross-platform project files.
 
 ## Design system (enforced, not conventional)

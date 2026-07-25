@@ -100,52 +100,15 @@ def _completeness_warnings(
 
 
 def _scan_library_song(song_dir: Path) -> dict:
-    """라이브러리의 곡 폴더를 스캔해 상태 정보 반환."""
-    result = {"name": song_dir.name, "path": song_dir}
+    """라이브러리의 곡 폴더를 스캔해 상태 정보 반환.
 
-    # 악보 이미지 확인 (미리보기용 첫 장 경로 포함)
-    sheet_count = 0
-    first_sheet = None
-    for sub in ("sheets", "sheet"):
-        d = song_dir / sub
-        if d.is_dir():
-            imgs = sorted(
-                f for f in d.iterdir()
-                if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}
-            )
-            sheet_count += len(imgs)
-            if first_sheet is None and imgs:
-                first_sheet = imgs[0]
-    result["sheet_count"] = sheet_count
-    result["first_sheet"] = first_sheet
+    실제 읽기는 mtime 키 캐시(services.song_index)가 담당한다 — 라이브러리
+    화면과 같은 캐시를 공유하므로 곡 추가 팝업을 다시 열 때 디스크를
+    한 번도 건드리지 않는다.
+    """
+    from flow.services.song_index import song_info
 
-    # PPT / 마크다운 확인
-    result["has_ppt"] = detect_slides_file(song_dir) is not None
-    result["has_md"] = (song_dir / "slides.md").exists()
-
-    # 가사 검색용 텍스트 — 선두 frontmatter(설정) 블록을 제외한 본문(원문).
-    # PPT 곡 등 slides.md가 없으면 빈 문자열(제목으로만 검색). 매칭 시 lower().
-    from flow.services.markdown import read_song_lyrics
-
-    result["lyrics"] = read_song_lyrics(song_dir)
-
-    # song.json에서 핫스팟 수 확인
-    total_hs, mapped_hs = 0, 0
-    song_json = song_dir / "song.json"
-    if song_json.exists():
-        try:
-            with open(song_json, encoding="utf-8-sig") as f:
-                data = json.load(f)
-            for sheet_data in data.get("sheets", []):
-                for h in sheet_data.get("hotspots", []):
-                    total_hs += 1
-                    if h.get("slide_mappings") or h.get("slide_index", -1) >= 0:
-                        mapped_hs += 1
-        except Exception:
-            pass
-    result["total_hotspots"] = total_hs
-    result["mapped_hotspots"] = mapped_hs
-    return result
+    return song_info(song_dir)
 
 
 
@@ -160,6 +123,20 @@ class _ElidedLabel(QLabel):
         self.setToolTip(text)
         self.setMinimumWidth(40)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+
+    def setText(self, text: str) -> None:  # noqa: N802
+        # 말줄임의 원본은 _full_text — 갱신하지 않으면 다음 리사이즈에서
+        # 옛 텍스트로 되돌아간다.
+        self._full_text = text
+        self.setToolTip(text)
+        if self.width() <= 0:
+            super().setText(text)
+            return
+        super().setText(
+            self.fontMetrics().elidedText(
+                text, Qt.TextElideMode.ElideRight, self.width()
+            )
+        )
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         metrics = self.fontMetrics()
@@ -191,9 +168,11 @@ class _LibrarySongCard(QFrame):
         self._match_snippet = match_snippet
         self._add_buttons: list[QPushButton] = []
         self._added: bool = False
-        # 추가 전 미리보기 (첫 악보 + 가사) — 펼칠 때 처음 로드
+        # 추가 전 미리보기 (첫 악보 + 가사) — 펼칠 때 처음 로드.
+        # 가사는 곡당 slides.md 전문을 읽어야 하므로 여기서 읽지 않는다.
         self._first_sheet = info.get("first_sheet")
-        self._preview_lyrics = info.get("lyrics", "")
+        self._lyrics_override = info.get("lyrics")
+        self._song_dir = info.get("path")
         self._preview_expanded = False
         self._preview_widget: QWidget | None = None
         self._setup_ui(info)
@@ -214,6 +193,17 @@ class _LibrarySongCard(QFrame):
             self._outer.addWidget(self._preview_widget)
         if self._preview_widget is not None:
             self._preview_widget.setVisible(expanded)
+
+    @property
+    def _preview_lyrics(self) -> str:
+        """미리보기용 가사 — 펼치는 시점에 한 번만 읽는다(이후 캐시 히트)."""
+        if self._lyrics_override is not None:
+            return self._lyrics_override
+        if self._song_dir is None:
+            return ""
+        from flow.services.song_index import song_lyrics
+
+        return song_lyrics(self._song_dir)[0]
 
     def _build_preview(self) -> QWidget:
         from PySide6.QtGui import QPixmap
@@ -329,13 +319,17 @@ class _LibrarySongCard(QFrame):
         left.addWidget(self._added_badge)
 
         # 가사 검색 매칭 줄 — 가사로 검색되어 매칭 줄이 있을 때만 표시.
-        if self._match_snippet:
-            snippet_lbl = _ElidedLabel(f"“{self._match_snippet}”")
-            snippet_lbl.setStyleSheet(
-                f"font-size: {FONT_SM}px; color: {TEXT_SECONDARY};"
-                f" background: transparent;"
-            )
-            left.addWidget(snippet_lbl)
+        # 라벨은 항상 만들어 두고 숨긴다: 검색어가 바뀔 때마다 카드를 새로
+        # 만들지 않고 텍스트만 갈아끼우기 위해서다.
+        self._snippet_lbl = _ElidedLabel(
+            f"“{self._match_snippet}”" if self._match_snippet else ""
+        )
+        self._snippet_lbl.setStyleSheet(
+            f"font-size: {FONT_SM}px; color: {TEXT_SECONDARY};"
+            f" background: transparent;"
+        )
+        self._snippet_lbl.setVisible(bool(self._match_snippet))
+        left.addWidget(self._snippet_lbl)
 
         root.addLayout(left, 1)
 
@@ -392,6 +386,12 @@ class _LibrarySongCard(QFrame):
             root.addWidget(btn)
             self._add_buttons.append(btn)
 
+    def set_match_snippet(self, snippet: str) -> None:
+        """검색 매칭 줄 갱신 (카드 재사용 시 텍스트만 교체)."""
+        self._match_snippet = snippet
+        self._snippet_lbl.setText(f"“{snippet}”" if snippet else "")
+        self._snippet_lbl.setVisible(bool(snippet))
+
     def set_added(self, added: bool) -> None:
         """이미 추가됨 상태를 토글한다."""
         self._added = added
@@ -424,6 +424,8 @@ class SongLibraryBrowser(QWidget):
         self._workspace = workspace
         self._all_infos: list[dict] = []
         self._cards: list[_LibrarySongCard] = []
+        # 곡 이름 → 카드. 검색할 때마다 카드를 다시 만들지 않고 재사용한다.
+        self._card_pool: dict[str, _LibrarySongCard] = {}
         self._setup_ui()
         self._scan()
 
@@ -514,23 +516,33 @@ class SongLibraryBrowser(QWidget):
             if folder.is_dir() and (folder / "song.json").exists():
                 self._all_infos.append(_scan_library_song(folder))
 
+        # 라이브러리에서 사라진 곡의 카드는 폐기 (재스캔 시)
+        alive = {info["name"] for info in self._all_infos}
+        for name in [n for n in self._card_pool if n not in alive]:
+            self._card_pool.pop(name).deleteLater()
+
         self._render(self._all_infos)
 
     def _filter(self, query: str) -> None:
+        from flow.services.song_index import song_lyrics
+
         q = query.strip().lower()
         if not q:
             self._render(self._all_infos)
             return
         filtered = [
             info for info in self._all_infos
-            if q in info["name"].lower() or q in info.get("lyrics", "").lower()
+            if q in info["name_lower"]
+            or q in song_lyrics(info["path"])[1]
         ]
         self._render(filtered, q)
 
     def _render(self, infos: list[dict], query: str = "") -> None:
+        # 카드는 레이아웃에서만 떼어내고 재사용한다 — 검색 한 글자마다
+        # 수백 개 카드를 새로 만들면 타이핑이 밀린다.
         for card in self._cards:
             self._list_layout.removeWidget(card)
-            card.deleteLater()
+            card.setVisible(False)
         self._cards.clear()
 
         if not infos:
@@ -556,18 +568,26 @@ class SongLibraryBrowser(QWidget):
             added = info["name"] in self._included
             # 제목이 아니라 가사로 매칭된 경우에만 매칭 줄을 카드에 표시
             snippet = ""
-            if query and query not in info["name"].lower():
+            if query and query not in info["name_lower"]:
                 from flow.services.markdown import lyric_snippet
+                from flow.services.song_index import song_lyrics
 
-                snippet = lyric_snippet(info.get("lyrics", ""), query)
-            card = _LibrarySongCard(
-                info, workspace_mode=workspace_mode, added=added,
-                match_snippet=snippet,
-            )
-            card.add_clicked.connect(self._on_song_added)
-            card.toggle_preview_requested.connect(self._on_toggle_preview)
+                snippet = lyric_snippet(song_lyrics(info["path"])[0], query)
+            card = self._card_pool.get(info["name"])
+            if card is None:
+                card = _LibrarySongCard(
+                    info, workspace_mode=workspace_mode, added=added,
+                    match_snippet=snippet,
+                )
+                card.add_clicked.connect(self._on_song_added)
+                card.toggle_preview_requested.connect(self._on_toggle_preview)
+                self._card_pool[info["name"]] = card
+            else:
+                card.set_match_snippet(snippet)
+                card.set_added(added)
             self._cards.append(card)
             self._list_layout.insertWidget(self._list_layout.count() - 1, card)
+            card.setVisible(True)
 
     def _on_toggle_preview(self, name: str) -> None:
         """카드 본체 클릭 → 미리보기 토글 (한 번에 하나만 펼침)."""
@@ -1346,9 +1366,9 @@ class _LibrarySongSwitcher(QWidget):
     ) -> _SwitcherRow:
         st = st or _scan_library_song(song_dir)
         row = _SwitcherRow(song_dir.name, is_current, self._warning_from(st))
-        # 가사 검색용 — 스캔 시 이미 읽으므로 추가 비용 없음
-        row._lyrics_raw = st["lyrics"]
-        row._lyrics = st["lyrics"].lower()
+        # 가사는 검색을 시작할 때 읽는다 — 곡을 열 때마다 라이브러리 전체의
+        # slides.md를 읽으면 열기가 그만큼 느려진다 (mtime 캐시가 재사용).
+        row._song_dir = song_dir
         # 모든 행을 연결하고 현재 곡만 가드 — 재사용 시 현재 곡이
         # 바뀌어도 연결을 다시 만들 필요가 없다
         row.clicked.connect(
@@ -1385,10 +1405,9 @@ class _LibrarySongSwitcher(QWidget):
                     self._list_layout.insertWidget(idx, new_row)
                     self._rows[i] = new_row
                 else:
+                    # 가사가 바뀌었어도 song_lyrics가 mtime으로 알아서
+                    # 새로 읽는다 — 여기서 미리 채워둘 필요가 없다
                     row.set_current(False)
-                    # 방금까지 편집한 곡 — 가사도 바뀌었을 수 있음
-                    row._lyrics_raw = st["lyrics"]
-                    row._lyrics = st["lyrics"].lower()
             elif row._name == folder_name:
                 row.set_current(True)
         self._filter(self._search.text())
@@ -1396,21 +1415,19 @@ class _LibrarySongSwitcher(QWidget):
 
     def _filter(self, query: str) -> None:
         from flow.services.markdown import lyric_snippet
+        from flow.services.song_index import song_lyrics
 
         q = query.strip().lower()
         for row in self._rows:
             name_hit = not q or q in row._name.lower()
-            lyric_hit = (
-                bool(q)
-                and not name_hit
-                and q in getattr(row, "_lyrics", "")
-            )
+            lyrics = ""
+            lyric_hit = False
+            if q and not name_hit and getattr(row, "_song_dir", None):
+                lyrics, lyrics_lower = song_lyrics(row._song_dir)
+                lyric_hit = q in lyrics_lower
             row.setVisible(name_hit or lyric_hit)
             # 가사로 매칭된 행은 제목 아래에 매칭 줄을 보여준다
-            row.set_snippet(
-                lyric_snippet(getattr(row, "_lyrics_raw", ""), q)
-                if lyric_hit else ""
-            )
+            row.set_snippet(lyric_snippet(lyrics, q) if lyric_hit else "")
 
     def _toggle_collapsed(self) -> None:
         self._collapsed = not self._collapsed
@@ -1421,6 +1438,17 @@ class _LibrarySongSwitcher(QWidget):
         self._body.setVisible(not self._collapsed)
         arrow = "▸" if self._collapsed else "▾"
         self._header_btn.setText(f"{arrow}  곡 전환")
+
+
+class _RenamableLabel(QLabel):
+    """더블클릭으로 이름 변경을 요청하는 라벨."""
+
+    double_clicked = Signal()
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.double_clicked.emit()
+        super().mouseDoubleClickEvent(event)
 
 
 class _StandalonePanel(QWidget):
@@ -1437,6 +1465,7 @@ class _StandalonePanel(QWidget):
     open_ppt_requested = Signal()
     import_ppt_requested = Signal()
     open_folder_requested = Signal()
+    song_rename_requested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -1449,12 +1478,40 @@ class _StandalonePanel(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
 
-        # 곡 이름 헤더
-        self._song_name = QLabel("—")
+        # 곡 이름 헤더 — 이름 옆 연필 버튼(또는 이름 더블클릭)으로 이름 변경
+        name_row = QHBoxLayout()
+        name_row.setContentsMargins(0, 0, 0, 0)
+        name_row.setSpacing(SP_XS)
+
+        self._song_name = _RenamableLabel("—")
         self._song_name.setStyleSheet(
             f"font-size: {FONT_TITLE}px; font-weight: {FW_SEMI}; color: {TEXT_PRIMARY};"
         )
-        layout.addWidget(self._song_name)
+        self._song_name.double_clicked.connect(self.song_rename_requested.emit)
+        name_row.addWidget(self._song_name, 1)
+
+        from PySide6.QtCore import QSize
+
+        from flow.ui.icons import icon_qicon
+
+        self._btn_rename = QPushButton()
+        self._btn_rename.setIcon(icon_qicon("edit", size=14, color=TEXT_TERTIARY))
+        self._btn_rename.setIconSize(QSize(14, 14))
+        self._btn_rename.setFixedSize(24, 24)
+        self._btn_rename.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_rename.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_rename.setToolTip("곡 이름 변경 (폴더명도 함께 바뀝니다)")
+        self._btn_rename.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: none;
+                border-radius: {RADIUS_SM}px;
+            }}
+            QPushButton:hover {{ background: {BG_HOVER}; }}
+        """)
+        self._btn_rename.clicked.connect(self.song_rename_requested.emit)
+        name_row.addWidget(self._btn_rename)
+
+        layout.addLayout(name_row)
 
         # 페이지 카드 컨테이너
         self._pages_layout = QVBoxLayout()
@@ -1894,6 +1951,8 @@ class SongListWidget(QWidget):
         # 라이브 중에도 "라이브러리에서 추가"는 허용 (좌측 패널로 열림)
         self._btn_add_lib.setEnabled(True)
         self._btn_new_song.setEnabled(editable)
+        if self._standalone_panel is not None:
+            self._standalone_panel._btn_rename.setEnabled(editable)
         # 카드별 편집 버튼도 상태 반영 (라이브 중 편집 진입 차단)
         for card in self._cards:
             btn_edit = getattr(card, "_btn_edit", None)
@@ -2158,6 +2217,8 @@ class SongListWidget(QWidget):
         panel.import_ppt_requested.connect(self._on_import_ppt_clicked)
         panel.edit_markdown_requested.connect(self._on_edit_markdown_clicked)
         panel.open_folder_requested.connect(self._on_open_folder_clicked)
+        panel.song_rename_requested.connect(self._on_rename_song_clicked)
+        panel._btn_rename.setEnabled(self._editable)
 
         # PPT/마크다운 상호 배타: 곡 폴더에 실제로 있는 형식만 활성화.
         # 한쪽이 있는 곡에 다른 형식 버튼을 누르면 새 파일이 생성되며 기존
@@ -2518,6 +2579,13 @@ class SongListWidget(QWidget):
         if self._project and self._project.selected_songs:
             self._set_song_image(self._project.selected_songs[0])
 
+    def _on_rename_song_clicked(self) -> None:
+        """단독 곡 편집 모드: 곡 이름(=폴더명) 변경을 메인 윈도우에 위임."""
+        if self._main_window is not None and hasattr(
+            self._main_window, "rename_current_song"
+        ):
+            self._main_window.rename_current_song()
+
     def _on_edit_markdown_clicked(self) -> None:
         """단독 곡 편집 모드: 이 곡의 slides.md를 인앱 에디터로 편집.
 
@@ -2838,53 +2906,94 @@ class SongListWidget(QWidget):
             self._main_window.show_markdown_editor(song)
 
     def _set_song_image(self, song: Song) -> None:
+        """악보 이미지를 곡에 추가한다 (여러 장 동시 선택 가능).
+
+        여러 장을 고르면 이름을 장마다 묻지 않고 파일명에서 자동으로
+        짓는다 — 한 곡에 악보 5~6장을 넣는 게 흔한데 매번 대화상자를
+        띄우면 작업이 끊긴다. 한 장만 고른 경우는 기존대로 이름을 묻는다.
+        """
         import shutil
 
         project_dir = self._get_project_dir() or Path.cwd()
         song_dir = project_dir / song.folder
-        image_path, _ = QFileDialog.getOpenFileName(
+        image_paths, _ = QFileDialog.getOpenFileNames(
             self,
-            f"'{song.name}'에 추가할 악보 이미지 선택",
+            f"'{song.name}'에 추가할 악보 이미지 선택 (여러 장 선택 가능)",
             str(song_dir) if song_dir.exists() else str(project_dir),
             "이미지 (*.jpg *.jpeg *.png *.bmp)",
         )
-        if not image_path:
+        if not image_paths:
             return
 
-        p_path = Path(image_path).resolve()
-        default_name = f"{song.name} - {p_path.stem}"
-        sheet_name, ok = QInputDialog.getText(
-            self, "시트 이름 지정",
-            f"'{p_path.name}'의 이름을 입력하세요:",
-            text=default_name,
-        )
-        if not ok or not sheet_name.strip():
-            return
+        # 파일 대화상자는 클릭 순서대로 돌려준다 — 악보는 page1, page2…
+        # 순으로 붙는 게 자연스러우므로 파일명으로 정렬한다.
+        if len(image_paths) > 1:
+            image_paths = sorted(image_paths, key=lambda p: Path(p).name.lower())
+
+        names: list[str] = []
+        if len(image_paths) == 1:
+            p_path = Path(image_paths[0]).resolve()
+            sheet_name, ok = QInputDialog.getText(
+                self, "시트 이름 지정",
+                f"'{p_path.name}'의 이름을 입력하세요:",
+                text=f"{song.name} - {p_path.stem}",
+            )
+            if not ok or not sheet_name.strip():
+                return
+            names.append(sheet_name.strip())
+        else:
+            names = [
+                f"{song.name} - {Path(p).stem}" for p in image_paths
+            ]
 
         sheets_dir = song.sheets_dir if song.sheets_dir else (song.folder / "sheets")
         abs_sheets_dir = project_dir / sheets_dir
         abs_sheets_dir.mkdir(parents=True, exist_ok=True)
-        dest_path = abs_sheets_dir / p_path.name
-        if p_path.parent != abs_sheets_dir:
-            try:
-                shutil.copy2(image_path, dest_path)
-            except shutil.SameFileError:
-                pass
-
         rel_sheets = (
             sheets_dir.relative_to(song.folder)
             if song.folder and sheets_dir.is_relative_to(song.folder)
             else Path("sheets")
         )
-        new_sheet = ScoreSheet(
-            name=sheet_name.strip(),
-            image_path=(rel_sheets / p_path.name).as_posix(),
-        )
-        song.score_sheets.append(new_sheet)
+
+        added: list[ScoreSheet] = []
+        failed: list[str] = []
+        for image_path, sheet_name in zip(image_paths, names):
+            p_path = Path(image_path).resolve()
+            dest_path = abs_sheets_dir / p_path.name
+            if p_path.parent != abs_sheets_dir:
+                try:
+                    shutil.copy2(image_path, dest_path)
+                except shutil.SameFileError:
+                    pass
+                except OSError as e:
+                    failed.append(f"{p_path.name}: {e}")
+                    continue
+
+            new_sheet = ScoreSheet(
+                name=sheet_name,
+                image_path=(rel_sheets / p_path.name).as_posix(),
+            )
+            song.score_sheets.append(new_sheet)
+            added.append(new_sheet)
+
+        if failed:
+            from flow.ui import dialogs
+            dialogs.flow_warning(
+                self,
+                "일부 악보를 추가하지 못했습니다",
+                "\n".join(failed),
+            )
+        if not added:
+            return
+
         self.refresh_list()
-        self.select_sheet_by_id(new_sheet.id)
+        self.select_sheet_by_id(added[0].id)
         if self._main_window:
             self._main_window._mark_dirty()
+            if len(added) > 1:
+                self._main_window.statusBar().showMessage(
+                    f"악보 {len(added)}장을 추가했습니다.", 3000
+                )
 
     # ── 드롭 (외부 파일/폴더) ────────────────────────────────────────────
 

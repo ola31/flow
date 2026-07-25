@@ -804,3 +804,75 @@ class TestWatcherSamePathSkip:
 
         assert manager._observer is not first
         manager.stop_watching()
+
+
+class TestConversionQueueNeverStalls:
+    """예약 카운터가 굳으면 백그라운드 변환이 조용히 멈춘다.
+
+    _loading이 True로 남으면 이후 peek 미스가 변환을 예약하지 못하고,
+    라이브에서 핫스팟을 눌러도 슬라이드가 안 바뀌는 증상이 된다.
+    """
+
+    def _make_pptx_song(self, tmp_path, name="song_q"):
+        from pptx import Presentation
+
+        from flow.domain.song import Song
+
+        d = tmp_path / "songs" / name
+        d.mkdir(parents=True)
+        Presentation().save(str(d / "slides.pptx"))
+        song = Song(name=name, folder=d, project_dir=tmp_path)
+        song.set_slide_count(3)
+        return song
+
+    def test_stop_workers_resets_pending_counter(self, manager):
+        manager._pending_conversions = 4
+        manager._loading = True
+        manager._queued_conversions = {Path("/a.pptx")}
+
+        manager.stop_workers()
+
+        assert manager._pending_conversions == 0
+        assert manager._loading is False
+        assert manager._queued_conversions == set()
+
+    def test_reset_worker_resets_pending_counter(self, manager):
+        manager._pending_conversions = 2
+        manager._loading = True
+
+        manager.reset_worker()
+
+        assert manager._pending_conversions == 0
+        assert manager._loading is False
+
+    def test_busy_worker_queues_instead_of_dropping(
+        self, manager, mock_converter, tmp_path
+    ):
+        song = self._make_pptx_song(tmp_path)
+        manager._songs = [song]
+        manager._recalculate_offsets()
+        mock_converter.get_cached_slide.return_value = None
+        manager._loading = True
+        manager._pending_conversions = 1
+        manager._queued_conversions = set()
+        queued = []
+        manager._worker.queue_task = queued.append
+
+        manager.peek_slide_image(0)
+
+        # 다른 파일 변환 중이라도 요청을 버리지 않고 뒤에 붙인다
+        assert len(queued) == 1
+        assert manager._pending_conversions == 2
+
+        manager.peek_slide_image(1)  # 같은 파일 — 중복 예약 안 함
+        assert len(queued) == 1
+
+    def test_counter_returns_to_zero_after_finish(self, manager):
+        manager._pending_conversions = 1
+        manager._loading = True
+        manager._queued_conversions = {Path("/a.pptx")}
+
+        manager._on_single_load_finished(3)
+
+        assert manager._loading is False
+        assert manager._queued_conversions == set()

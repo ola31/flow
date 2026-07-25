@@ -52,6 +52,15 @@ def _first_card(screen):
     return None
 
 
+def _card_titles(screen):
+    titles = []
+    for i in range(screen._cards_layout.count()):
+        w = screen._cards_layout.itemAt(i).widget()
+        if w is not None:
+            titles.append(w._title_lbl.text())
+    return titles
+
+
 class TestLibraryRefreshSkip:
     def test_unchanged_library_keeps_cards(self, screen):
         card_before = _first_card(screen)
@@ -61,20 +70,27 @@ class TestLibraryRefreshSkip:
 
         assert _first_card(screen) is card_before  # 재생성 없음
 
-    def test_songjson_change_rebuilds(self, screen, tmp_path):
+    def test_content_change_updates_card_in_place(self, screen, tmp_path):
+        """변경 감지 시 카드 위젯은 재사용하되 내용은 갱신된다.
+
+        카드를 통째로 다시 만들면 검색 한 글자마다 수백 개 QFrame이
+        재생성돼 타이핑이 밀린다 — 위젯은 유지하고 텍스트만 갈아끼운다.
+        """
         card_before = _first_card(screen)
-        target = tmp_path / "library" / "song_one" / "song.json"
+        assert "슬라이드 없음" in card_before._sub_lbl.text()
         time.sleep(0.01)
-        target.write_text(
-            json.dumps({"name": "song_one", "sheets": []}), encoding="utf-8-sig"
+        # 슬라이드가 생기면 부제가 "슬라이드 없음" → "마크다운"으로 바뀜
+        (tmp_path / "library" / "song_one" / "slides.md").write_text(
+            "---\n---\n\n# song_one\n", encoding="utf-8"
         )
 
         screen.refresh()
 
-        assert _first_card(screen) is not card_before  # 변경 감지 → 재구성
+        assert _first_card(screen) is card_before  # 위젯은 재사용
+        assert "마크다운" in card_before._sub_lbl.text()  # 내용은 갱신
 
-    def test_new_song_rebuilds(self, screen, tmp_path):
-        card_before = _first_card(screen)
+    def test_new_song_appears(self, screen, tmp_path):
+        titles_before = _card_titles(screen)
         d = tmp_path / "library" / "song_three"
         d.mkdir()
         with open(d / "song.json", "w", encoding="utf-8-sig") as f:
@@ -82,7 +98,17 @@ class TestLibraryRefreshSkip:
 
         screen.refresh()
 
-        assert _first_card(screen) is not card_before
+        assert "song_three" not in titles_before
+        assert "song_three" in _card_titles(screen)
+
+    def test_removed_song_disappears(self, screen, tmp_path):
+        import shutil
+
+        shutil.rmtree(tmp_path / "library" / "song_one")
+
+        screen.refresh()
+
+        assert "song_one" not in _card_titles(screen)
 
 
 class TestRecentItemsSkip:

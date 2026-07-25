@@ -500,6 +500,21 @@ class SlidePreviewPanel(QWidget):
         MarkdownSlideConverter의 content-hash 캐시와 결합되어, 패치된
         슬라이드 하나만 갱신할 때 다른 썸네일은 그대로 유지됨.
         """
+        # 목록을 프로그램이 다시 채우는 동안에는 선택 변경 신호를 막는다.
+        # takeItem/clear가 현재 항목을 지우면 Qt가 current를 다른 행으로
+        # 옮기며 currentItemChanged를 쏘는데, 그 신호는 "사용자가 슬라이드를
+        # 골랐다"로 해석돼 선택된 핫스팟에 매핑이 걸리고 프로젝트가 dirty가
+        # 된다 (곡 편집에 들어갔다 나오기만 해도 변경사항이 생기는 원인 —
+        # 곡 편집은 슬라이드 수가 줄어 truncate 경로를 반드시 밟는다).
+        blocked = self._list.signalsBlocked()
+        self._list.blockSignals(True)
+        try:
+            self._refresh_slides_locked()
+        finally:
+            self._list.blockSignals(blocked)
+
+    def _refresh_slides_locked(self) -> None:
+        """refresh_slides의 본체 — 선택 변경 신호가 막힌 상태로 호출된다."""
         if not self._slide_manager:
             self._list.clear()
             return

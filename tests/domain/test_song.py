@@ -149,10 +149,10 @@ class TestSongAbsolutePaths:
         song = Song(
             name="Test",
             folder=Path("songs/test"),
-            project_dir=Path("/home/user/projects/worship"),
+            project_dir=Path("/home/user/projects/sample"),
         )
 
-        expected = Path("/home/user/projects/worship/songs/test/slides.pptx")
+        expected = Path("/home/user/projects/sample/songs/test/slides.pptx")
         assert song.abs_slides_path == expected
 
     def test_abs_sheets_dir_with_project_dir(self):
@@ -160,10 +160,10 @@ class TestSongAbsolutePaths:
         song = Song(
             name="Test",
             folder=Path("songs/test"),
-            project_dir=Path("/home/user/projects/worship"),
+            project_dir=Path("/home/user/projects/sample"),
         )
 
-        expected = Path("/home/user/projects/worship/songs/test/sheets")
+        expected = Path("/home/user/projects/sample/songs/test/sheets")
         assert song.abs_sheets_dir == expected
 
 
@@ -268,10 +268,10 @@ class TestSlidesFileAutoDetection:
 
     def test_single_custom_named_pptx_detected(self, tmp_path):
         d, song = self._song(tmp_path)
-        (d / "찬양대회.pptx").write_bytes(b"PK")
+        (d / "발표자료.pptx").write_bytes(b"PK")
 
         assert song.has_slides is True
-        assert song.abs_slides_path == d / "찬양대회.pptx"
+        assert song.abs_slides_path == d / "발표자료.pptx"
         assert song.slide_source == "pptx"
 
     def test_conventional_name_wins_over_custom(self, tmp_path):
@@ -291,7 +291,7 @@ class TestSlidesFileAutoDetection:
 
     def test_markdown_still_wins_over_custom_pptx(self, tmp_path):
         d, song = self._song(tmp_path)
-        (d / "찬양대회.pptx").write_bytes(b"PK")
+        (d / "발표자료.pptx").write_bytes(b"PK")
         (d / "slides.md").write_text("# t\n\n가사\n", encoding="utf-8")
 
         assert song.slide_source == "markdown"

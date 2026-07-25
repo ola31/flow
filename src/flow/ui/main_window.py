@@ -518,6 +518,56 @@ class MainWindow(QMainWindow):
         self._statusbar.hide()
         self.setWindowTitle("Flow - 프로젝트")
 
+    def _rename_workspace_project(self, project_dir_str: str) -> None:
+        """프로젝트 페이지의 우클릭 '이름 변경'.
+
+        같은 날 오전/오후처럼 셋리스트가 여러 개일 때 카드에서 바로
+        구분할 수 있게 폴더명과 project.json의 name을 함께 바꾼다.
+        """
+        from flow.ui.dialogs import flow_warning
+
+        project_dir = Path(project_dir_str)
+        old_name = project_dir.name
+
+        # 열려 있는 프로젝트는 저장 경로가 어긋나므로 닫은 뒤에 바꾸게 한다
+        current_dir = (
+            self._project_path.parent
+            if self._project_path and not self._is_standalone
+            else None
+        )
+        if current_dir is not None and current_dir.resolve() == project_dir.resolve():
+            flow_warning(
+                self,
+                "이름 변경 불가",
+                "지금 열려 있는 프로젝트입니다.\n"
+                "다른 프로젝트를 열거나 홈으로 나간 뒤 이름을 바꿔 주세요.",
+            )
+            return
+
+        new_name, ok = QInputDialog.getText(
+            self, "프로젝트 이름 변경", "새 프로젝트 이름:", text=old_name
+        )
+        if not ok:
+            return
+        new_name = new_name.strip()
+        if not new_name or new_name == old_name:
+            return
+
+        try:
+            new_dir = self._repo.rename_workspace_project(project_dir, new_name)
+        except (OSError, ValueError) as e:
+            flow_warning(self, "이름 변경 실패", str(e))
+            return
+
+        self._config_service.remove_recent_project(
+            str(project_dir / "project.json")
+        )
+        self._projects_screen.refresh()
+        self._launcher.refresh_workspace_items()
+        self._statusbar.showMessage(
+            f"프로젝트 이름을 '{new_dir.name}'(으)로 변경했습니다.", 3000
+        )
+
     def show_project(self) -> None:
         self._stack.setCurrentIndex(1)
         self._toolbar.show()
@@ -591,6 +641,9 @@ class MainWindow(QMainWindow):
 
         self._projects_screen = ProjectsScreen()
         self._projects_screen.project_selected.connect(self._open_project_by_path)
+        self._projects_screen.project_rename_requested.connect(
+            self._rename_workspace_project
+        )
         self._projects_screen.new_project_requested.connect(
             lambda: self._launcher.new_project_requested.emit()
         )
@@ -1767,19 +1820,30 @@ class MainWindow(QMainWindow):
         self._verse_selector.set_current_verse(verse_index)
         self._project_screen.sync_nav_verse(verse_index)
 
-        # [수정] 현재 선택된 핫스팟이 바뀐 절에 매핑되어 있지 않다면 선택 해제 (화면 정돈)
-        current_hotspot = self._canvas.get_selected_hotspot()
-        if current_hotspot:
-            if current_hotspot.get_slide_index(verse_index) >= 0:
-                self._update_preview(current_hotspot)
-                self._live_controller.set_preview(current_hotspot)
-            else:
-                self._canvas.select_hotspot(None)
-                self._update_preview(None)
-                self._live_controller.set_preview(None)
-
-        if self._is_live and self._live_controller.live_hotspot:
-            self._live_controller.sync_live()
+        if self._is_live:
+            # 라이브 중 절 이동은 프리뷰까지만 바꾼다 — 송출 화면은 Enter를
+            # 누를 때까지 그대로다. 절 버튼 하나로 송출 화면이 즉시 바뀌면
+            # 잘못 누른 절이 그대로 나가버린다.
+            target = (
+                self._live_controller.preview_hotspot
+                or self._live_controller.live_hotspot
+            )
+            if target is not None:
+                self._canvas.select_hotspot(target.id)
+                self._update_preview(target)
+                self._live_controller.set_preview(target)
+        else:
+            # [수정] 현재 선택된 핫스팟이 바뀐 절에 매핑되어 있지 않다면
+            # 선택 해제 (화면 정돈)
+            current_hotspot = self._canvas.get_selected_hotspot()
+            if current_hotspot:
+                if current_hotspot.get_slide_index(verse_index) >= 0:
+                    self._update_preview(current_hotspot)
+                    self._live_controller.set_preview(current_hotspot)
+                else:
+                    self._canvas.select_hotspot(None)
+                    self._update_preview(None)
+                    self._live_controller.set_preview(None)
 
         self._update_mapped_slides_ui()
 
@@ -1846,6 +1910,84 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "오류", f"프로젝트를 복제할 수 없습니다:\n{e}")
+
+    def rename_current_song(self) -> None:
+        """곡 편집 모드: 현재 곡의 이름(=폴더명)을 바꾼다.
+
+        곡의 정체성은 폴더명이고 프로젝트는 곡을 이름으로 참조하므로,
+        폴더명·song.json·워크스페이스 안 모든 project.json 참조를 함께
+        갱신한 뒤 새 경로로 곡을 다시 연다. 이름을 바꾸기 전에 편집 중인
+        내용을 저장하고 슬라이드 워커/파일 감시를 멈춘다 — Windows는
+        열려 있는 파일이 있는 폴더의 이름 변경을 거부한다.
+        """
+        if self._is_live:
+            return
+        if not self._is_standalone or not self._project:
+            return
+        if not self._project.selected_songs or self._project_path is None:
+            return
+
+        song_dir = Path(self._project_path)
+        old_name = song_dir.name
+
+        new_name, ok = QInputDialog.getText(
+            self, "곡 이름 변경", "새 곡 이름:", text=old_name
+        )
+        if not ok:
+            return
+        new_name = new_name.strip()
+        if not new_name or new_name == old_name:
+            return
+
+        try:
+            new_name = self._repo.validate_folder_name(new_name)
+        except ValueError as e:
+            from flow.ui.dialogs import flow_warning
+            flow_warning(self, "이름 변경 불가", str(e))
+            return
+
+        workspace = getattr(self, "_workspace", None)
+        # 라이브러리 곡이면 이 곡을 쓰는 프로젝트들의 참조도 함께 바뀐다 —
+        # 되돌릴 수 없는 파일 조작이라 미리 알린다.
+        if workspace is not None and song_dir.parent == workspace.library_dir:
+            from flow.ui.dialogs import flow_question
+            if not flow_question(
+                self,
+                "곡 이름 변경",
+                f"'{old_name}'을(를) '{new_name}'(으)로 바꿉니다.\n\n"
+                "폴더 이름이 바뀌고, 이 곡을 사용하는 프로젝트의 참조도\n"
+                "함께 갱신됩니다. 되돌리기(Ctrl+Z)로는 취소할 수 없습니다.",
+                yes_text="이름 변경", no_text="취소",
+            ):
+                return
+
+        # 저장하지 않은 편집 내용을 먼저 반영 (이름 변경 후엔 옛 경로로 저장됨)
+        try:
+            self._repo.save_standalone_song(self._project)
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"곡을 저장할 수 없습니다:\n{e}")
+            return
+
+        # 폴더 안 파일을 잡고 있으면 Windows에서 rename이 실패한다
+        self._slide_manager.stop_workers()
+        self._slide_manager.stop_watching()
+
+        try:
+            new_dir = self._repo.rename_song_folder(
+                song_dir, new_name, workspace=workspace
+            )
+        except (OSError, ValueError) as e:
+            QMessageBox.critical(self, "이름 변경 실패", str(e))
+            return
+
+        self._config_service.remove_recent_song(str(song_dir))
+        # 방금 저장했으므로 재열기 경로의 "저장할까요?" 확인을 띄우지 않는다
+        self._undo_stack.setClean()
+        self._clear_dirty()
+        self._open_song_by_path(str(new_dir))
+        self._statusbar.showMessage(
+            f"곡 이름을 '{new_name}'(으)로 변경했습니다.", 3000
+        )
 
     def _save_standalone_song_as(self) -> None:
         """곡 편집 모드: 곡 폴더를 다른 위치에 복사하여 저장"""

@@ -64,3 +64,54 @@ def test_library_screen_shows_lyric_snippet(qtbot, tmp_path):
     # 제목으로 매칭 → 스니펫 없음
     screen._on_search_changed("곡하나")
     assert _card_for(screen, "곡하나")._match_snippet == ""
+
+
+class TestSearchDebounce:
+    """한글 IME는 자모마다 textChanged를 쏜다 — 입력이 멎은 뒤 한 번만 렌더."""
+
+    def test_typing_does_not_refilter_per_keystroke(self, qtbot, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        _add_song(ws, "곡하나", "---\n---\n\n# 곡하나\n")
+        screen = LibraryScreen()
+        qtbot.addWidget(screen)
+        screen.set_workspace(ws)
+
+        emitted: list[str] = []
+        screen._toolbar.search_changed.connect(emitted.append)
+
+        for text in ("ㄱ", "고", "곡", "곡하"):
+            screen._toolbar._search.setText(text)
+
+        assert emitted == [], "입력 중에는 아직 필터링하지 않는다"
+
+        qtbot.waitUntil(lambda: emitted == ["곡하"], timeout=2000)
+
+    def test_clear_search_emits_immediately(self, qtbot, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        screen = LibraryScreen()
+        qtbot.addWidget(screen)
+        screen.set_workspace(ws)
+        emitted: list[str] = []
+        screen._toolbar.search_changed.connect(emitted.append)
+
+        screen._toolbar.clear_search()
+
+        assert emitted == [""]  # 프로그램 호출 경로는 디바운스 없이 즉시
+
+
+class TestCardReuseAcrossSearch:
+    def test_filtering_reuses_card_widgets(self, qtbot, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        _add_song(ws, "곡하나", "---\n---\n\n# 곡하나\n\n푸른 바다\n")
+        _add_song(ws, "곡둘", "---\n---\n\n# 곡둘\n\n노을\n")
+        screen = LibraryScreen()
+        qtbot.addWidget(screen)
+        screen.set_workspace(ws)
+        card_before = _card_for(screen, "곡하나")
+
+        screen._on_search_changed("바다")
+        assert _card_names(screen) == ["곡하나"]
+        screen._on_search_changed("")
+
+        assert _card_for(screen, "곡하나") is card_before
+        assert set(_card_names(screen)) == {"곡하나", "곡둘"}

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QComboBox,
@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -39,6 +40,10 @@ from flow.ui.styles import (
 
 SORT_NAME = "name"
 SORT_CREATED = "created"
+
+# 한글 IME는 자모 하나마다 textChanged를 쏜다 — 매 입력마다 목록을 다시
+# 필터링하면 큰 라이브러리에서 타이핑이 밀린다. 입력이 멎은 뒤 한 번만 렌더.
+SEARCH_DEBOUNCE_MS = 180
 
 
 class BrowserToolbar(QWidget):
@@ -91,7 +96,13 @@ class BrowserToolbar(QWidget):
             f"border: 1px solid {BORDER_STANDARD_RGBA}; border-radius: {RADIUS_MD}px; "
             f"padding: 4px 10px; font-size: {FONT_MD}px; }}"
         )
-        self._search.textChanged.connect(self.search_changed.emit)
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(SEARCH_DEBOUNCE_MS)
+        self._search_timer.timeout.connect(
+            lambda: self.search_changed.emit(self._search.text())
+        )
+        self._search.textChanged.connect(lambda _t: self._search_timer.start())
         ctrls.addWidget(self._search, 1)
 
         sort_lbl = QLabel("정렬")
@@ -132,13 +143,17 @@ class BrowserToolbar(QWidget):
         return self._sort.currentData()
 
     def clear_search(self) -> None:
+        """검색어 비우기 — 프로그램이 부르는 경로라 디바운스 없이 즉시 반영."""
         self._search.clear()
+        self._search_timer.stop()
+        self.search_changed.emit("")
 
 
 class ItemCard(QFrame):
     """Click-to-open card showing name + sub line + path hint."""
 
     clicked = Signal(str)  # path
+    rename_requested = Signal(str)  # path
 
     def __init__(
         self,
@@ -147,11 +162,16 @@ class ItemCard(QFrame):
         subtitle: str = "",
         path_display: str | None = None,
         match_snippet: str = "",
+        renamable: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._path = path
         self._match_snippet = match_snippet
+        self._renamable = renamable
+        if renamable:
+            self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            self.customContextMenuRequested.connect(self._show_context_menu)
         self.setObjectName("ItemCard")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(
@@ -164,37 +184,57 @@ class ItemCard(QFrame):
         layout.setContentsMargins(SP_MD + 2, SP_SM + 2, SP_MD + 2, SP_SM + 2)
         layout.setSpacing(SP_XS)
 
-        title_lbl = QLabel(title)
-        title_lbl.setStyleSheet(
+        self._title_lbl = QLabel(title)
+        self._title_lbl.setStyleSheet(
             f"background: transparent; color: {TEXT_PRIMARY}; "
             f"font-size: {FONT_MD + 1}px; font-weight: {FW_MEDIUM};"
         )
-        layout.addWidget(title_lbl)
+        layout.addWidget(self._title_lbl)
 
-        if subtitle:
-            sub_lbl = QLabel(subtitle)
-            sub_lbl.setStyleSheet(
-                f"background: transparent; color: {TEXT_SECONDARY}; "
-                f"font-size: {FONT_SM}px;"
-            )
-            layout.addWidget(sub_lbl)
+        # 부제·스니펫 라벨은 항상 만들어 두고 내용이 없으면 숨긴다 — 검색
+        # 필터마다 카드를 새로 만들지 않고 텍스트만 바꿔 끼우기 위해서다.
+        self._sub_lbl = QLabel(subtitle)
+        self._sub_lbl.setStyleSheet(
+            f"background: transparent; color: {TEXT_SECONDARY}; "
+            f"font-size: {FONT_SM}px;"
+        )
+        self._sub_lbl.setVisible(bool(subtitle))
+        layout.addWidget(self._sub_lbl)
 
         # 가사 검색 매칭 줄 — 가사로 검색되어 매칭 줄이 있을 때만 표시
-        if match_snippet:
-            snippet_lbl = QLabel(f"“{match_snippet}”")
-            snippet_lbl.setStyleSheet(
-                f"background: transparent; color: {TEXT_SECONDARY}; "
-                f"font-size: {FONT_SM}px;"
-            )
-            layout.addWidget(snippet_lbl)
+        self._snippet_lbl = QLabel(f"“{match_snippet}”" if match_snippet else "")
+        self._snippet_lbl.setStyleSheet(
+            f"background: transparent; color: {TEXT_SECONDARY}; "
+            f"font-size: {FONT_SM}px;"
+        )
+        self._snippet_lbl.setVisible(bool(match_snippet))
+        layout.addWidget(self._snippet_lbl)
 
         # path hint (사용자에게 보여줄 경로는 path_display로 별도 지정 가능)
-        path_lbl = QLabel(path_display if path_display is not None else path)
-        path_lbl.setStyleSheet(
+        self._path_lbl = QLabel(path_display if path_display is not None else path)
+        self._path_lbl.setStyleSheet(
             f"background: transparent; color: {TEXT_TERTIARY}; font-size: 10px;"
         )
-        path_lbl.setWordWrap(True)
-        layout.addWidget(path_lbl)
+        self._path_lbl.setWordWrap(True)
+        layout.addWidget(self._path_lbl)
+
+    def set_title(self, title: str) -> None:
+        self._title_lbl.setText(title)
+
+    def set_subtitle(self, subtitle: str) -> None:
+        self._sub_lbl.setText(subtitle)
+        self._sub_lbl.setVisible(bool(subtitle))
+
+    def set_match_snippet(self, snippet: str) -> None:
+        self._match_snippet = snippet
+        self._snippet_lbl.setText(f"“{snippet}”" if snippet else "")
+        self._snippet_lbl.setVisible(bool(snippet))
+
+    def _show_context_menu(self, pos) -> None:
+        menu = QMenu(self)
+        act = menu.addAction("이름 변경")
+        act.triggered.connect(lambda: self.rename_requested.emit(self._path))
+        menu.exec(self.mapToGlobal(pos))
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):

@@ -43,6 +43,8 @@ class ProjectsScreen(QWidget):
 
     project_selected = Signal(str)
     new_project_requested = Signal()
+    # 이름 변경 요청 (프로젝트 폴더 경로) — 실제 처리는 MainWindow가 한다
+    project_rename_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -131,8 +133,10 @@ class ProjectsScreen(QWidget):
                 title=path.name,
                 subtitle=subtitle,
                 path_display=str(path),
+                renamable=True,
             )
             card.clicked.connect(self.project_selected.emit)
+            card.rename_requested.connect(self._on_rename_requested)
             self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
 
     def _build_subtitle(self, project_dir: Path) -> str:
@@ -144,6 +148,12 @@ class ProjectsScreen(QWidget):
             return f"곡 {count}개"
         except Exception:
             return ""
+
+    def _on_rename_requested(self, project_json_path: str) -> None:
+        """카드는 project.json 경로를 들고 있다 — 폴더 경로로 바꿔 올린다."""
+        self.project_rename_requested.emit(
+            str(Path(project_json_path).parent)
+        )
 
     def _on_search_changed(self, text: str) -> None:
         self._search_text = text.strip()
