@@ -2042,6 +2042,7 @@ class SongListWidget(QWidget):
         self._cards: list[_SongCard] = []
         self._section_headers: list[_SectionHeader] = []
         self._section_zones: list[_SectionInsertZone] = []
+        self._section_edit_mode = False  # 구간 나누기 모드 (토글)
         self._standalone_panel: _StandalonePanel | None = None
         # 위치 이동 모드: {"kind": "sheet"|"song", "obj": ..., "start": int}
         self._move_mode: dict | None = None
@@ -2084,6 +2085,26 @@ class SongListWidget(QWidget):
         header_layout.addWidget(self._count_label)
         header_layout.addStretch()
 
+        # 구간 나누기 모드 토글 — 켜면 카드 사이가 벌어지며 삽입 존 표시
+        self._btn_section_mode = QPushButton("구간 나누기")
+        self._btn_section_mode.setCheckable(True)
+        self._btn_section_mode.setFixedHeight(24)
+        self._btn_section_mode.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_section_mode.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_section_mode.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {TEXT_TERTIARY};
+                border: 1px solid {BORDER}; border-radius: {RADIUS_SM}px;
+                font-size: {FONT_SM}px; padding: 0 8px;
+            }}
+            QPushButton:hover {{ color: {TEXT_SECONDARY}; }}
+            QPushButton:checked {{
+                color: {ACCENT}; border-color: {ACCENT};
+            }}
+        """)
+        self._btn_section_mode.toggled.connect(self._on_section_mode_toggled)
+        header_layout.addWidget(self._btn_section_mode)
+
         root.addWidget(header_frame)
 
         # ── 스크롤 영역 (카드 목록)
@@ -2106,7 +2127,7 @@ class SongListWidget(QWidget):
         self._cards_widget.setStyleSheet("background: transparent;")
         self._cards_layout = QVBoxLayout(self._cards_widget)
         self._cards_layout.setContentsMargins(SP_XS, SP_XS, SP_XS, SP_XS)
-        self._cards_layout.setSpacing(4)
+        self._cards_layout.setSpacing(8)
         self._cards_layout.addStretch()
 
         self._scroll.setWidget(self._cards_widget)
@@ -2389,6 +2410,10 @@ class SongListWidget(QWidget):
             self._drop_switcher()
             return
 
+        self._btn_section_mode.setVisible(not self._is_standalone)
+        self._btn_section_mode.setEnabled(
+            not getattr(self._main_window, "_is_live", False)
+        )
         if self._is_standalone:
             self._refresh_standalone()
         else:
@@ -2514,6 +2539,7 @@ class SongListWidget(QWidget):
         last_section: str | None = None
 
         is_live = getattr(self._main_window, "_is_live", False)
+        section_mode = self._section_edit_mode and not is_live
         section_names: list[str] = []
         for s in songs:
             if s.section and s.section not in section_names:
@@ -2523,8 +2549,8 @@ class SongListWidget(QWidget):
                 section_names.append(preset)
 
         for i, song in enumerate(songs):
-            # 카드 사이 구간 삽입 핸들 — hover 시에만 보이는 '＋ 구간 나누기'
-            if not is_live:
+            # 카드 사이 구간 삽입 핸들 — 구간 나누기 모드에서만
+            if section_mode:
                 zone = _SectionInsertZone(i, section_names)
                 zone.section_committed.connect(self._apply_section_from)
                 self._section_zones.append(zone)
@@ -3083,6 +3109,13 @@ class SongListWidget(QWidget):
             )
 
     # ── 구간 삽입 핸들 / 헤더 편집 ──────────────────────────────────────
+
+    def _on_section_mode_toggled(self, checked: bool) -> None:
+        if getattr(self._main_window, "_is_live", False):
+            self._btn_section_mode.setChecked(False)
+            return
+        self._section_edit_mode = checked
+        self.refresh_list()
 
     def _apply_section_from(self, index: int, name: str) -> None:
         """index 곡부터 같은 구간이 이어지는 데까지 name을 채운다.

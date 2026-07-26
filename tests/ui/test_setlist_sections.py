@@ -279,11 +279,24 @@ class TestSectionInsertZone:
             _song(f"곡{i}", sec) for i, sec in enumerate(sections)
         ]
         widget.set_project(p)
+        widget._btn_section_mode.setChecked(True)  # 구간 나누기 모드 켜기
         return p
 
-    def test_zone_per_card(self, widget):
+    def test_no_zones_by_default(self, widget):
+        p = Project(name="p")
+        p.selected_songs = [_song("곡0"), _song("곡1")]
+        widget.set_project(p)
+
+        assert widget._section_zones == []  # 모드 꺼짐
+
+    def test_zone_per_card_in_section_mode(self, widget):
         self._project(widget)
         assert len(widget._section_zones) == 4
+
+    def test_toggle_off_removes_zones(self, widget):
+        self._project(widget)
+        widget._btn_section_mode.setChecked(False)
+        assert widget._section_zones == []
 
     def test_zone_click_opens_inline_edit(self, widget, qtbot):
         self._project(widget)
@@ -341,6 +354,7 @@ class TestSectionInsertZone:
         self._project(widget)
 
         assert widget._section_zones == []
+        assert not widget._btn_section_mode.isChecked()  # 라이브 중 토글 거부
 
 
 class TestHeaderRenameRemove:
