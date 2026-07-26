@@ -327,6 +327,26 @@ class TestSectionInsertZone:
 
         assert got == [(2, "오후")]
 
+    def test_preset_chip_commits_immediately(self, widget, qtbot):
+        """IME 조합을 방해하는 자동완성 대신 칩 클릭 한 번으로 확정."""
+        self._project(widget)
+        zone = widget._section_zones[1]
+        got = []
+        zone.section_committed.connect(lambda i, n: got.append((i, n)))
+
+        zone.begin_edit()
+        chip = next(
+            b for b in zone._chips if b.text() == "오후"
+        )
+        chip.click()
+
+        assert got == [(1, "오후")]
+
+    def test_edit_has_no_completer(self, widget):
+        """QCompleter는 한글 조합 중 글자를 지운다 — 쓰지 않는다."""
+        self._project(widget)
+        assert widget._section_zones[0]._edit.completer() is None
+
     def test_empty_name_commit_cancels(self, widget, qtbot):
         self._project(widget)
         zone = widget._section_zones[1]
@@ -409,6 +429,13 @@ class TestHeaderRenameRemove:
         header.begin_edit()
 
         assert not header._edit.isHidden()
+
+    def test_remove_button_always_visible(self, widget, qtbot):
+        """hover에서만 보이면 존재를 모른다 — 상시 노출."""
+        self._project(widget, ("오전", "오전", "", ""))
+        widget.show()
+        header = widget._section_headers[0]
+        assert not header._btn_remove.isHidden()
 
     def test_header_remove_button_emits(self, widget, qtbot):
         self._project(widget, ("오전", "오전", "", ""))

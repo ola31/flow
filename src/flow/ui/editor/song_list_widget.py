@@ -798,6 +798,8 @@ class _SectionEditMixin:
     """
 
     def _setup_edit(self, existing_names: list[str]) -> QLineEdit:
+        # QCompleter는 쓰지 않는다 — 한글 IME 조합 중 팝업이 뜨면서
+        # 조합 중인 글자를 지워버린다. 기존 이름 제시는 칩 버튼으로.
         edit = QLineEdit()
         edit.setPlaceholderText("구간 이름 (예: 오전)")
         edit.setFixedHeight(24)
@@ -806,10 +808,6 @@ class _SectionEditMixin:
             f"border: 1px solid {ACCENT}; border-radius: {RADIUS_SM}px; "
             f"padding: 0 8px; font-size: {FONT_SM}px; }}"
         )
-        from PySide6.QtWidgets import QCompleter
-
-        completer = QCompleter(existing_names, edit)
-        edit.setCompleter(completer)
         edit.returnPressed.connect(self._commit)
         edit.installEventFilter(self)
         edit.hide()
@@ -825,9 +823,7 @@ class _SectionEditMixin:
                 self._cancel()
                 return True
             if event.type() == QEvent.Type.FocusOut:
-                completer = edit.completer()
-                if completer is None or not completer.popup().isVisible():
-                    self._cancel()
+                self._cancel()
         return False
 
 
@@ -850,19 +846,51 @@ class _SectionInsertZone(_SectionEditMixin, QWidget):
 
         row = QHBoxLayout(self)
         row.setContentsMargins(SP_SM, 2, SP_SM, 2)
+        row.setSpacing(SP_XS)
         self._edit = self._setup_edit(existing_names)
-        row.addWidget(self._edit)
+        row.addWidget(self._edit, 1)
+
+        # 기존/프리셋 이름 칩 — 클릭 한 번으로 확정 (자동완성 대체).
+        # NoFocus라 클릭해도 에딧의 포커스를 안 뺏는다 (FocusOut 취소 방지).
+        self._chips: list[QPushButton] = []
+        for name in existing_names[:3]:
+            chip = QPushButton(name)
+            chip.setFixedHeight(22)
+            chip.setCursor(Qt.CursorShape.PointingHandCursor)
+            chip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            chip.setStyleSheet(
+                f"QPushButton {{ background: {BG_ELEVATED}; "
+                f"color: {TEXT_SECONDARY}; border: 1px solid {BORDER}; "
+                f"border-radius: 11px; font-size: {FONT_SM}px; "
+                f"padding: 0 10px; }}"
+                f"QPushButton:hover {{ color: {ACCENT}; "
+                f"border-color: {ACCENT}; }}"
+            )
+            chip.clicked.connect(
+                lambda _c=False, n=name: self._commit_name(n)
+            )
+            chip.hide()
+            self._chips.append(chip)
+            row.addWidget(chip)
 
     def begin_edit(self) -> None:
         self.setFixedHeight(self._EDIT_H)
         self._edit.show()
+        for chip in self._chips:
+            chip.show()
         self._edit.setFocus()
 
     def _cancel(self) -> None:
         self._edit.hide()
         self._edit.clear()
+        for chip in self._chips:
+            chip.hide()
         self.setFixedHeight(self._IDLE_H)
         self.update()
+
+    def _commit_name(self, name: str) -> None:
+        self._cancel()
+        self.section_committed.emit(self._index, name)
 
     def _commit(self) -> None:
         name = self._edit.text().strip()
@@ -980,7 +1008,7 @@ class _SectionHeader(_SectionEditMixin, QFrame):
         self._btn_remove.clicked.connect(
             lambda: self.remove_requested.emit(self._first_index)
         )
-        self._btn_remove.hide()
+        # hover에서만 보이면 존재를 모른다 — 흐리게 상시 노출
         row.addWidget(self._btn_remove)
 
     def begin_edit(self) -> None:
@@ -1006,14 +1034,6 @@ class _SectionHeader(_SectionEditMixin, QFrame):
         if self._edit.isHidden():
             self.begin_edit()
         super().mouseDoubleClickEvent(event)
-
-    def enterEvent(self, event) -> None:  # noqa: N802
-        self._btn_remove.show()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event) -> None:  # noqa: N802
-        self._btn_remove.hide()
-        super().leaveEvent(event)
 
 
 class _SongCard(QFrame):
