@@ -528,7 +528,8 @@ class MainWindow(QMainWindow):
 
         song_dir = Path(song_dir_str)
         if not song_dir.is_dir():
-            self._library_screen.refresh()
+            # 목록이 디스크와 어긋나 있다 — 다시 읽어 카드를 정리한다
+            self._library_screen.force_refresh()
             return
 
         # 지금 열려 있는 곡은 저장 경로가 사라지므로 막는다
@@ -573,7 +574,7 @@ class MainWindow(QMainWindow):
             return
 
         self._config_service.remove_recent_song(str(song_dir))
-        self._library_screen.refresh()
+        self._library_screen.force_refresh()
         self._launcher.refresh_workspace_items()
         self._statusbar.showMessage(f"'{name}'을(를) 삭제했습니다.", 3000)
 
@@ -621,7 +622,7 @@ class MainWindow(QMainWindow):
         self._config_service.remove_recent_project(
             str(project_dir / "project.json")
         )
-        self._projects_screen.refresh()
+        self._projects_screen.force_refresh()
         self._launcher.refresh_workspace_items()
         self._statusbar.showMessage(
             f"프로젝트 이름을 '{new_dir.name}'(으)로 변경했습니다.", 3000

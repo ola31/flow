@@ -132,3 +132,23 @@ class TestCardContextMenuActions:
 
         assert card.build_context_menu() is None
         assert card.contextMenuPolicy() != Qt.ContextMenuPolicy.CustomContextMenu
+
+
+class TestProjectsForceRefresh:
+    def test_reflects_external_rename(self, screen, qtbot, tmp_path):
+        projects = tmp_path / "ws" / "projects"
+        assert _first_card(screen)._title_lbl.text() == "정기모임"
+
+        (projects / "정기모임").rename(projects / "정기모임 오전")
+
+        screen.force_refresh()
+
+        assert _first_card(screen)._title_lbl.text() == "정기모임 오전"
+
+    def test_toolbar_button_triggers_refresh(self, screen, tmp_path):
+        projects = tmp_path / "ws" / "projects"
+        (projects / "정기모임").rename(projects / "저녁모임")
+
+        screen._toolbar._btn_refresh.click()
+
+        assert _first_card(screen)._title_lbl.text() == "저녁모임"

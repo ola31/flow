@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
     QLabel,
@@ -73,7 +74,14 @@ class LibraryScreen(QWidget):
         self._toolbar.new_clicked.connect(self.new_song_requested.emit)
         self._toolbar.search_changed.connect(self._on_search_changed)
         self._toolbar.sort_changed.connect(self._on_sort_changed)
+        self._toolbar.refresh_clicked.connect(self.force_refresh)
         root.addWidget(self._toolbar)
+
+        # F5 — 이 화면이 떠 있을 때만 동작하도록 위젯 범위로 제한한다
+        # (MainWindow의 F5는 라이브 모드 토글이라 겹치면 안 된다).
+        shortcut = QShortcut(QKeySequence("F5"), self)
+        shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        shortcut.activated.connect(self.force_refresh)
 
         # Card scroll area
         scroll = QScrollArea()
@@ -106,6 +114,20 @@ class LibraryScreen(QWidget):
 
     def set_workspace(self, workspace) -> None:
         self._workspace = workspace
+        self.refresh()
+
+    def force_refresh(self) -> None:
+        """캐시를 버리고 디스크에서 다시 읽는다 (새로고침 버튼 / F5).
+
+        refresh()는 지문이 같으면 건너뛰고 song_index는 mtime으로 캐시하는데,
+        폴더째 옮기거나 이름만 바꾼 변경은 mtime이 그대로일 수 있다.
+        새로고침은 "지금 디스크 상태를 그대로 보여달라"는 뜻이므로 판단을
+        생략하고 전부 다시 읽는다.
+        """
+        from flow.services import song_index
+
+        song_index.invalidate()
+        self._last_fingerprint = None
         self.refresh()
 
     def _fingerprint(self, paths) -> tuple:

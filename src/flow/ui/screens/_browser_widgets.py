@@ -52,6 +52,7 @@ class BrowserToolbar(QWidget):
     new_clicked = Signal()
     search_changed = Signal(str)
     sort_changed = Signal(str)  # SORT_NAME | SORT_CREATED
+    refresh_clicked = Signal()
 
     def __init__(
         self,
@@ -74,6 +75,24 @@ class BrowserToolbar(QWidget):
         )
         title_row.addWidget(lbl)
         title_row.addStretch()
+
+        # 새로고침 — 파일 관리자에서 폴더를 직접 고쳤을 때처럼 앱 밖에서
+        # 일어난 변경을 즉시 반영하기 위한 수단 (F5도 같은 동작).
+        self._btn_refresh = QPushButton()
+        self._btn_refresh.setIcon(icon_qicon("refresh", size=16, color=TEXT_SECONDARY))
+        self._btn_refresh.setFixedSize(32, 32)
+        self._btn_refresh.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_refresh.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_refresh.setToolTip("새로고침 (F5)")
+        self._btn_refresh.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: 1px solid "
+            f"{BORDER_SUBTLE_RGBA}; border-radius: {RADIUS_MD}px; }} "
+            f"QPushButton:hover {{ background: {SURFACE_SUBTLE}; "
+            f"border-color: {BORDER_STANDARD_RGBA}; }}"
+        )
+        self._btn_refresh.clicked.connect(self.refresh_clicked.emit)
+        title_row.addWidget(self._btn_refresh)
+
         self._btn_new = QPushButton(new_button_label)
         self._btn_new.setProperty("variant", "primary")
         self._btn_new.setFixedHeight(32)
