@@ -298,6 +298,15 @@ class TestSectionInsertZone:
         widget._btn_section_mode.setChecked(False)
         assert widget._section_zones == []
 
+    def test_commit_exits_section_mode(self, widget):
+        """구분선을 꽂으면 모드가 자동 종료돼 간격이 원래대로 돌아온다."""
+        self._project(widget)
+
+        widget._apply_section_from(2, "오후")
+
+        assert not widget._btn_section_mode.isChecked()
+        assert widget._section_zones == []
+
     def test_zone_click_opens_inline_edit(self, widget, qtbot):
         self._project(widget)
         zone = widget._section_zones[0]

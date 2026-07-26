@@ -3136,6 +3136,15 @@ class SongListWidget(QWidget):
             songs[j].section = name
             j += 1
 
+        if self._section_edit_mode:
+            # 구분선을 꽂았으면 모드 종료 — 간격이 원래대로 돌아온다.
+            # 시그널을 막고 끄는 이유: 토글 핸들러의 refresh와 아래
+            # refresh가 겹쳐 두 번 재구성되는 것 방지.
+            self._section_edit_mode = False
+            self._btn_section_mode.blockSignals(True)
+            self._btn_section_mode.setChecked(False)
+            self._btn_section_mode.blockSignals(False)
+
         self.refresh_list()
         if self._main_window:
             self._main_window._mark_dirty()
