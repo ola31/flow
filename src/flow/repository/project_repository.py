@@ -67,7 +67,12 @@ class ProjectRepository:
 
             # project.json에 저장할 곡 정보
             selected_songs_data.append(
-                {"name": song.name, "order": song.order, "folder": str(song.folder)}
+                {
+                    "name": song.name,
+                    "order": song.order,
+                    "folder": str(song.folder),
+                    "section": song.section,
+                }
             )
 
         # 2. project.json 저장
@@ -133,6 +138,7 @@ class ProjectRepository:
                 order=song_info.get("order", 0),
                 project_dir=project_dir,
                 show_sheet_names=song_data.get("show_sheet_names", False),
+                section=song_info.get("section", ""),
             )
             selected_songs.append(song)
 
@@ -194,6 +200,7 @@ class ProjectRepository:
                     "name": song.name,
                     "order": song.order,
                     "source": source,
+                    "section": song.section,
                 }
             )
 
@@ -245,6 +252,8 @@ class ProjectRepository:
             if song is None:
                 print(f"⚠️  곡을 찾을 수 없음: {song_name}")
                 continue
+            # 구간은 프로젝트 소유 — song.json이 아니라 project.json에서 온다
+            song.section = song_info.get("section", "")
             selected_songs.append(song)
 
         return Project(

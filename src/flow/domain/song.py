@@ -44,6 +44,10 @@ class Song:
     project_dir: Optional[Path] = None  # 프로젝트 베이스 경로 (절대 경로 해결용)
     source: str = "local"  # "library" | "local" — 워크스페이스 구조에서 곡 출처
     show_sheet_names: bool = False  # 셋리스트 탭에 P1, P2… 대신 시트 이름 표시
+    # 셋리스트 안의 구간 이름 (예: "오전"/"오후"). 빈 문자열이면 구간 없음.
+    # 프로젝트 소유 정보라 project.json에만 저장한다 — 같은 라이브러리 곡이
+    # 프로젝트마다 다른 구간에 들어갈 수 있으므로 song.json에 넣으면 안 된다.
+    section: str = ""
     
     @property
     def score_sheet(self) -> ScoreSheet | None:

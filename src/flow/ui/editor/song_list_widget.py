@@ -790,6 +790,43 @@ class _SheetTab(QPushButton):
 # ─── 곡 카드 ────────────────────────────────────────────────────────────────
 
 
+class _SectionHeader(QFrame):
+    """셋리스트 안의 구간 머리글 (예: 오전 / 오후).
+
+    구간은 표시만 나눈다 — 라이브 방향키 탐색은 구간을 가로질러 전체
+    셋리스트를 순서대로 훑는다.
+    """
+
+    def __init__(self, title: str, count: int, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("SectionHeader")
+        self._title = title
+        self.setStyleSheet(
+            f"QFrame#SectionHeader {{ background: transparent; "
+            f"border: none; border-bottom: 1px solid {BORDER_SUBTLE_RGBA}; }}"
+        )
+        row = QHBoxLayout(self)
+        row.setContentsMargins(SP_SM, SP_SM, SP_SM, SP_XS)
+        row.setSpacing(SP_SM)
+
+        label = QLabel(title)
+        label.setStyleSheet(
+            f"font-size: {FONT_SM}px; font-weight: {FW_SEMI}; "
+            f"color: {TEXT_SECONDARY}; background: transparent;"
+        )
+        _f = label.font()
+        _f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.8)
+        label.setFont(_f)
+        row.addWidget(label)
+
+        count_lbl = QLabel(f"{count}곡")
+        count_lbl.setStyleSheet(
+            f"font-size: {FONT_SM}px; color: {TEXT_TERTIARY}; background: transparent;"
+        )
+        row.addWidget(count_lbl)
+        row.addStretch()
+
+
 class _SongCard(QFrame):
     """셋리스트의 곡 하나를 나타내는 카드 위젯."""
 
@@ -801,6 +838,7 @@ class _SongCard(QFrame):
     move_requested = Signal(object, int)   # (Song, -1=위/+1=아래)
     move_mode_requested = Signal(object)   # Song (방향키 이동 모드)
     toggle_sheet_names_requested = Signal(object)  # Song
+    set_section_requested = Signal(object)  # Song — 셋리스트 구간 지정/변경
 
     def __init__(self, song: Song, position: int, parent=None) -> None:
         super().__init__(parent)
@@ -1100,6 +1138,14 @@ class _SongCard(QFrame):
             lambda: self.toggle_sheet_names_requested.emit(self._song)
         )
         menu.addAction(toggle_names_act)
+
+        section_act = QAction(
+            "구간 변경" if self._song.section else "구간 지정", self
+        )
+        section_act.triggered.connect(
+            lambda: self.set_section_requested.emit(self._song)
+        )
+        menu.addAction(section_act)
 
         menu.addSeparator()
         move_mode_act = QAction("위치 이동", self)
@@ -1804,6 +1850,7 @@ class SongListWidget(QWidget):
         self._editable = True
         self._is_standalone = False
         self._cards: list[_SongCard] = []
+        self._section_headers: list[_SectionHeader] = []
         self._standalone_panel: _StandalonePanel | None = None
         # 위치 이동 모드: {"kind": "sheet"|"song", "obj": ..., "start": int}
         self._move_mode: dict | None = None
@@ -2128,6 +2175,11 @@ class SongListWidget(QWidget):
             card.deleteLater()
         self._cards.clear()
 
+        for header in self._section_headers:
+            self._cards_layout.removeWidget(header)
+            header.deleteLater()
+        self._section_headers.clear()
+
         if self._standalone_panel:
             self._cards_layout.removeWidget(self._standalone_panel)
             self._standalone_panel.deleteLater()
@@ -2255,7 +2307,27 @@ class SongListWidget(QWidget):
         current_sheet = self._project.get_current_score_sheet()
         current_id = current_sheet.id if current_sheet else None
 
+        # 구간이 하나라도 지정돼 있을 때만 머리글을 낸다 — 안 쓰는 프로젝트에
+        # 빈 머리글이 생기지 않게.
+        use_sections = any(s.section for s in songs)
+        section_counts: dict[str, int] = {}
+        if use_sections:
+            for s in songs:
+                key = s.section or ""
+                section_counts[key] = section_counts.get(key, 0) + 1
+        last_section: str | None = None
+
         for i, song in enumerate(songs):
+            if use_sections and (song.section or "") != last_section:
+                last_section = song.section or ""
+                header = _SectionHeader(
+                    last_section or "구간 없음", section_counts[last_section]
+                )
+                self._section_headers.append(header)
+                self._cards_layout.insertWidget(
+                    self._cards_layout.count() - 1, header
+                )
+
             card = _SongCard(song, i + 1)
 
             # 현재 선택된 시트가 이 곡에 속하면 선택 상태
@@ -2273,6 +2345,7 @@ class SongListWidget(QWidget):
                 lambda song: self._enter_move_mode("song", song)
             )
             card.toggle_sheet_names_requested.connect(self._toggle_sheet_names)
+            card.set_section_requested.connect(self._set_song_section)
 
             self._cards.append(card)
             self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
@@ -2720,6 +2793,53 @@ class SongListWidget(QWidget):
     def _toggle_sheet_names(self, song: Song) -> None:
         """셋리스트 탭의 P1, P2… ↔ 시트 이름 표시 토글 (곡별, song.json 저장)."""
         song.show_sheet_names = not song.show_sheet_names
+        self.refresh_list()
+        if self._main_window:
+            self._main_window._mark_dirty()
+
+    def _set_song_section(self, song: Song) -> None:
+        """이 곡이 속한 셋리스트 구간을 지정한다 (예: 오전 / 오후).
+
+        구간은 표시용 묶음일 뿐이라 곡 순서는 건드리지 않는다 — 같은 구간
+        머리글 아래로 모으려면 사용자가 순서를 옮기면 된다.
+        """
+        if not self._project or getattr(self._main_window, "_is_live", False):
+            return
+
+        # 이미 쓰고 있는 구간 이름을 먼저 제시해 오타로 구간이 갈라지지 않게 한다
+        used: list[str] = []
+        for s in self._project.selected_songs:
+            if s.section and s.section not in used:
+                used.append(s.section)
+        for preset in ("오전", "오후"):
+            if preset not in used:
+                used.append(preset)
+        choices = ["(구간 없음)"] + used
+
+        current = song.section or "(구간 없음)"
+        try:
+            start = choices.index(current)
+        except ValueError:
+            choices.insert(1, current)
+            start = 1
+
+        value, ok = QInputDialog.getItem(
+            self,
+            "구간 지정",
+            f"'{song.name}'을(를) 넣을 구간:",
+            choices,
+            start,
+            True,  # 직접 입력 허용
+        )
+        if not ok:
+            return
+
+        value = value.strip()
+        new_section = "" if value in ("", "(구간 없음)") else value
+        if new_section == song.section:
+            return
+
+        song.section = new_section
         self.refresh_list()
         if self._main_window:
             self._main_window._mark_dirty()
