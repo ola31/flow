@@ -29,7 +29,7 @@ def test_dirty_exit_recounts_edited_song(qtbot, tmp_path, monkeypatch):
 
         mw.show_markdown_editor(song)
         monkeypatch.setattr(
-            mw._markdown_editor_screen, "is_dirty", lambda: True
+            mw._markdown_editor_screen, "content_changed", lambda: True
         )
         monkeypatch.setattr(
             mw._markdown_editor_screen, "save_if_dirty", lambda: None
@@ -94,7 +94,7 @@ def test_dirty_exit_recounts_in_standalone_too(qtbot, tmp_path, monkeypatch):
 
         mw.show_markdown_editor(song)
         monkeypatch.setattr(
-            mw._markdown_editor_screen, "is_dirty", lambda: True
+            mw._markdown_editor_screen, "content_changed", lambda: True
         )
         monkeypatch.setattr(
             mw._markdown_editor_screen, "save_if_dirty", lambda: None
@@ -110,3 +110,34 @@ def test_dirty_exit_recounts_in_standalone_too(qtbot, tmp_path, monkeypatch):
         mw._slide_manager.shutdown()
         mw._clear_dirty()
         mw.close()
+
+
+
+def test_save_then_exit_still_detected(qtbot, tmp_path):
+    """Ctrl+S로 저장한 뒤 나가면 is_dirty는 False다 — 그래도 재로딩해야
+    하단 슬라이드 리스트가 갱신된다 (실사용에서 새로고침 필요했던 원인)."""
+    from flow.ui.editor.markdown_editor import MarkdownEditor
+
+    md = tmp_path / "slides.md"
+    md.write_text("# p\n가사\n", encoding="utf-8")
+    editor = MarkdownEditor(md)
+    qtbot.addWidget(editor)
+
+    editor.set_text("# p\n가사\n\n# p2\n새 가사\n")
+    editor.save()
+
+    assert not editor.is_dirty()
+    assert editor.content_changed()
+
+
+def test_untouched_editor_reports_no_change(qtbot, tmp_path):
+    from flow.ui.editor.markdown_editor import MarkdownEditor
+
+    md = tmp_path / "slides.md"
+    md.write_text("# p\n가사\n", encoding="utf-8")
+    editor = MarkdownEditor(md)
+    qtbot.addWidget(editor)
+
+    editor.save()  # 내용 변화 없는 저장
+
+    assert not editor.content_changed()

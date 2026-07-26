@@ -1379,8 +1379,10 @@ class MainWindow(QMainWindow):
 
     def _exit_markdown_editor(self) -> None:
         """마크다운 에디터에서 이전 화면으로 복귀."""
-        was_dirty = self._markdown_editor_screen.is_dirty()
         self._markdown_editor_screen.save_if_dirty()
+        # is_dirty가 아니라 content_changed — 사용자가 Ctrl+S로 저장한 뒤
+        # 나가면 dirty는 이미 False라 재로딩을 놓친다
+        was_dirty = self._markdown_editor_screen.content_changed()
 
         self._stack.setCurrentIndex(self._markdown_editor_prev_index)
         self._toolbar.show()
