@@ -2562,13 +2562,11 @@ class SongListWidget(QWidget):
 
         is_live = getattr(self._main_window, "_is_live", False)
         section_mode = self._section_edit_mode and not is_live
+        # 칩 제안은 이미 쓰는 구간 이름만 — 프리셋은 넣지 않는다
         section_names: list[str] = []
         for s in songs:
             if s.section and s.section not in section_names:
                 section_names.append(s.section)
-        for preset in ("오전", "오후"):
-            if preset not in section_names:
-                section_names.append(preset)
 
         for i, song in enumerate(songs):
             # 카드 사이 구간 삽입 핸들 — 구간 나누기 모드에서만
@@ -2590,6 +2588,9 @@ class SongListWidget(QWidget):
                 )
                 header.rename_committed.connect(self._apply_section_from)
                 header.remove_requested.connect(self._remove_section_at)
+                if not last_section:
+                    # '구간 없음'은 해제할 경계가 아니다 — × 숨김
+                    header._btn_remove.hide()
                 self._section_headers.append(header)
                 self._cards_layout.insertWidget(
                     self._cards_layout.count() - 1, header

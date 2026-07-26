@@ -327,9 +327,10 @@ class TestSectionInsertZone:
 
         assert got == [(2, "오후")]
 
-    def test_preset_chip_commits_immediately(self, widget, qtbot):
-        """IME 조합을 방해하는 자동완성 대신 칩 클릭 한 번으로 확정."""
-        self._project(widget)
+    def test_existing_name_chip_commits_immediately(self, widget, qtbot):
+        """IME 조합을 방해하는 자동완성 대신 칩 클릭 한 번으로 확정.
+        칩은 이미 쓰는 구간 이름만 — 오전/오후 프리셋은 넣지 않는다."""
+        self._project(widget, sections=("", "", "오후", "오후"))
         zone = widget._section_zones[1]
         got = []
         zone.section_committed.connect(lambda i, n: got.append((i, n)))
@@ -341,6 +342,10 @@ class TestSectionInsertZone:
         chip.click()
 
         assert got == [(1, "오후")]
+
+    def test_no_preset_chips_without_existing_sections(self, widget):
+        self._project(widget)  # 구간 전무
+        assert widget._section_zones[0]._chips == []
 
     def test_edit_has_no_completer(self, widget):
         """QCompleter는 한글 조합 중 글자를 지운다 — 쓰지 않는다."""
@@ -439,6 +444,15 @@ class TestHeaderRenameRemove:
         # 전역 QPushButton padding(8px 16px)이 상속되면 20px 버튼에서
         # ✕ 글리프가 안 그려진다 — 자체 시트에 padding 명시 필수
         assert "padding" in header._btn_remove.styleSheet()
+
+    def test_no_section_header_has_no_remove_button(self, widget, qtbot):
+        """'구간 없음' 머리글은 해제할 경계가 아니다 — ×를 안 보인다."""
+        self._project(widget, ("", "", "오후", "오후"))
+        widget.show()
+        none_header = next(
+            h for h in widget._section_headers if h._title == "구간 없음"
+        )
+        assert none_header._btn_remove.isHidden()
 
     def test_header_remove_button_emits(self, widget, qtbot):
         self._project(widget, ("오전", "오전", "", ""))
