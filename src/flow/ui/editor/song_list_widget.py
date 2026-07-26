@@ -801,7 +801,7 @@ class _SectionEditMixin:
         # QCompleter는 쓰지 않는다 — 한글 IME 조합 중 팝업이 뜨면서
         # 조합 중인 글자를 지워버린다. 기존 이름 제시는 칩 버튼으로.
         edit = QLineEdit()
-        edit.setPlaceholderText("구간 이름 (예: 오전)")
+        edit.setPlaceholderText("구간 이름")
         edit.setFixedHeight(24)
         edit.setStyleSheet(
             f"QLineEdit {{ background: {BG_INPUT}; color: {TEXT_PRIMARY}; "
