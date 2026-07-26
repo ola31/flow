@@ -154,6 +154,7 @@ class ItemCard(QFrame):
 
     clicked = Signal(str)  # path
     rename_requested = Signal(str)  # path
+    delete_requested = Signal(str)  # path
 
     def __init__(
         self,
@@ -163,13 +164,15 @@ class ItemCard(QFrame):
         path_display: str | None = None,
         match_snippet: str = "",
         renamable: bool = False,
+        deletable: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._path = path
         self._match_snippet = match_snippet
         self._renamable = renamable
-        if renamable:
+        self._deletable = deletable
+        if renamable or deletable:
             self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             self.customContextMenuRequested.connect(self._show_context_menu)
         self.setObjectName("ItemCard")
@@ -230,11 +233,26 @@ class ItemCard(QFrame):
         self._snippet_lbl.setText(f"“{snippet}”" if snippet else "")
         self._snippet_lbl.setVisible(bool(snippet))
 
-    def _show_context_menu(self, pos) -> None:
+    def build_context_menu(self) -> QMenu | None:
+        """허용된 동작만 담은 메뉴 (없으면 None). exec 없이 검사 가능."""
         menu = QMenu(self)
-        act = menu.addAction("이름 변경")
-        act.triggered.connect(lambda: self.rename_requested.emit(self._path))
-        menu.exec(self.mapToGlobal(pos))
+        if self._renamable:
+            act = menu.addAction("이름 변경")
+            act.triggered.connect(lambda: self.rename_requested.emit(self._path))
+        if self._deletable:
+            if not menu.isEmpty():
+                menu.addSeparator()
+            act = menu.addAction("삭제")
+            act.triggered.connect(lambda: self.delete_requested.emit(self._path))
+        if menu.isEmpty():
+            menu.deleteLater()
+            return None
+        return menu
+
+    def _show_context_menu(self, pos) -> None:
+        menu = self.build_context_menu()
+        if menu is not None:
+            menu.exec(self.mapToGlobal(pos))
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):

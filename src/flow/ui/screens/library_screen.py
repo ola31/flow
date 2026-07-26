@@ -49,6 +49,8 @@ class LibraryScreen(QWidget):
 
     song_selected = Signal(str)
     new_song_requested = Signal()
+    # 삭제 요청 (곡 폴더 경로) — 실제 처리는 MainWindow가 한다
+    song_delete_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -180,8 +182,10 @@ class LibraryScreen(QWidget):
                 card = ItemCard(
                     path=key, title=path.name, subtitle=subtitle,
                     match_snippet=snippets.get(path, ""),
+                    deletable=True,
                 )
                 card.clicked.connect(self.song_selected.emit)
+                card.delete_requested.connect(self.song_delete_requested.emit)
                 self._cards[key] = card
             else:
                 card.set_subtitle(subtitle)

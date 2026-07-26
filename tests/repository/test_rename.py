@@ -133,3 +133,48 @@ class TestRenameWorkspaceProject:
 
         with pytest.raises(ValueError):
             repo.rename_workspace_project(d, "오전/오후")
+
+
+class TestDeleteSongFolder:
+    def test_deletes_folder(self, repo, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        d = _make_song(ws, "곡A")
+
+        repo.delete_song_folder(d, workspace=ws)
+
+        assert not d.exists()
+
+    def test_drops_project_references(self, repo, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        _make_song(ws, "곡A")
+        _make_song(ws, "곡B")
+        pdir = _make_project(ws, "정기모임", ["곡A", "곡B"])
+
+        repo.delete_song_folder(ws.library_song_dir("곡A"), workspace=ws)
+
+        with open(pdir / "project.json", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        assert data["song_order"] == ["곡B"]
+        assert [s["name"] for s in data["selected_songs"]] == ["곡B"]
+
+    def test_missing_folder_raises(self, repo, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            repo.delete_song_folder(tmp_path / "없음")
+
+
+class TestFindSongReferences:
+    def test_lists_projects_using_the_song(self, repo, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        _make_song(ws, "곡A")
+        _make_project(ws, "모임1", ["곡A"])
+        _make_project(ws, "모임2", ["곡A"])
+        _make_project(ws, "모임3", [])
+
+        assert repo.find_song_references(ws, "곡A") == ["모임1", "모임2"]
+
+    def test_empty_when_unused(self, repo, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        _make_song(ws, "곡A")
+        _make_project(ws, "모임1", [])
+
+        assert repo.find_song_references(ws, "곡A") == []

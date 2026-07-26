@@ -518,6 +518,65 @@ class MainWindow(QMainWindow):
         self._statusbar.hide()
         self.setWindowTitle("Flow - 프로젝트")
 
+    def _delete_library_song(self, song_dir_str: str) -> None:
+        """라이브러리 화면의 우클릭 '삭제'.
+
+        곡 폴더(악보·슬라이드·매핑 전부)를 지우므로, 이 곡을 담고 있는
+        셋리스트를 먼저 보여준 뒤 한 번 더 확인받는다.
+        """
+        from flow.ui.dialogs import flow_question, flow_warning
+
+        song_dir = Path(song_dir_str)
+        if not song_dir.is_dir():
+            self._library_screen.refresh()
+            return
+
+        # 지금 열려 있는 곡은 저장 경로가 사라지므로 막는다
+        if self._project_path and Path(self._project_path).resolve() == (
+            song_dir.resolve()
+        ):
+            flow_warning(
+                self,
+                "삭제 불가",
+                "지금 편집 중인 곡입니다.\n"
+                "다른 곡을 열거나 홈으로 나간 뒤 삭제해 주세요.",
+            )
+            return
+
+        name = song_dir.name
+        used_by: list[str] = []
+        if self._workspace is not None:
+            used_by = self._repo.find_song_references(self._workspace, name)
+
+        detail = ""
+        if used_by:
+            shown = ", ".join(used_by[:5])
+            more = f" 외 {len(used_by) - 5}개" if len(used_by) > 5 else ""
+            detail = (
+                f"\n\n이 곡을 쓰는 프로젝트에서도 함께 빠집니다:\n{shown}{more}"
+            )
+
+        if not flow_question(
+            self,
+            "곡 삭제",
+            f"'{name}'을(를) 삭제합니다.\n"
+            f"악보·슬라이드·매핑이 모두 사라지며 되돌릴 수 없습니다."
+            f"{detail}",
+            yes_text="삭제", no_text="취소",
+        ):
+            return
+
+        try:
+            self._repo.delete_song_folder(song_dir, workspace=self._workspace)
+        except OSError as e:
+            flow_warning(self, "삭제 실패", str(e))
+            return
+
+        self._config_service.remove_recent_song(str(song_dir))
+        self._library_screen.refresh()
+        self._launcher.refresh_workspace_items()
+        self._statusbar.showMessage(f"'{name}'을(를) 삭제했습니다.", 3000)
+
     def _rename_workspace_project(self, project_dir_str: str) -> None:
         """프로젝트 페이지의 우클릭 '이름 변경'.
 
@@ -634,6 +693,9 @@ class MainWindow(QMainWindow):
         from flow.ui.screens.projects_screen import ProjectsScreen
         self._library_screen = LibraryScreen()
         self._library_screen.song_selected.connect(self._open_song_by_path)
+        self._library_screen.song_delete_requested.connect(
+            self._delete_library_song
+        )
         self._library_screen.new_song_requested.connect(
             lambda: self._launcher.new_song_requested.emit()
         )

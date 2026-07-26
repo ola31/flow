@@ -478,6 +478,87 @@ class ProjectRepository:
                 continue
         return changed
 
+    @staticmethod
+    def find_song_references(
+        workspace: "Workspace", song_name: str
+    ) -> list[str]:
+        """이 곡을 셋리스트에 담고 있는 프로젝트 이름 목록.
+
+        곡을 지우기 전에 "어느 셋리스트가 깨지는지"를 사용자에게 보여주기
+        위한 것 — 프로젝트는 곡을 이름으로만 참조하므로 폴더가 사라지면
+        그 자리는 조용히 비어버린다.
+        """
+        found: list[str] = []
+        for project_dir in workspace.list_projects():
+            try:
+                with open(project_dir / "project.json", encoding="utf-8-sig") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                continue
+            names = set(data.get("song_order", []))
+            names.update(
+                s.get("name") for s in data.get("selected_songs", [])
+            )
+            if song_name in names:
+                found.append(project_dir.name)
+        return found
+
+    def delete_song_folder(
+        self,
+        song_dir: Path | str,
+        workspace: "Workspace | None" = None,
+    ) -> None:
+        """곡 폴더를 삭제하고 프로젝트의 참조도 함께 정리한다.
+
+        참조를 남겨두면 프로젝트를 열 때마다 "곡을 찾을 수 없음" 경고가
+        나므로 song_order와 selected_songs에서 같이 뺀다.
+
+        Raises:
+            FileNotFoundError: 폴더가 없을 때
+        """
+        song_dir = Path(song_dir).resolve()
+        if not song_dir.is_dir():
+            raise FileNotFoundError(f"곡 폴더가 없습니다: {song_dir}")
+
+        name = song_dir.name
+        shutil.rmtree(song_dir)
+
+        if workspace is not None:
+            self._drop_song_references(workspace, name)
+
+        from flow.services import song_index
+
+        song_index.invalidate(song_dir)
+
+    @staticmethod
+    def _drop_song_references(workspace: "Workspace", song_name: str) -> int:
+        """모든 project.json에서 이 곡 참조를 제거. 수정된 프로젝트 수 반환."""
+        changed = 0
+        for project_dir in workspace.list_projects():
+            pj = project_dir / "project.json"
+            try:
+                with open(pj, encoding="utf-8-sig") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                continue
+
+            order = data.get("song_order", [])
+            selected = data.get("selected_songs", [])
+            new_order = [n for n in order if n != song_name]
+            new_selected = [s for s in selected if s.get("name") != song_name]
+            if len(new_order) == len(order) and len(new_selected) == len(selected):
+                continue
+
+            data["song_order"] = new_order
+            data["selected_songs"] = new_selected
+            try:
+                with open(pj, "w", encoding="utf-8-sig") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                changed += 1
+            except OSError:
+                continue
+        return changed
+
     # ==== Legacy methods ====
 
     def load_standalone_song(self, song_dir: Path | str) -> Project:

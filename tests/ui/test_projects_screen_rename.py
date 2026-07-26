@@ -80,3 +80,55 @@ class TestItemCardContentUpdates:
 
         assert card._match_snippet == "푸른 바다가"
         assert "푸른 바다가" in card._snippet_lbl.text()
+
+
+class TestCardContextMenuActions:
+    """카드 우클릭 메뉴는 허용된 동작만 노출한다."""
+
+    def _labels(self, card) -> list[str]:
+        menu = card.build_context_menu()
+        return [] if menu is None else [
+            a.text() for a in menu.actions() if not a.isSeparator()
+        ]
+
+    def test_delete_action_fires_signal(self, qtbot):
+        card = ItemCard(path="/p", title="t", deletable=True)
+        qtbot.addWidget(card)
+        received = []
+        card.delete_requested.connect(received.append)
+
+        menu = card.build_context_menu()
+        next(a for a in menu.actions() if a.text() == "삭제").trigger()
+
+        assert received == ["/p"]
+
+    def test_rename_action_fires_signal(self, qtbot):
+        card = ItemCard(path="/p", title="t", renamable=True)
+        qtbot.addWidget(card)
+        received = []
+        card.rename_requested.connect(received.append)
+
+        menu = card.build_context_menu()
+        next(a for a in menu.actions() if a.text() == "이름 변경").trigger()
+
+        assert received == ["/p"]
+
+    def test_menu_lists_only_allowed_actions(self, qtbot):
+        renamable = ItemCard(path="/p", title="t", renamable=True)
+        deletable = ItemCard(path="/p", title="t", deletable=True)
+        both = ItemCard(path="/p", title="t", renamable=True, deletable=True)
+        for c in (renamable, deletable, both):
+            qtbot.addWidget(c)
+
+        assert self._labels(renamable) == ["이름 변경"]
+        assert self._labels(deletable) == ["삭제"]
+        assert self._labels(both) == ["이름 변경", "삭제"]
+
+    def test_plain_card_has_no_menu(self, qtbot):
+        from PySide6.QtCore import Qt
+
+        card = ItemCard(path="/p", title="t")
+        qtbot.addWidget(card)
+
+        assert card.build_context_menu() is None
+        assert card.contextMenuPolicy() != Qt.ContextMenuPolicy.CustomContextMenu
