@@ -2381,13 +2381,21 @@ class SongListWidget(QWidget):
         return super().eventFilter(watched, event)
 
     def _apply_move_mode_visuals(self) -> None:
-        """이동 중인 카드는 강조, 나머지는 비활성+흐림."""
-        if not self._move_mode:
-            return
+        """이동 중인 카드는 강조, 나머지는 비활성+흐림.
+
+        카드는 풀에서 재사용되므로 모드 밖에서는 강조/흐림을 반드시
+        원복해야 한다 (안 하면 Esc 후에도 테두리·비활성이 남는다).
+        """
         from PySide6.QtWidgets import QGraphicsOpacityEffect
 
         def mark(card, is_moving: bool) -> None:
             if is_moving:
+                # _refresh_frame_style로 먼저 초기화 — 이동 중 매 갱신마다
+                # 스타일이 누적되는 것 방지
+                card.setEnabled(True)
+                card.setGraphicsEffect(None)
+                if hasattr(card, "_refresh_frame_style"):
+                    card._refresh_frame_style()
                 card.setStyleSheet(
                     card.styleSheet()
                     + f"QFrame#SongCard, QFrame#PageCard {{"
@@ -2398,6 +2406,14 @@ class SongListWidget(QWidget):
                 eff = QGraphicsOpacityEffect(card)
                 eff.setOpacity(0.35)
                 card.setGraphicsEffect(eff)
+
+        if not self._move_mode:
+            # 모드 종료 — 재사용 카드의 시각 상태 원복
+            for card in self._cards:
+                card.setEnabled(True)
+                card.setGraphicsEffect(None)
+                card._refresh_frame_style()
+            return
 
         obj = self._move_mode["obj"]
         if self._move_mode["kind"] == "song":
