@@ -1379,18 +1379,35 @@ class MainWindow(QMainWindow):
 
     def _exit_markdown_editor(self) -> None:
         """마크다운 에디터에서 이전 화면으로 복귀."""
+        was_dirty = self._markdown_editor_screen.is_dirty()
         self._markdown_editor_screen.save_if_dirty()
-        # 슬라이드 리렌더 트리거 — 현재 곡이 마크다운이면 캐시 리로드
-        if self._slide_manager._pptx_path is not None:
-            p = self._slide_manager._pptx_path
-            if str(p).lower().endswith(".md"):
-                self._slide_manager._markdown_converter.invalidate_cache(p)
-                self._slide_manager.file_changed.emit()
+
         self._stack.setCurrentIndex(self._markdown_editor_prev_index)
         self._toolbar.show()
         self._statusbar.show()
         if self._project:
             self.setWindowTitle(f"Flow - {self._project.name}")
+
+        if not was_dirty:
+            return  # 수정 없이 나가면 재로딩도 없다
+
+        md_path = getattr(self._markdown_editor_screen, "_md_path", None)
+        if md_path is None:
+            return
+        # 편집으로 슬라이드 수가 바뀌면 뒤 곡들의 전역 오프셋까지 달라진다.
+        # 렌더 캐시만 비우는 걸로는 하단 슬라이드 리스트가 갱신되지 않아,
+        # 편집된 곡의 카운트를 리셋하고 _on_songs_changed 파이프라인
+        # (저장·재카운트·globalize·목록 갱신)을 태운다.
+        self._slide_manager.invalidate_markdown_cache(md_path)
+        if self._project and not self._is_standalone:
+            for s in self._project.selected_songs:
+                if s.has_markdown and s.markdown_path == md_path:
+                    s.set_slide_count(0)
+                    break
+            self._on_songs_changed()
+        else:
+            # 단독 곡 편집: 단일 파일 리로드 경로가 재카운트까지 수행
+            self._slide_manager.file_changed.emit()
 
     def _enter_song_edit_mode(self, song) -> None:
         if self._is_live:
