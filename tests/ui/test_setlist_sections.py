@@ -463,3 +463,48 @@ class TestHeaderRenameRemove:
         header._btn_remove.click()
 
         assert got == [0]
+
+
+class TestReorderReusesCards:
+    """순서 변경마다 카드를 전부 재생성하면 이동이 버벅인다 — 같은 곡의
+    카드는 재사용하고 위치 배지만 갱신한다."""
+
+    def _setup(self, widget):
+        p = Project(name="p")
+        p.selected_songs = [_song(f"곡{i}") for i in range(4)]
+        widget.set_project(p)
+        # _move_song은 메인윈도의 _on_songs_changed를 부른다 — 테스트에선
+        # 저장/리로드 없이 목록만 갱신
+        widget._main_window._on_songs_changed = widget.refresh_list
+        return p
+
+    def test_cards_reused_after_move(self, widget):
+        p = self._setup(widget)
+        moved = p.selected_songs[1]
+        card_before = next(
+            c for c in widget._cards if c._song is moved
+        )
+
+        widget._move_song(moved, 1)
+
+        card_after = next(
+            c for c in widget._cards if c._song is moved
+        )
+        assert card_after is card_before  # 재생성 없음
+
+    def test_position_badge_updates_on_move(self, widget):
+        p = self._setup(widget)
+        moved = p.selected_songs[1]
+
+        widget._move_song(moved, 1)
+
+        card = next(c for c in widget._cards if c._song is moved)
+        assert card._badge.text() == "3"
+
+    def test_removed_song_card_is_dropped(self, widget):
+        p = self._setup(widget)
+        removed = p.selected_songs.pop(0)
+        widget.refresh_list()
+
+        assert all(c._song is not removed for c in widget._cards)
+        assert len(widget._cards) == 3

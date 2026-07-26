@@ -1200,6 +1200,13 @@ class _SongCard(QFrame):
             self._fmt_tag.setText("")
         self._fmt_tag.setVisible(self._is_selected and bool(self._fmt_tag.text()))
 
+    def set_position(self, position: int) -> None:
+        """순서 변경 시 배지 숫자만 갱신 (카드 재사용 경로)."""
+        if position == self._position:
+            return
+        self._position = position
+        self._badge.setText(str(position))
+
     def set_selected(self, selected: bool, current_sheet_id: str | None = None) -> None:
         self._is_selected = selected
         self._current_sheet_id = current_sheet_id
@@ -2062,6 +2069,8 @@ class SongListWidget(QWidget):
         self._editable = True
         self._is_standalone = False
         self._cards: list[_SongCard] = []
+        # 곡 → 카드 재사용 풀 (순서 변경 시 전체 재생성 방지)
+        self._song_cards: dict[int, _SongCard] = {}
         self._section_headers: list[_SectionHeader] = []
         self._section_zones: list[_SectionInsertZone] = []
         self._section_edit_mode = False  # 구간 나누기 모드 (토글)
@@ -2403,10 +2412,11 @@ class SongListWidget(QWidget):
 
     def refresh_list(self) -> None:
         """카드 목록 전체 갱신."""
-        # 기존 카드 제거
+        # 기존 카드는 레이아웃에서 떼기만 한다 — 같은 곡의 카드는 풀에서
+        # 재사용 (순서 변경마다 카드 15장 재생성하면 이동이 버벅인다).
+        # 삭제 여부는 _refresh_project의 풀 정리가 판단.
         for card in self._cards:
             self._cards_layout.removeWidget(card)
-            card.deleteLater()
         self._cards.clear()
 
         for header in self._section_headers:
@@ -2430,6 +2440,7 @@ class SongListWidget(QWidget):
         if not self._project:
             self._count_label.setText("")
             self._drop_switcher()
+            self._drop_song_cards()
             return
 
         self._btn_section_mode.setVisible(not self._is_standalone)
@@ -2437,6 +2448,7 @@ class SongListWidget(QWidget):
             not getattr(self._main_window, "_is_live", False)
         )
         if self._is_standalone:
+            self._drop_song_cards()
             self._refresh_standalone()
         else:
             self._drop_switcher()
@@ -2544,9 +2556,19 @@ class SongListWidget(QWidget):
         self._cards_layout.insertWidget(self._cards_layout.count() - 1, panel)
         self._count_label.setText("")
 
+    def _drop_song_cards(self) -> None:
+        for card in self._song_cards.values():
+            card.deleteLater()
+        self._song_cards.clear()
+
     def _refresh_project(self) -> None:
         """프로젝트 모드: 셋리스트 카드 목록."""
         songs = self._project.selected_songs
+
+        # 셋리스트에서 빠진 곡의 카드는 폐기
+        alive = {id(s) for s in songs}
+        for key in [k for k in self._song_cards if k not in alive]:
+            self._song_cards.pop(key).deleteLater()
         current_sheet = self._project.get_current_score_sheet()
         current_id = current_sheet.id if current_sheet else None
 
@@ -2596,24 +2618,39 @@ class SongListWidget(QWidget):
                     self._cards_layout.count() - 1, header
                 )
 
-            card = _SongCard(song, i + 1)
-
             # 현재 선택된 시트가 이 곡에 속하면 선택 상태
             song_sheet_ids = {s.id for s in song.score_sheets}
             is_selected = current_id in song_sheet_ids
 
-            card.set_selected(is_selected, current_id if is_selected else None)
-            card.sheet_selected.connect(self._on_sheet_selected_direct)
-            card.edit_requested.connect(self.song_edit_requested.emit)
-            card.remove_requested.connect(self._remove_song)
-            card.reload_requested.connect(self.song_reload_requested.emit)
-            card.import_ppt_requested.connect(self._import_ppt_to_song)
-            card.move_requested.connect(self._move_song)
-            card.move_mode_requested.connect(
-                lambda song: self._enter_move_mode("song", song)
-            )
-            card.toggle_sheet_names_requested.connect(self._toggle_sheet_names)
-            card.set_section_requested.connect(self._set_song_section)
+            card = self._song_cards.get(id(song))
+            fresh = card is None
+            if fresh:
+                card = _SongCard(song, i + 1)
+                card.sheet_selected.connect(self._on_sheet_selected_direct)
+                card.edit_requested.connect(self.song_edit_requested.emit)
+                card.remove_requested.connect(self._remove_song)
+                card.reload_requested.connect(self.song_reload_requested.emit)
+                card.import_ppt_requested.connect(self._import_ppt_to_song)
+                card.move_requested.connect(self._move_song)
+                card.move_mode_requested.connect(
+                    lambda song: self._enter_move_mode("song", song)
+                )
+                card.toggle_sheet_names_requested.connect(
+                    self._toggle_sheet_names
+                )
+                card.set_section_requested.connect(self._set_song_section)
+                self._song_cards[id(song)] = card
+            else:
+                card.set_position(i + 1)
+                card.refresh_status()
+
+            # 재사용 카드는 상태가 실제로 바뀐 경우에만 재스타일
+            if fresh or is_selected != card._is_selected or (
+                is_selected and card._current_sheet_id != current_id
+            ):
+                card.set_selected(
+                    is_selected, current_id if is_selected else None
+                )
 
             self._cards.append(card)
             self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
