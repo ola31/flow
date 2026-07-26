@@ -231,3 +231,39 @@ class TestHomePanelPaintCost:
         assert panels, "홈 패널이 있어야 함"
         for panel in panels:
             assert panel.graphicsEffect() is None
+
+
+class TestEditReflectsWithoutManualRefresh:
+    """곡 편집(악보 추가·마크다운 수정) 후 돌아오면 새로고침 없이 반영.
+
+    지문이 곡 폴더/song.json mtime만 보면 "기존 sheets/ 안에 이미지 추가"와
+    "기존 slides.md 내용 수정"을 놓친다 (폴더 mtime이 안 바뀜) — 항상
+    수동 새로고침이 필요했던 원인.
+    """
+
+    def test_added_sheet_image_rebuilds(self, screen, tmp_path):
+        d = tmp_path / "library" / "song_one" / "sheets"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "p0.png").touch()
+        screen.refresh()
+        assert "악보 1장" in _first_card(screen)._sub_lbl.text()
+        time.sleep(0.01)
+
+        (d / "p1.png").touch()  # 기존 sheets/에 추가 — 곡 폴더 mtime 불변
+
+        screen.refresh()
+        assert "악보 2장" in _first_card(screen)._sub_lbl.text()
+
+    def test_edited_markdown_changes_fingerprint(self, screen, tmp_path):
+        md = tmp_path / "library" / "song_one" / "slides.md"
+        md.write_text("# p\n첫 가사\n", encoding="utf-8")
+        screen.refresh()
+        fp_before = screen._last_fingerprint
+        time.sleep(0.01)
+
+        md.write_text("# p\n첫 가사\n둘째 가사\n", encoding="utf-8")
+
+        screen.refresh()
+        assert screen._last_fingerprint != fp_before, (
+            "md 내용 수정이 지문에 반영 안 됨 — 수동 새로고침 필요해짐"
+        )
