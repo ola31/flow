@@ -268,3 +268,131 @@ class TestSectionAppliesDownward:
         widget._set_song_section(p.selected_songs[0])
 
         assert [s.section for s in p.selected_songs] == ["", ""]
+
+
+class TestSectionInsertZone:
+    """카드 사이 hover 삽입 핸들 — 클릭하면 인라인 입력으로 구간을 꽂는다."""
+
+    def _project(self, widget, sections=("", "", "", "")):
+        p = Project(name="p")
+        p.selected_songs = [
+            _song(f"곡{i}", sec) for i, sec in enumerate(sections)
+        ]
+        widget.set_project(p)
+        return p
+
+    def test_zone_per_card(self, widget):
+        self._project(widget)
+        assert len(widget._section_zones) == 4
+
+    def test_zone_click_opens_inline_edit(self, widget, qtbot):
+        self._project(widget)
+        zone = widget._section_zones[0]
+
+        zone.begin_edit()
+
+        assert not zone._edit.isHidden()
+
+    def test_zone_commit_emits_index_and_name(self, widget, qtbot):
+        self._project(widget)
+        zone = widget._section_zones[2]
+        got = []
+        zone.section_committed.connect(lambda i, n: got.append((i, n)))
+
+        zone.begin_edit()
+        zone._edit.setText("오후")
+        zone._commit()
+
+        assert got == [(2, "오후")]
+
+    def test_empty_name_commit_cancels(self, widget, qtbot):
+        self._project(widget)
+        zone = widget._section_zones[1]
+        got = []
+        zone.section_committed.connect(lambda i, n: got.append((i, n)))
+
+        zone.begin_edit()
+        zone._edit.setText("   ")
+        zone._commit()
+
+        assert got == []
+        assert zone._edit.isHidden()  # 에딧 닫힘
+
+    def test_apply_fills_until_next_boundary(self, widget):
+        p = self._project(widget, sections=("", "", "오후", "오후"))
+
+        widget._apply_section_from(0, "오전")
+
+        assert [s.section for s in p.selected_songs] == [
+            "오전", "오전", "오후", "오후",
+        ]
+
+    def test_apply_without_boundary_fills_to_end(self, widget):
+        p = self._project(widget)
+
+        widget._apply_section_from(1, "오후")
+
+        assert [s.section for s in p.selected_songs] == [
+            "", "오후", "오후", "오후",
+        ]
+
+    def test_no_zones_in_live_mode(self, widget):
+        widget._main_window._is_live = True
+        self._project(widget)
+
+        assert widget._section_zones == []
+
+
+class TestHeaderRenameRemove:
+    def _project(self, widget, sections):
+        p = Project(name="p")
+        p.selected_songs = [
+            _song(f"곡{i}", sec) for i, sec in enumerate(sections)
+        ]
+        widget.set_project(p)
+        return p
+
+    def test_rename_applies_to_contiguous_group_only(self, widget):
+        p = self._project(widget, ("오전", "오전", "오후", "오전"))
+
+        widget._rename_section_at(0, "1부")
+
+        assert [s.section for s in p.selected_songs] == [
+            "1부", "1부", "오후", "오전",
+        ]
+
+    def test_remove_merges_into_previous_section(self, widget):
+        p = self._project(widget, ("오전", "오전", "오후", "오후"))
+
+        widget._remove_section_at(2)
+
+        assert [s.section for s in p.selected_songs] == [
+            "오전", "오전", "오전", "오전",
+        ]
+
+    def test_remove_first_section_clears(self, widget):
+        p = self._project(widget, ("오전", "오전", "오후", "오후"))
+
+        widget._remove_section_at(0)
+
+        assert [s.section for s in p.selected_songs] == [
+            "", "", "오후", "오후",
+        ]
+
+    def test_header_dblclick_opens_rename_edit(self, widget, qtbot):
+        self._project(widget, ("오전", "오전", "", ""))
+        header = widget._section_headers[0]
+
+        header.begin_edit()
+
+        assert not header._edit.isHidden()
+
+    def test_header_remove_button_emits(self, widget, qtbot):
+        self._project(widget, ("오전", "오전", "", ""))
+        header = widget._section_headers[0]
+        got = []
+        header.remove_requested.connect(got.append)
+
+        header._btn_remove.click()
+
+        assert got == [0]
