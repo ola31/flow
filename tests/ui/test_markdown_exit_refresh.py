@@ -74,3 +74,39 @@ def test_clean_exit_skips_pipeline(qtbot, tmp_path, monkeypatch):
         mw._slide_manager.shutdown()
         mw._clear_dirty()
         mw.close()
+
+
+def test_dirty_exit_recounts_in_standalone_too(qtbot, tmp_path, monkeypatch):
+    """단독 곡 편집도 같은 파이프라인 — file_changed는 패널만 다시 그린다."""
+    mw = MainWindow()
+    qtbot.addWidget(mw)
+    try:
+        song_dir = tmp_path / "song_a"
+        song_dir.mkdir()
+        (song_dir / "slides.md").write_text("# p\n가사\n", encoding="utf-8")
+        song = Song(name="song_a", folder=song_dir)
+        song.set_slide_count(3)
+        project = Project(name="[곡 편집] song_a")
+        project.selected_songs = [song]
+        mw._project = project
+        mw._project_path = song_dir
+        mw._is_standalone = True
+
+        mw.show_markdown_editor(song)
+        monkeypatch.setattr(
+            mw._markdown_editor_screen, "is_dirty", lambda: True
+        )
+        monkeypatch.setattr(
+            mw._markdown_editor_screen, "save_if_dirty", lambda: None
+        )
+        called = []
+        monkeypatch.setattr(mw, "_on_songs_changed", lambda: called.append(1))
+
+        mw._exit_markdown_editor()
+
+        assert called == [1]
+        assert song.get_slide_count() == 0
+    finally:
+        mw._slide_manager.shutdown()
+        mw._clear_dirty()
+        mw.close()

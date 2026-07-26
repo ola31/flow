@@ -1398,16 +1398,15 @@ class MainWindow(QMainWindow):
         # 렌더 캐시만 비우는 걸로는 하단 슬라이드 리스트가 갱신되지 않아,
         # 편집된 곡의 카운트를 리셋하고 _on_songs_changed 파이프라인
         # (저장·재카운트·globalize·목록 갱신)을 태운다.
+        # 단독/프로젝트 공통 — file_changed 시그널은 패널 다시 그리기만
+        # 연결돼 있어 재카운트·재변환이 일어나지 않는다.
         self._slide_manager.invalidate_markdown_cache(md_path)
-        if self._project and not self._is_standalone:
+        if self._project:
             for s in self._project.selected_songs:
                 if s.has_markdown and s.markdown_path == md_path:
                     s.set_slide_count(0)
                     break
             self._on_songs_changed()
-        else:
-            # 단독 곡 편집: 단일 파일 리로드 경로가 재카운트까지 수행
-            self._slide_manager.file_changed.emit()
 
     def _enter_song_edit_mode(self, song) -> None:
         if self._is_live:
