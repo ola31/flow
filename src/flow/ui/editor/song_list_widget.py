@@ -1781,6 +1781,15 @@ class _StandalonePanel(QWidget):
 
         layout.addLayout(name_row)
 
+        # 시트 목록 제목 — 아래 카드들이 무엇인지 알려주는 라벨
+        self._sheets_title = QLabel("시트")
+        self._sheets_title.setStyleSheet(
+            f"font-size: {FONT_SM}px; font-weight: {FW_SEMI}; "
+            f"color: {TEXT_TERTIARY}; background: transparent; "
+            f"padding-top: 4px;"
+        )
+        layout.addWidget(self._sheets_title)
+
         # 페이지 카드 컨테이너
         self._pages_layout = QVBoxLayout()
         self._pages_layout.setSpacing(4)
@@ -1948,6 +1957,11 @@ class _PageCard(QFrame):
         self._setup_ui(page_num, active)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
+    def _open_menu(self) -> None:
+        self._build_context_menu().exec(
+            self._btn_menu.mapToGlobal(self._btn_menu.rect().bottomLeft())
+        )
+
     def _setup_ui(self, page_num: int, active: bool) -> None:
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
@@ -1973,6 +1987,20 @@ class _PageCard(QFrame):
             f"font-size: {FONT_MD}px; color: {TEXT_SECONDARY};"
         )
         layout.addWidget(name_lbl, 1)
+
+        # 우클릭 메뉴는 발견성이 없다 — 상시 노출 ⋯ 버튼으로 같은 메뉴 열기
+        self._btn_menu = QPushButton("⋯")
+        self._btn_menu.setFixedSize(22, 22)
+        self._btn_menu.setToolTip("시트 메뉴 (이름 변경·이동·삭제)")
+        self._btn_menu.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_menu.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_menu.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {TEXT_TERTIARY}; "
+            f"border: none; font-size: {FONT_MD}px; padding: 0; }}"
+            f"QPushButton:hover {{ color: {TEXT_PRIMARY}; }}"
+        )
+        self._btn_menu.clicked.connect(self._open_menu)
+        layout.addWidget(self._btn_menu)
 
         # active 상태: 좌측 액센트 바 + 미묘한 white-overlay (Linear 패턴)
         if active:
