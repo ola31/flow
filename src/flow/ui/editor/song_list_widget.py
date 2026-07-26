@@ -1000,9 +1000,11 @@ class _SectionHeader(_SectionEditMixin, QFrame):
         self._btn_remove.setToolTip("구간 해제 (위 구간에 합쳐짐)")
         self._btn_remove.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_remove.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # padding: 0 필수 — 전역 시트의 QPushButton padding(8px 16px)이
+        # 상속되면 20px 버튼의 콘텐츠 영역이 음수가 되어 ✕가 안 그려진다
         self._btn_remove.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {TEXT_TERTIARY}; "
-            f"border: none; font-size: {FONT_SM}px; }}"
+            f"border: none; font-size: {FONT_SM}px; padding: 0; }}"
             f"QPushButton:hover {{ color: {RED}; }}"
         )
         self._btn_remove.clicked.connect(

@@ -436,6 +436,9 @@ class TestHeaderRenameRemove:
         widget.show()
         header = widget._section_headers[0]
         assert not header._btn_remove.isHidden()
+        # 전역 QPushButton padding(8px 16px)이 상속되면 20px 버튼에서
+        # ✕ 글리프가 안 그려진다 — 자체 시트에 padding 명시 필수
+        assert "padding" in header._btn_remove.styleSheet()
 
     def test_header_remove_button_emits(self, widget, qtbot):
         self._project(widget, ("오전", "오전", "", ""))
