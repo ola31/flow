@@ -79,7 +79,7 @@ class TestLibraryRefreshSkip:
         card_before = _first_card(screen)
         assert "슬라이드 없음" in card_before._sub_lbl.text()
         time.sleep(0.01)
-        # 슬라이드가 생기면 부제가 "슬라이드 없음" → "MD"로 바뀜
+        # 슬라이드가 생기면 부제가 "슬라이드 없음" → ".md"로 바뀜
         (tmp_path / "library" / "song_one" / "slides.md").write_text(
             "---\n---\n\n# song_one\n", encoding="utf-8"
         )
@@ -87,7 +87,7 @@ class TestLibraryRefreshSkip:
         screen.refresh()
 
         assert _first_card(screen) is card_before  # 위젯은 재사용
-        assert "MD" in card_before._sub_lbl.text()  # 내용은 갱신
+        assert ".md" in card_before._sub_lbl.text()  # 내용은 갱신
 
     def test_new_song_appears(self, screen, tmp_path):
         titles_before = _card_titles(screen)

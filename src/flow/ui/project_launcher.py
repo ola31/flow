@@ -49,7 +49,7 @@ def _song_status(song_path: str) -> tuple[str, str, str]:
 
     if has_sheet and has_slides:
         if has_md and not has_ppt:
-            return "MD", "악보 · 마크다운 슬라이드 준비완료", GREEN
+            return ".md", "악보 · 마크다운 슬라이드 준비완료", GREEN
         return "준비완료", "악보 · PPT 준비완료", GREEN
     if has_sheet:
         return "슬라이드 없음", "슬라이드 없음 (PPT/마크다운 모두 없음)", AMBER
