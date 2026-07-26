@@ -18,7 +18,6 @@ class ConfigService:
             "window_geometry": "",
             "window_state": "",
             "display_screen_name": "",  # 송출 모니터 식별 (QScreen.name)
-            "display_windowed_mode": False,  # 송출을 윈도우 모드로
             "output_resolution": [1920, 1080],  # 송출/렌더 출력 해상도 [W, H]
         }
         self.load()
@@ -205,14 +204,9 @@ class ConfigService:
         self._config["display_screen_name"] = name or ""
         self.save()
 
-    def get_display_windowed_mode(self) -> bool:
-        self.load()
-        return bool(self._config.get("display_windowed_mode", False))
-
-    def set_display_windowed_mode(self, windowed: bool) -> None:
-        self.load()
-        self._config["display_windowed_mode"] = bool(windowed)
-        self.save()
+    # 윈도우 모드는 일부러 저장하지 않는다 — 기억해 두면 다음 송출에도
+    # 미리 체크된 채 떠서 외부 모니터가 작은 창으로 나가는 사고가 난다.
+    # 매번 모니터 수를 보고 정한다 (flow_select_screen).
 
     def get_display_with_web(self) -> bool:
         """모니터 송출 시 웹 송출도 함께 시작할지 (F11 픽커 체크박스 기본값)."""

@@ -1139,8 +1139,9 @@ class _SongCard(QFrame):
         )
         menu.addAction(toggle_names_act)
 
-        section_act = QAction(
-            "구간 변경" if self._song.section else "구간 지정", self
+        section_act = QAction("여기부터 구간 지정", self)
+        section_act.setToolTip(
+            "이 곡부터 아래 곡들을 한 구간으로 묶습니다"
         )
         section_act.triggered.connect(
             lambda: self.set_section_requested.emit(self._song)
@@ -2798,10 +2799,13 @@ class SongListWidget(QWidget):
             self._main_window._mark_dirty()
 
     def _set_song_section(self, song: Song) -> None:
-        """이 곡이 속한 셋리스트 구간을 지정한다 (예: 오전 / 오후).
+        """이 곡부터 아래 곡들을 한 구간으로 묶는다 (예: 오전 / 오후).
 
-        구간은 표시용 묶음일 뿐이라 곡 순서는 건드리지 않는다 — 같은 구간
-        머리글 아래로 모으려면 사용자가 순서를 옮기면 된다.
+        곡마다 하나씩 지정하게 하면 15곡짜리 셋리스트에 15번을 눌러야 한다.
+        구간 머리글은 어차피 연속 구간의 시작에서만 나오므로, 여기서는
+        '구분선을 꽂는' 동작으로 만든다 — 이 곡부터 목록 끝까지 같은 구간
+        이름을 채우고, 뒤에서 다른 구간을 다시 지정하면 거기서부터 갈린다.
+        (오전 1곡 + 오후 1곡 = 두 번이면 끝난다.)
         """
         if not self._project or getattr(self._main_window, "_is_live", False):
             return
@@ -2823,10 +2827,17 @@ class SongListWidget(QWidget):
             choices.insert(1, current)
             start = 1
 
+        songs = self._project.selected_songs
+        try:
+            first = next(i for i, s in enumerate(songs) if s is song)
+        except StopIteration:
+            return
+        affected = len(songs) - first
+
         value, ok = QInputDialog.getItem(
             self,
             "구간 지정",
-            f"'{song.name}'을(를) 넣을 구간:",
+            f"'{song.name}'부터 아래 {affected}곡을 넣을 구간:",
             choices,
             start,
             True,  # 직접 입력 허용
@@ -2836,13 +2847,22 @@ class SongListWidget(QWidget):
 
         value = value.strip()
         new_section = "" if value in ("", "(구간 없음)") else value
-        if new_section == song.section:
+
+        changed = False
+        for s in songs[first:]:
+            if s.section != new_section:
+                s.section = new_section
+                changed = True
+        if not changed:
             return
 
-        song.section = new_section
         self.refresh_list()
         if self._main_window:
             self._main_window._mark_dirty()
+            self._main_window.statusBar().showMessage(
+                f"{affected}곡을 '{new_section or '구간 없음'}'으로 묶었습니다.",
+                3000,
+            )
 
     # ── 시트(페이지) 관리 ────────────────────────────────────────────────
 

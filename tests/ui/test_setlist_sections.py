@@ -26,9 +26,19 @@ class _FakeMainWindow:
         self._project_path = project_path
         self._is_live = False
         self.dirty = False
+        self.messages: list[str] = []
 
     def _mark_dirty(self):
         self.dirty = True
+
+    def statusBar(self):  # noqa: N802 — Qt 이름 규약을 흉내
+        outer = self
+
+        class _Bar:
+            def showMessage(self, msg, _timeout=0):  # noqa: N802
+                outer.messages.append(msg)
+
+        return _Bar()
 
 
 def _song(name: str, section: str = "") -> Song:
@@ -185,15 +195,7 @@ class TestSetSectionAction:
 
         labels = [a.text() for a in card._build_context_menu().actions()]
 
-        assert "구간 지정" in labels
-
-    def test_menu_says_change_when_already_set(self, qtbot):
-        card = _SongCard(_song("곡A", "오전"), 1)
-        qtbot.addWidget(card)
-
-        labels = [a.text() for a in card._build_context_menu().actions()]
-
-        assert "구간 변경" in labels
+        assert "여기부터 구간 지정" in labels
 
     def test_action_emits_signal(self, qtbot):
         song = _song("곡A")
@@ -203,7 +205,66 @@ class TestSetSectionAction:
         card.set_section_requested.connect(received.append)
 
         next(
-            a for a in card._build_context_menu().actions() if a.text() == "구간 지정"
+            a for a in card._build_context_menu().actions()
+            if a.text() == "여기부터 구간 지정"
         ).trigger()
 
         assert received == [song]
+
+
+class TestSectionAppliesDownward:
+    """곡마다 하나씩 지정하면 15곡짜리는 15번을 눌러야 한다 —
+    한 번 지정하면 아래로 쭉 적용되고, 뒤에서 다시 지정하면 거기서 갈린다."""
+
+    def _apply(self, widget, monkeypatch, index, value):
+        from PySide6.QtWidgets import QInputDialog
+
+        monkeypatch.setattr(
+            QInputDialog, "getItem", staticmethod(lambda *a, **k: (value, True))
+        )
+        widget._set_song_section(widget._project.selected_songs[index])
+
+    def test_applies_from_song_to_end(self, widget, monkeypatch):
+        p = Project(name="p")
+        p.selected_songs = [_song("A"), _song("B"), _song("C")]
+        widget.set_project(p)
+
+        self._apply(widget, monkeypatch, 0, "오전")
+
+        assert [s.section for s in p.selected_songs] == ["오전", "오전", "오전"]
+
+    def test_second_marker_splits_the_run(self, widget, monkeypatch):
+        p = Project(name="p")
+        p.selected_songs = [_song("A"), _song("B"), _song("C"), _song("D")]
+        widget.set_project(p)
+
+        self._apply(widget, monkeypatch, 0, "오전")
+        self._apply(widget, monkeypatch, 2, "오후")
+
+        assert [s.section for s in p.selected_songs] == [
+            "오전", "오전", "오후", "오후"
+        ]
+        assert _rows(widget) == ["# 오전", "A", "B", "# 오후", "C", "D"]
+
+    def test_clearing_from_a_point(self, widget, monkeypatch):
+        p = Project(name="p")
+        p.selected_songs = [_song("A", "오전"), _song("B", "오전")]
+        widget.set_project(p)
+
+        self._apply(widget, monkeypatch, 1, "(구간 없음)")
+
+        assert [s.section for s in p.selected_songs] == ["오전", ""]
+
+    def test_cancel_changes_nothing(self, widget, monkeypatch):
+        from PySide6.QtWidgets import QInputDialog
+
+        p = Project(name="p")
+        p.selected_songs = [_song("A"), _song("B")]
+        widget.set_project(p)
+        monkeypatch.setattr(
+            QInputDialog, "getItem", staticmethod(lambda *a, **k: ("오전", False))
+        )
+
+        widget._set_song_section(p.selected_songs[0])
+
+        assert [s.section for s in p.selected_songs] == ["", ""]

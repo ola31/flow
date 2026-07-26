@@ -2729,7 +2729,6 @@ class MainWindow(QMainWindow):
             return None
 
         saved_name = self._config_service.get_display_screen_name()
-        saved_windowed = self._config_service.get_display_windowed_mode()
 
         # 저장된 모니터가 더 이상 없으면 안내 (웹 송출은 목록에 없으므로 제외)
         if (
@@ -2745,10 +2744,14 @@ class MainWindow(QMainWindow):
 
         # 매 송출마다 확인 다이얼로그 (저장된 선택은 미리 체크됨)
         from flow.ui.dialogs import flow_select_screen
+        # 윈도우 모드는 일부러 기억하지 않는다 — 한 번 체크해 두면 다음
+        # 송출에도 미리 체크된 채 떠서, 외부 모니터를 골랐는데도 작은 창으로
+        # 나가는 사고가 난다. 매번 다이얼로그가 모니터 수를 보고 정한다
+        # (모니터 1대면 윈도우 모드, 2대 이상이면 전체화면).
         target = flow_select_screen(
             self, screens,
             current_name=saved_name,
-            default_windowed=saved_windowed,
+            default_windowed=None,
             default_with_web=self._config_service.get_display_with_web(),
         )
         if target is None:
@@ -2760,7 +2763,6 @@ class MainWindow(QMainWindow):
         else:
             if target.screen is not None:
                 self._config_service.set_display_screen_name(target.screen.name())
-            self._config_service.set_display_windowed_mode(target.windowed)
             self._config_service.set_display_with_web(target.with_web)
         return target
 
