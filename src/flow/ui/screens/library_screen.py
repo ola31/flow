@@ -244,7 +244,7 @@ class LibraryScreen(QWidget):
         if info["has_ppt"]:
             slide_part = "PPT"
         elif info["has_md"]:
-            slide_part = "마크다운"
+            slide_part = "MD"
         else:
             slide_part = _amber("슬라이드 없음")
 

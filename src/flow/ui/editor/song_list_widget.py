@@ -1195,7 +1195,7 @@ class _SongCard(QFrame):
         if st["has_ppt"]:
             self._fmt_tag.setText("PPT")
         elif st["has_md"]:
-            self._fmt_tag.setText("마크다운")
+            self._fmt_tag.setText("MD")
         else:
             self._fmt_tag.setText("")
         self._fmt_tag.setVisible(self._is_selected and bool(self._fmt_tag.text()))
