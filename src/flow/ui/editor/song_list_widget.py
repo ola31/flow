@@ -1234,6 +1234,9 @@ class _SongCard(QFrame):
 
     def _refresh_tabs(self, current_sheet_id: str | None) -> None:
         valid_sheets = [s for s in self._song.score_sheets if s.image_path]
+        if len(valid_sheets) <= 1:
+            # 시트가 하나면 전환할 대상이 없다 — P1 탭 표시 안 함
+            valid_sheets = []
 
         # 시트 구성이 같으면 탭을 재사용하고 활성 상태만 갱신 — 시트가
         # 많은 곡은 탭 재생성(setStyleSheet ~40ms)이 방향키 전환을 끊는다.

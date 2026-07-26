@@ -508,3 +508,31 @@ class TestReorderReusesCards:
 
         assert all(c._song is not removed for c in widget._cards)
         assert len(widget._cards) == 3
+
+
+class TestSingleSheetNoTabs:
+    """시트가 하나뿐인 곡은 전환할 대상이 없다 — P1 탭을 표시하지 않는다."""
+
+    def _card(self, widget, sheet_count: int):
+        from flow.domain.score_sheet import ScoreSheet
+
+        p = Project(name="p")
+        song = _song("곡0")
+        song.score_sheets = [
+            ScoreSheet(name=f"페이지{i}", image_path=f"p{i}.png")
+            for i in range(sheet_count)
+        ]
+        p.selected_songs = [song]
+        widget.set_project(p)
+        card = widget._cards[0]
+        card.set_selected(True, song.score_sheets[0].id)
+        return card
+
+    def test_single_sheet_hides_tabs(self, widget):
+        card = self._card(widget, 1)
+        assert card._sheet_tabs == []
+        assert not card._tabs_container.isVisibleTo(card)
+
+    def test_multi_sheet_shows_tabs(self, widget):
+        card = self._card(widget, 2)
+        assert len(card._sheet_tabs) == 2
