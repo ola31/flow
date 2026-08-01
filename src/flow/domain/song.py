@@ -44,6 +44,10 @@ class Song:
     project_dir: Optional[Path] = None  # 프로젝트 베이스 경로 (절대 경로 해결용)
     source: str = "local"  # "library" | "local" — 워크스페이스 구조에서 곡 출처
     show_sheet_names: bool = False  # 셋리스트 탭에 P1, P2… 대신 시트 이름 표시
+    # 셋리스트 안의 구간 이름 (예: "오전"/"오후"). 빈 문자열이면 구간 없음.
+    # 프로젝트 소유 정보라 project.json에만 저장한다 — 같은 라이브러리 곡이
+    # 프로젝트마다 다른 구간에 들어갈 수 있으므로 song.json에 넣으면 안 된다.
+    section: str = ""
     
     @property
     def score_sheet(self) -> ScoreSheet | None:
@@ -132,6 +136,32 @@ class Song:
     def set_slide_count(self, count: int):
         """슬라이드 개수 설정 (SlideManager가 PPT 로드 후 호출)"""
         self._slide_count = count
+
+    def duplicate_reference(self, section: str = "") -> "Song":
+        """셋리스트에 이 곡을 한 번 더 넣기 위한 '등장' 사본.
+
+        악보 목록(score_sheets)을 **같은 리스트 객체로 공유**한다 — 같은
+        곡이므로 악보·핫스팟·슬라이드 매핑은 하나뿐이어야 하고, 한쪽에서
+        고치면 다른 쪽도 같이 바뀌어야 한다. 사본이 따로 갖는 것은 구간
+        (section)처럼 '이 자리'에만 해당하는 값이다.
+
+        곡을 통째로 복사하고 싶다면(오전·오후에 다른 매핑) 라이브러리
+        추가 다이얼로그의 '복사'로 별도 곡을 만들 것.
+        """
+        clone = Song(
+            name=self.name,
+            folder=self.folder,
+            score_sheets=self.score_sheets,  # 공유 (복사 아님)
+            slides_path=self.slides_path,
+            sheets_dir=self.sheets_dir,
+            order=self.order,
+            project_dir=self.project_dir,
+            source=self.source,
+            show_sheet_names=self.show_sheet_names,
+            section=section,
+        )
+        clone.set_slide_count(self.get_slide_count())
+        return clone
 
     def shift_indices(self, offset: int) -> None:
         """이 곡의 모든 시트의 모든 핫스팟 인덱스 이동"""

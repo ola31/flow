@@ -92,6 +92,19 @@ class MainWindow(QMainWindow):
     # 핫스팟 프리웜 지연(ms) — 시작 직후 부하를 피해 살짝 미룸
     _HOTSPOT_PREWARM_DELAY_MS = 1500
 
+    # 핫스팟 슬라이드 인덱스가 현재 전역 좌표인지. 프로젝트를 새로 물릴
+    # 때마다 False로 돌아간다 — 디스크에서 온 인덱스는 언제나 로컬이다.
+    _indices_globalized: bool = False
+
+    @property
+    def _project(self) -> "Project | None":
+        return self.__project
+
+    @_project.setter
+    def _project(self, value: "Project | None") -> None:
+        self.__project = value
+        self._indices_globalized = False
+
     def __init__(self, workspace=None) -> None:
         super().__init__()
 
@@ -518,6 +531,116 @@ class MainWindow(QMainWindow):
         self._statusbar.hide()
         self.setWindowTitle("Flow - 프로젝트")
 
+    def _delete_library_song(self, song_dir_str: str) -> None:
+        """라이브러리 화면의 우클릭 '삭제'.
+
+        곡 폴더(악보·슬라이드·매핑 전부)를 지우므로, 이 곡을 담고 있는
+        셋리스트를 먼저 보여준 뒤 한 번 더 확인받는다.
+        """
+        from flow.ui.dialogs import flow_question, flow_warning
+
+        song_dir = Path(song_dir_str)
+        if not song_dir.is_dir():
+            # 목록이 디스크와 어긋나 있다 — 다시 읽어 카드를 정리한다
+            self._library_screen.force_refresh()
+            return
+
+        # 지금 열려 있는 곡은 저장 경로가 사라지므로 막는다
+        if self._project_path and Path(self._project_path).resolve() == (
+            song_dir.resolve()
+        ):
+            flow_warning(
+                self,
+                "삭제 불가",
+                "지금 편집 중인 곡입니다.\n"
+                "다른 곡을 열거나 홈으로 나간 뒤 삭제해 주세요.",
+            )
+            return
+
+        name = song_dir.name
+        used_by: list[str] = []
+        if self._workspace is not None:
+            used_by = self._repo.find_song_references(self._workspace, name)
+
+        detail = ""
+        if used_by:
+            shown = ", ".join(used_by[:5])
+            more = f" 외 {len(used_by) - 5}개" if len(used_by) > 5 else ""
+            detail = (
+                f"\n\n이 곡을 쓰는 프로젝트에서도 함께 빠집니다:\n{shown}{more}"
+            )
+
+        if not flow_question(
+            self,
+            "곡 삭제",
+            f"'{name}'을(를) 삭제합니다.\n"
+            f"악보·슬라이드·매핑이 모두 사라지며 되돌릴 수 없습니다."
+            f"{detail}",
+            yes_text="삭제", no_text="취소",
+        ):
+            return
+
+        try:
+            self._repo.delete_song_folder(song_dir, workspace=self._workspace)
+        except OSError as e:
+            flow_warning(self, "삭제 실패", str(e))
+            return
+
+        self._config_service.remove_recent_song(str(song_dir))
+        self._library_screen.force_refresh()
+        self._launcher.refresh_workspace_items()
+        self._statusbar.showMessage(f"'{name}'을(를) 삭제했습니다.", 3000)
+
+    def _rename_workspace_project(self, project_dir_str: str) -> None:
+        """프로젝트 페이지의 우클릭 '이름 변경'.
+
+        같은 날 오전/오후처럼 셋리스트가 여러 개일 때 카드에서 바로
+        구분할 수 있게 폴더명과 project.json의 name을 함께 바꾼다.
+        """
+        from flow.ui.dialogs import flow_warning
+
+        project_dir = Path(project_dir_str)
+        old_name = project_dir.name
+
+        # 열려 있는 프로젝트는 저장 경로가 어긋나므로 닫은 뒤에 바꾸게 한다
+        current_dir = (
+            self._project_path.parent
+            if self._project_path and not self._is_standalone
+            else None
+        )
+        if current_dir is not None and current_dir.resolve() == project_dir.resolve():
+            flow_warning(
+                self,
+                "이름 변경 불가",
+                "지금 열려 있는 프로젝트입니다.\n"
+                "다른 프로젝트를 열거나 홈으로 나간 뒤 이름을 바꿔 주세요.",
+            )
+            return
+
+        new_name, ok = QInputDialog.getText(
+            self, "프로젝트 이름 변경", "새 프로젝트 이름:", text=old_name
+        )
+        if not ok:
+            return
+        new_name = new_name.strip()
+        if not new_name or new_name == old_name:
+            return
+
+        try:
+            new_dir = self._repo.rename_workspace_project(project_dir, new_name)
+        except (OSError, ValueError) as e:
+            flow_warning(self, "이름 변경 실패", str(e))
+            return
+
+        self._config_service.remove_recent_project(
+            str(project_dir / "project.json")
+        )
+        self._projects_screen.force_refresh()
+        self._launcher.refresh_workspace_items()
+        self._statusbar.showMessage(
+            f"프로젝트 이름을 '{new_dir.name}'(으)로 변경했습니다.", 3000
+        )
+
     def show_project(self) -> None:
         self._stack.setCurrentIndex(1)
         self._toolbar.show()
@@ -584,6 +707,9 @@ class MainWindow(QMainWindow):
         from flow.ui.screens.projects_screen import ProjectsScreen
         self._library_screen = LibraryScreen()
         self._library_screen.song_selected.connect(self._open_song_by_path)
+        self._library_screen.song_delete_requested.connect(
+            self._delete_library_song
+        )
         self._library_screen.new_song_requested.connect(
             lambda: self._launcher.new_song_requested.emit()
         )
@@ -591,6 +717,9 @@ class MainWindow(QMainWindow):
 
         self._projects_screen = ProjectsScreen()
         self._projects_screen.project_selected.connect(self._open_project_by_path)
+        self._projects_screen.project_rename_requested.connect(
+            self._rename_workspace_project
+        )
         self._projects_screen.new_project_requested.connect(
             lambda: self._launcher.new_project_requested.emit()
         )
@@ -1262,19 +1391,44 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"Flow - 마크다운 편집: {song.name}")
 
     def _exit_markdown_editor(self) -> None:
-        """마크다운 에디터에서 이전 화면으로 복귀."""
+        """마크다운 에디터에서 이전 화면으로 복귀.
+
+        편집한 곡의 슬라이드를 다시 세고 렌더한다. 예전에는 단일 파일
+        모드(_pptx_path)만 확인해서, 프로젝트 안 곡의 마크다운을 고치면
+        에디터에서만 반영되고 곡/프로젝트 화면은 옛 슬라이드를 계속
+        보여줬다. 슬라이드 수가 달라지면 뒤 곡들의 전역 오프셋까지 밀리므로
+        캐시만 버리지 않고 _on_songs_changed 파이프라인을 태운다.
+        """
         self._markdown_editor_screen.save_if_dirty()
-        # 슬라이드 리렌더 트리거 — 현재 곡이 마크다운이면 캐시 리로드
-        if self._slide_manager._pptx_path is not None:
-            p = self._slide_manager._pptx_path
-            if str(p).lower().endswith(".md"):
-                self._slide_manager._markdown_converter.invalidate_cache(p)
-                self._slide_manager.file_changed.emit()
+        # is_dirty가 아니라 content_changed — 사용자가 Ctrl+S로 저장한 뒤
+        # 나가면 dirty는 이미 False라 재로딩을 놓친다
+        was_dirty = self._markdown_editor_screen.content_changed()
+
         self._stack.setCurrentIndex(self._markdown_editor_prev_index)
         self._toolbar.show()
         self._statusbar.show()
         if self._project:
             self.setWindowTitle(f"Flow - {self._project.name}")
+
+        if not was_dirty:
+            return  # 수정 없이 나가면 재로딩도 없다
+
+        md_path = getattr(self._markdown_editor_screen, "_md_path", None)
+        if md_path is None:
+            return
+        # 편집으로 슬라이드 수가 바뀌면 뒤 곡들의 전역 오프셋까지 달라진다.
+        # 렌더 캐시만 비우는 걸로는 하단 슬라이드 리스트가 갱신되지 않아,
+        # 편집된 곡의 카운트를 리셋하고 _on_songs_changed 파이프라인
+        # (저장·재카운트·globalize·목록 갱신)을 태운다.
+        # 단독/프로젝트 공통 — file_changed 시그널은 패널 다시 그리기만
+        # 연결돼 있어 재카운트·재변환이 일어나지 않는다.
+        self._slide_manager.invalidate_markdown_cache(md_path)
+        if self._project:
+            for s in self._project.selected_songs:
+                if s.has_markdown and s.markdown_path == md_path:
+                    s.set_slide_count(0)
+                    break
+            self._on_songs_changed()
 
     def _enter_song_edit_mode(self, song) -> None:
         if self._is_live:
@@ -1767,19 +1921,30 @@ class MainWindow(QMainWindow):
         self._verse_selector.set_current_verse(verse_index)
         self._project_screen.sync_nav_verse(verse_index)
 
-        # [수정] 현재 선택된 핫스팟이 바뀐 절에 매핑되어 있지 않다면 선택 해제 (화면 정돈)
-        current_hotspot = self._canvas.get_selected_hotspot()
-        if current_hotspot:
-            if current_hotspot.get_slide_index(verse_index) >= 0:
-                self._update_preview(current_hotspot)
-                self._live_controller.set_preview(current_hotspot)
-            else:
-                self._canvas.select_hotspot(None)
-                self._update_preview(None)
-                self._live_controller.set_preview(None)
-
-        if self._is_live and self._live_controller.live_hotspot:
-            self._live_controller.sync_live()
+        if self._is_live:
+            # 라이브 중 절 이동은 프리뷰까지만 바꾼다 — 송출 화면은 Enter를
+            # 누를 때까지 그대로다. 절 버튼 하나로 송출 화면이 즉시 바뀌면
+            # 잘못 누른 절이 그대로 나가버린다.
+            target = (
+                self._live_controller.preview_hotspot
+                or self._live_controller.live_hotspot
+            )
+            if target is not None:
+                self._canvas.select_hotspot(target.id)
+                self._update_preview(target)
+                self._live_controller.set_preview(target)
+        else:
+            # [수정] 현재 선택된 핫스팟이 바뀐 절에 매핑되어 있지 않다면
+            # 선택 해제 (화면 정돈)
+            current_hotspot = self._canvas.get_selected_hotspot()
+            if current_hotspot:
+                if current_hotspot.get_slide_index(verse_index) >= 0:
+                    self._update_preview(current_hotspot)
+                    self._live_controller.set_preview(current_hotspot)
+                else:
+                    self._canvas.select_hotspot(None)
+                    self._update_preview(None)
+                    self._live_controller.set_preview(None)
 
         self._update_mapped_slides_ui()
 
@@ -1846,6 +2011,84 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "오류", f"프로젝트를 복제할 수 없습니다:\n{e}")
+
+    def rename_current_song(self) -> None:
+        """곡 편집 모드: 현재 곡의 이름(=폴더명)을 바꾼다.
+
+        곡의 정체성은 폴더명이고 프로젝트는 곡을 이름으로 참조하므로,
+        폴더명·song.json·워크스페이스 안 모든 project.json 참조를 함께
+        갱신한 뒤 새 경로로 곡을 다시 연다. 이름을 바꾸기 전에 편집 중인
+        내용을 저장하고 슬라이드 워커/파일 감시를 멈춘다 — Windows는
+        열려 있는 파일이 있는 폴더의 이름 변경을 거부한다.
+        """
+        if self._is_live:
+            return
+        if not self._is_standalone or not self._project:
+            return
+        if not self._project.selected_songs or self._project_path is None:
+            return
+
+        song_dir = Path(self._project_path)
+        old_name = song_dir.name
+
+        new_name, ok = QInputDialog.getText(
+            self, "곡 이름 변경", "새 곡 이름:", text=old_name
+        )
+        if not ok:
+            return
+        new_name = new_name.strip()
+        if not new_name or new_name == old_name:
+            return
+
+        try:
+            new_name = self._repo.validate_folder_name(new_name)
+        except ValueError as e:
+            from flow.ui.dialogs import flow_warning
+            flow_warning(self, "이름 변경 불가", str(e))
+            return
+
+        workspace = getattr(self, "_workspace", None)
+        # 라이브러리 곡이면 이 곡을 쓰는 프로젝트들의 참조도 함께 바뀐다 —
+        # 되돌릴 수 없는 파일 조작이라 미리 알린다.
+        if workspace is not None and song_dir.parent == workspace.library_dir:
+            from flow.ui.dialogs import flow_question
+            if not flow_question(
+                self,
+                "곡 이름 변경",
+                f"'{old_name}'을(를) '{new_name}'(으)로 바꿉니다.\n\n"
+                "폴더 이름이 바뀌고, 이 곡을 사용하는 프로젝트의 참조도\n"
+                "함께 갱신됩니다. 되돌리기(Ctrl+Z)로는 취소할 수 없습니다.",
+                yes_text="이름 변경", no_text="취소",
+            ):
+                return
+
+        # 저장하지 않은 편집 내용을 먼저 반영 (이름 변경 후엔 옛 경로로 저장됨)
+        try:
+            self._repo.save_standalone_song(self._project)
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"곡을 저장할 수 없습니다:\n{e}")
+            return
+
+        # 폴더 안 파일을 잡고 있으면 Windows에서 rename이 실패한다
+        self._slide_manager.stop_workers()
+        self._slide_manager.stop_watching()
+
+        try:
+            new_dir = self._repo.rename_song_folder(
+                song_dir, new_name, workspace=workspace
+            )
+        except (OSError, ValueError) as e:
+            QMessageBox.critical(self, "이름 변경 실패", str(e))
+            return
+
+        self._config_service.remove_recent_song(str(song_dir))
+        # 방금 저장했으므로 재열기 경로의 "저장할까요?" 확인을 띄우지 않는다
+        self._undo_stack.setClean()
+        self._clear_dirty()
+        self._open_song_by_path(str(new_dir))
+        self._statusbar.showMessage(
+            f"곡 이름을 '{new_name}'(으)로 변경했습니다.", 3000
+        )
 
     def _save_standalone_song_as(self) -> None:
         """곡 편집 모드: 곡 폴더를 다른 위치에 복사하여 저장"""
@@ -1984,6 +2227,9 @@ class MainWindow(QMainWindow):
 
     def _exit_live(self) -> None:
         self._is_live = False
+        # 미변환 슬라이드를 기다리던 폴링을 멈춘다 — 남겨두면 라이브를
+        # 끝낸 뒤에도 변환이 주기적으로 다시 돈다.
+        self._live_controller.stop_pending_slide()
         self._live_mode_action.setChecked(False)
         self._canvas.set_edit_mode(True)
         self._set_project_editable(True)
@@ -2524,7 +2770,6 @@ class MainWindow(QMainWindow):
             return None
 
         saved_name = self._config_service.get_display_screen_name()
-        saved_windowed = self._config_service.get_display_windowed_mode()
 
         # 저장된 모니터가 더 이상 없으면 안내 (웹 송출은 목록에 없으므로 제외)
         if (
@@ -2540,10 +2785,14 @@ class MainWindow(QMainWindow):
 
         # 매 송출마다 확인 다이얼로그 (저장된 선택은 미리 체크됨)
         from flow.ui.dialogs import flow_select_screen
+        # 윈도우 모드는 일부러 기억하지 않는다 — 한 번 체크해 두면 다음
+        # 송출에도 미리 체크된 채 떠서, 외부 모니터를 골랐는데도 작은 창으로
+        # 나가는 사고가 난다. 매번 다이얼로그가 모니터 수를 보고 정한다
+        # (모니터 1대면 윈도우 모드, 2대 이상이면 전체화면).
         target = flow_select_screen(
             self, screens,
             current_name=saved_name,
-            default_windowed=saved_windowed,
+            default_windowed=None,
             default_with_web=self._config_service.get_display_with_web(),
         )
         if target is None:
@@ -2555,7 +2804,6 @@ class MainWindow(QMainWindow):
         else:
             if target.screen is not None:
                 self._config_service.set_display_screen_name(target.screen.name())
-            self._config_service.set_display_windowed_mode(target.windowed)
             self._config_service.set_display_with_web(target.with_web)
         return target
 
@@ -2660,6 +2908,9 @@ class MainWindow(QMainWindow):
         self._project_path = None
         self._is_standalone = False
 
+        # 프로젝트를 닫으면 기다릴 슬라이드도 없다 — 폴링을 남겨두면
+        # 홈/라이브러리로 나온 뒤에도 변환이 다시 돈다.
+        self._live_controller.stop_pending_slide()
         self._song_list.set_project(None)
         self._canvas.set_score_sheet(None)
 
@@ -3787,22 +4038,56 @@ class MainWindow(QMainWindow):
 
         return self._project_path.parent
 
-    def _globalize_project_indices(self):
-        """프로젝트의 모든 핫스팟 인덱스를 로컬에서 전역으로 변환"""
+    def _shift_project_indices(self, sign: int) -> None:
+        """모든 핫스팟의 슬라이드 인덱스를 곡 오프셋만큼 이동.
+
+        시트 객체 기준으로 한 번씩만 이동한다 — 같은 곡이 셋리스트에 두 번
+        들어가면(오전·오후) 두 등장이 같은 시트 객체를 공유하므로, 곡 단위로
+        돌리면 같은 핫스팟에 오프셋이 두 번 더해져 매핑이 통째로 어긋난다.
+        """
         if not self._project or not self._project.selected_songs:
             return
 
+        seen: set[int] = set()
         for song in self._project.selected_songs:
             offset = self._slide_manager.get_song_offset(song.name)
-            if offset > 0:
-                song.shift_indices(offset)
+            if offset <= 0:
+                continue
+            for sheet in song.score_sheets:
+                if id(sheet) in seen:
+                    continue
+                seen.add(id(sheet))
+                for hotspot in sheet.hotspots:
+                    if sign < 0 and self._would_go_negative(hotspot, offset):
+                        # 매핑 인덱스는 음수가 될 수 없다 — 여기 걸린다는 건
+                        # 이미 로컬인 값을 또 로컬화하려 한다는 뜻이다.
+                        # 그대로 빼면 매핑이 통째로 망가지므로 건너뛴다.
+                        continue
+                    hotspot.shift_indices(sign * offset)
+
+    @staticmethod
+    def _would_go_negative(hotspot, offset: int) -> bool:
+        for value in list(hotspot.slide_mappings.values()) + [hotspot.slide_index]:
+            if isinstance(value, int) and 0 <= value < offset:
+                return True
+        return False
+
+    def _globalize_project_indices(self):
+        """프로젝트의 모든 핫스팟 인덱스를 로컬에서 전역으로 변환.
+
+        이미 전역이면 아무것도 하지 않는다. 전역화는 곡 메타데이터 로딩이
+        끝나야 실행되는데 그 핸들러는 화면 전환 중(_in_transition)이면 조용히
+        빠져나간다 — 그때 상태를 추적하지 않으면 로컬인 인덱스를 전역이라고
+        믿고 다음 저장에서 오프셋을 한 번 더 빼 음수 매핑이 디스크에 굳는다.
+        """
+        if self._indices_globalized:
+            return
+        self._shift_project_indices(1)
+        self._indices_globalized = True
 
     def _localize_project_indices(self):
-        """프로젝트의 모든 핫스팟 인덱스를 전역에서 로컬로 변환"""
-        if not self._project or not self._project.selected_songs:
+        """프로젝트의 모든 핫스팟 인덱스를 전역에서 로컬로 변환 (이미 로컬이면 무시)"""
+        if not self._indices_globalized:
             return
-
-        for song in self._project.selected_songs:
-            offset = self._slide_manager.get_song_offset(song.name)
-            if offset > 0:
-                song.shift_indices(-offset)
+        self._shift_project_indices(-1)
+        self._indices_globalized = False

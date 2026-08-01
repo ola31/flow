@@ -4,10 +4,10 @@
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
     QLabel,
@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from flow.domain.song import detect_slides_file
+from flow.services.song_index import song_info, song_lyrics
 from flow.ui.screens._browser_widgets import (
     SORT_NAME,
     BrowserToolbar,
@@ -50,12 +50,17 @@ class LibraryScreen(QWidget):
 
     song_selected = Signal(str)
     new_song_requested = Signal()
+    # 삭제 요청 (곡 폴더 경로) — 실제 처리는 MainWindow가 한다
+    song_delete_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._workspace = None
         self._search_text = ""
         self._sort_mode = SORT_NAME
+        # 곡 폴더 경로 → 카드. 검색·정렬은 카드를 다시 만들지 않고 이
+        # 풀에서 꺼내 순서만 바꾼다 (수백 개 QFrame 재생성 방지).
+        self._cards: dict[str, ItemCard] = {}
 
         self.setStyleSheet(f"background: {BG_DEEP};")
         root = QVBoxLayout(self)
@@ -69,7 +74,14 @@ class LibraryScreen(QWidget):
         self._toolbar.new_clicked.connect(self.new_song_requested.emit)
         self._toolbar.search_changed.connect(self._on_search_changed)
         self._toolbar.sort_changed.connect(self._on_sort_changed)
+        self._toolbar.refresh_clicked.connect(self.force_refresh)
         root.addWidget(self._toolbar)
+
+        # F5 — 이 화면이 떠 있을 때만 동작하도록 위젯 범위로 제한한다
+        # (MainWindow의 F5는 라이브 모드 토글이라 겹치면 안 된다).
+        shortcut = QShortcut(QKeySequence("F5"), self)
+        shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        shortcut.activated.connect(self.force_refresh)
 
         # Card scroll area
         scroll = QScrollArea()
@@ -104,23 +116,45 @@ class LibraryScreen(QWidget):
         self._workspace = workspace
         self.refresh()
 
+    def force_refresh(self) -> None:
+        """캐시를 버리고 디스크에서 다시 읽는다 (새로고침 버튼 / F5).
+
+        refresh()는 지문이 같으면 건너뛰고 song_index는 mtime으로 캐시하는데,
+        폴더째 옮기거나 이름만 바꾼 변경은 mtime이 그대로일 수 있다.
+        새로고침은 "지금 디스크 상태를 그대로 보여달라"는 뜻이므로 판단을
+        생략하고 전부 다시 읽는다.
+        """
+        from flow.services import song_index
+
+        song_index.invalidate()
+        self._last_fingerprint = None
+        self.refresh()
+
     def _fingerprint(self, paths) -> tuple:
         """카드 재구성 필요 여부 판정용 지문.
 
         곡 추가/삭제(폴더 목록), 저장(song.json mtime), 파일 추가/제거
         (폴더 mtime)를 감지한다. 검색어·정렬 변경도 재구성 대상.
         """
+        def _mt(path) -> float:
+            try:
+                return path.stat().st_mtime
+            except OSError:
+                return 0.0
+
         entries = []
         for p in paths:
-            try:
-                sj = p / "song.json"
-                entries.append((
-                    p.name,
-                    p.stat().st_mtime,
-                    sj.stat().st_mtime if sj.exists() else 0.0,
-                ))
-            except OSError:
-                entries.append((p.name, 0.0, 0.0))
+            entries.append((
+                p.name,
+                _mt(p),
+                _mt(p / "song.json"),
+                # 곡 폴더 mtime은 하위 변경을 못 본다 — slides.md 내용
+                # 수정과 sheets/ 안 이미지 추가도 지문에 포함해야
+                # 편집 후 돌아왔을 때 수동 새로고침 없이 반영된다
+                _mt(p / "slides.md"),
+                _mt(p / "sheets"),
+                _mt(p / "sheet"),
+            ))
         return (self._search_text, self._sort_mode, tuple(entries))
 
     def refresh(self) -> None:
@@ -135,37 +169,65 @@ class LibraryScreen(QWidget):
         else:
             self._last_fingerprint = None
 
-        # Clear existing cards (everything before the trailing stretch)
-        while self._cards_layout.count() > 1:
-            item = self._cards_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
         if self._workspace is None:
+            self._detach_all_cards()
+            for card in self._cards.values():
+                card.deleteLater()
+            self._cards.clear()
             self._empty_lbl.setText("워크스페이스가 열려있지 않습니다.")
             self._empty_lbl.show()
             return
 
-        paths = self._workspace.list_library_songs()
+        all_paths = paths_for_fp
+        paths = all_paths
         snippets: dict[Path, str] = {}
         if self._search_text:
-            from flow.services.markdown import lyric_snippet, read_song_lyrics
+            from flow.services.markdown import lyric_snippet
 
             q = self._search_text.lower()
             matched = []
-            for p in paths:
-                if q in p.name.lower():
+            for p in all_paths:
+                if q in song_info(p)["name_lower"]:
                     matched.append(p)  # 제목 매칭 — 스니펫 없음
                     continue
-                lyrics = read_song_lyrics(p)
-                if q in lyrics.lower():
+                lyrics, lyrics_lower = song_lyrics(p)
+                if q in lyrics_lower:
                     matched.append(p)
                     snippets[p] = lyric_snippet(lyrics, q)
             paths = matched
 
         paths = sort_paths(paths, self._sort_mode)
 
-        if not paths:
+        # 라이브러리에서 사라진 곡의 카드는 폐기
+        alive = {str(p) for p in all_paths}
+        for key in [k for k in self._cards if k not in alive]:
+            self._cards.pop(key).deleteLater()
+
+        ordered: list[ItemCard] = []
+        for path in paths:
+            key = str(path)
+            card = self._cards.get(key)
+            subtitle = self._build_subtitle(path)
+            if card is None:
+                card = ItemCard(
+                    path=key, title=path.name, subtitle=subtitle,
+                    match_snippet=snippets.get(path, ""),
+                    deletable=True,
+                )
+                card.clicked.connect(self.song_selected.emit)
+                card.delete_requested.connect(self.song_delete_requested.emit)
+                self._cards[key] = card
+            else:
+                card.set_subtitle(subtitle)
+                card.set_match_snippet(snippets.get(path, ""))
+            ordered.append(card)
+
+        self._detach_all_cards()
+        for i, card in enumerate(ordered):
+            self._cards_layout.insertWidget(i, card)
+            card.setVisible(True)
+
+        if not ordered:
             self._empty_lbl.setText(
                 "이 워크스페이스에 곡이 없습니다." if not self._search_text
                 else f"'{self._search_text}'와(과) 일치하는 곡이 없습니다."
@@ -174,48 +236,41 @@ class LibraryScreen(QWidget):
             return
         self._empty_lbl.hide()
 
-        for path in paths:
-            subtitle = self._build_subtitle(path)
-            card = ItemCard(
-                path=str(path), title=path.name, subtitle=subtitle,
-                match_snippet=snippets.get(path, ""),
-            )
-            card.clicked.connect(self.song_selected.emit)
-            # Insert before the trailing stretch
-            self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
+    def _detach_all_cards(self) -> None:
+        """카드를 레이아웃에서만 떼어내고 위젯은 살려둔다 (끝의 stretch 유지).
+
+        떼어낸 위젯은 부모가 그대로라 숨기지 않으면 옛 위치에 남아 그려진다.
+        """
+        while self._cards_layout.count() > 1:
+            self._cards_layout.takeAt(0)
+        for card in self._cards.values():
+            card.setVisible(False)
 
     def _build_subtitle(self, song_dir: Path) -> str:
         """Compose status: 슬라이드 형식 + 악보 장수 (+ 매핑 경고 꼬리)."""
-        has_pptx = detect_slides_file(song_dir) is not None
-        has_md = (song_dir / "slides.md").exists()
-        if has_pptx:
+        info = song_info(song_dir)
+        if info["has_ppt"]:
             slide_part = "PPT"
-        elif has_md:
-            slide_part = "마크다운"
+        elif info["has_md"]:
+            slide_part = ".md"
         else:
             slide_part = _amber("슬라이드 없음")
 
-        sheet_count = 0
-        for d in (song_dir / "sheets", song_dir / "sheet"):
-            if d.is_dir():
-                sheet_count += sum(
-                    1 for f in d.iterdir()
-                    if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}
-                )
+        sheet_count = info["sheet_count"]
         sheet_part = (
             f"악보 {sheet_count}장" if sheet_count else _amber("악보 없음")
         )
 
         subtitle = f"{slide_part} · {sheet_part}"
         mapping_part = self._mapping_part(
-            song_dir, has_pptx or has_md, sheet_count
+            info, info["has_ppt"] or info["has_md"], sheet_count
         )
         if mapping_part:
             subtitle += f" · {mapping_part}"
         return subtitle
 
     def _mapping_part(
-        self, song_dir: Path, has_slides: bool, sheet_count: int
+        self, info: dict, has_slides: bool, sheet_count: int
     ) -> str:
         """매핑에 문제가 있을 때만 경고 꼬리 (정상·판단불가는 '').
 
@@ -224,20 +279,10 @@ class LibraryScreen(QWidget):
         """
         if not has_slides or sheet_count == 0:
             return ""
-        song_json = song_dir / "song.json"
-        if not song_json.exists():
+        if not (info["path"] / "song.json").exists():
             return ""
-        try:
-            with open(song_json, encoding="utf-8-sig") as f:
-                data = json.load(f)
-        except (OSError, ValueError):
-            return ""
-        total, mapped = 0, 0
-        for sheet_data in data.get("sheets", []):
-            for h in sheet_data.get("hotspots", []):
-                total += 1
-                if h.get("slide_mappings") or h.get("slide_index", -1) >= 0:
-                    mapped += 1
+        total = info["total_hotspots"]
+        mapped = info["mapped_hotspots"]
         if mapped == 0:
             return _amber("매핑 없음")
         if mapped < total:

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**Flow** is a desktop slide broadcasting system for worship/presentation contexts.
+**Flow** is a desktop slide broadcasting system for live presentation contexts.
 Maps hotspots on score sheet images to PPT slides for one-click live broadcasting.
 
 **Core Stack**: Python 3.10+, PySide6 (Qt Widgets), python-pptx, PyInstaller
@@ -10,7 +10,7 @@ Maps hotspots on score sheet images to PPT slides for one-click live broadcastin
 
 **Two-tier structure**:
 - **Song** — reusable unit: score sheet images + PPT + hotspot mappings
-- **Project** — setlist: ordered collection of songs for one worship session
+- **Project** — setlist: ordered collection of songs for one session
 
 ---
 
@@ -50,6 +50,7 @@ src/flow/
 │   ├── project.py, score_sheet.py, hotspot.py, song.py
 ├── services/         # Business logic
 │   ├── config_service.py, slide_manager.py, slide_converter.py
+│   ├── song_index.py # mtime-keyed cache of song folder metadata (+ lyrics)
 ├── repository/       # Data persistence
 ├── resources/        # Bundled assets (icon font)
 └── ui/               # PySide6 UI layer
@@ -142,7 +143,7 @@ class LiveController(QObject):
 - **Up/Down**: Move through hotspots (Preview only, NOT Live)
 - **Enter/Space**: Confirm Preview → Live
 - **Left/Right**: Switch songs (ScoreSheets)
-- **Number keys 1-5, C**: Change verse
+- **Number keys 1-5, C**: Change verse (Preview only in live mode — Live moves on Enter)
 - **B**: Blackout (live mode)
 - **Esc**: Exit live mode (with confirmation)
 - **Tab/Shift+Tab**: Cycle hotspots within current verse layer
@@ -166,3 +167,6 @@ class LiveController(QObject):
 | Block UI thread with PPT conversion | Use `QThread` worker pattern |
 | Edit during live mode | Guard with `if self._is_live: return` |
 | Use `setBackground()` on QListWidget items | Stylesheet overrides it; use `setForeground()` |
+| Read `song.json` / `slides.md` directly when listing songs | Use `services/song_index.py` (`song_info`, `song_lyrics`) — mtime-cached |
+| Re-filter a list on every `textChanged` | Debounce (`BrowserToolbar` does 180ms); Korean IME fires per jamo |
+| Rebuild all cards when a search filter changes | Keep a card pool keyed by path and swap text via setters |

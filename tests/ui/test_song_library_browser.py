@@ -19,7 +19,9 @@ def _search(browser, qtbot, text: str) -> None:
     qtbot.waitUntil(lambda: not browser._filter_timer.isActive(), timeout=2000)
 
 
-def test_card_added_state_disables_add_buttons(qtbot):
+def test_card_added_state_still_allows_adding_again(qtbot):
+    """같은 곡을 오전·오후에 각각 부를 수 있어야 한다 — 배지로 알리되
+    버튼은 계속 열어 둔다 (셋리스트에 한 번 더 들어간다)."""
     card = _LibrarySongCard(_INFO, workspace_mode=True, added=True)
     qtbot.addWidget(card)
     add_buttons = [
@@ -27,13 +29,13 @@ def test_card_added_state_disables_add_buttons(qtbot):
         if b.text() in ("참조", "복사")
     ]
     assert add_buttons, "참조/복사 버튼이 있어야 함"
-    assert all(not b.isEnabled() for b in add_buttons)
+    assert all(b.isEnabled() for b in add_buttons)
     from PySide6.QtWidgets import QLabel
     labels = [lbl.text() for lbl in card.findChildren(QLabel)]
     assert any("이미 추가" in t for t in labels)
 
 
-def test_card_set_added_toggles_state(qtbot):
+def test_card_set_added_toggles_badge_only(qtbot):
     card = _LibrarySongCard(_INFO, workspace_mode=True, added=False)
     qtbot.addWidget(card)
     add_buttons = [
@@ -41,8 +43,12 @@ def test_card_set_added_toggles_state(qtbot):
         if b.text() in ("참조", "복사")
     ]
     assert all(b.isEnabled() for b in add_buttons)
+
     card.set_added(True)
-    assert all(not b.isEnabled() for b in add_buttons)
+
+    assert card._added is True
+    assert card._added_badge.isVisibleTo(card)
+    assert all(b.isEnabled() for b in add_buttons)  # 다시 넣을 수 있다
 
 
 # ─── Task 2: SongLibraryBrowser tests ────────────────────────────────────────

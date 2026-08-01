@@ -228,6 +228,9 @@ class SlideManager(QObject):
         self._loading = False
         # 메타데이터 완료 후 순차 예약된 변환(LOAD_SINGLE) 잔여 수
         self._pending_conversions = 0
+        # 이번 라운드에 워커 큐로 보낸 파일 — 같은 파일을 중복 예약하지 않기
+        # 위한 것. _pending_conversions가 0이 되면 함께 비운다.
+        self._queued_conversions: set[Path] = set()
         # 이번 load_songs에서 카운트한 곡 이름 (변환 예약 대상)
         self._counted_song_names: set[str] = set()
         # 변환 실패 후 자동 재예약 차단 플래그 — peek이 실패 파일을 계속
@@ -269,6 +272,14 @@ class SlideManager(QObject):
         for worker in (self._worker, self._markdown_worker):
             if worker is not None:
                 worker.abort_current_task()
+        # 큐를 통째로 비웠으니 예약 카운터도 함께 되돌린다. 안 그러면
+        # 예약분에 대한 single_load_finished가 영영 오지 않아
+        # _pending_conversions가 0으로 못 내려가고 _loading이 True로 굳는다
+        # → 이후 모든 백그라운드 변환 예약이 조용히 무시되고, 라이브에서
+        # 핫스팟을 골라도 슬라이드가 안 바뀌는 증상이 된다.
+        self._pending_conversions = 0
+        self._loading = False
+        self._queued_conversions.clear()
 
     def clear_caches(self) -> None:
         """Clear cached converted slide images for all converter backends."""
@@ -337,6 +348,12 @@ class SlideManager(QObject):
         self._total_slide_count = 0
         self._slide_count = 0
         self._pending_metadata_batches = 0
+        # 옛 워커를 버렸으니 그 큐에 남아 있던 예약도 없던 일이 된다 —
+        # 카운터를 안 되돌리면 _loading이 True로 굳어 이후 변환 예약이
+        # 전부 무시된다.
+        self._pending_conversions = 0
+        self._loading = False
+        self._queued_conversions = set()
 
         self._worker = SlideWorker(self._converter)
         self._connect_worker(self._worker)
@@ -364,6 +381,11 @@ class SlideManager(QObject):
 
         self._pptx_path = p
         self._auto_retry_blocked = False
+        # add_task는 큐를 비운다 — 예약 카운터도 이 한 건으로 맞춰 둬야
+        # _loading이 True로 굳지 않는다.
+        self._loading = True
+        self._pending_conversions = 1
+        self._queued_conversions = {p}
         self.load_started.emit()
         worker.add_task(PPTTask(PPTTask.LOAD_SINGLE, p))
 
@@ -372,11 +394,15 @@ class SlideManager(QObject):
         # 반복 재시도(→ 에러 팝업 폭풍)로 이어지면 안 됨. 사용자 새로고침
         # (load_songs/reload_song/load_pptx)이 차단을 해제한다.
         self._loading = False
+        self._pending_conversions = 0
+        self._queued_conversions.clear()
         self._auto_retry_blocked = True
 
     def _on_single_load_finished(self, count: int):
         self._pending_conversions = max(0, self._pending_conversions - 1)
         self._loading = self._pending_conversions > 0
+        if not self._loading:
+            self._queued_conversions.clear()
         self._slide_count = count
         if self._pending_reload_song:
             self._pending_reload_song.set_slide_count(count)
@@ -397,6 +423,7 @@ class SlideManager(QObject):
         self._pending_metadata_batches = 0
         self._loading = False
         self._pending_conversions = 0
+        self._queued_conversions = set()
         self._counted_song_names = set()
         self._auto_retry_blocked = False  # 사용자 주도 로드 = 재시도 허용
 
@@ -474,6 +501,7 @@ class SlideManager(QObject):
         # 카운트/오프셋은 이미 끝났으므로 UI는 즉시 동작하고, 썸네일은
         # 변환이 끝나는 대로 채워진다.
         self._pending_conversions = 0
+        self._queued_conversions = set()
         if self._worker is not None:
             for s in self._songs:
                 if s.name not in self._counted_song_names:
@@ -483,6 +511,7 @@ class SlideManager(QObject):
                     self._worker.queue_task(
                         PPTTask(PPTTask.LOAD_SINGLE, s.abs_slides_path)
                     )
+                    self._queued_conversions.add(Path(s.abs_slides_path))
                     self._pending_conversions += 1
         self._loading = self._pending_conversions > 0
 
@@ -517,14 +546,20 @@ class SlideManager(QObject):
             self._pptx_path, index, status_callback=status_callback
         )
 
-    def peek_slide_image(self, index: int):
+    def peek_slide_image(self, index: int, *, schedule: bool = True):
         """캐시된 슬라이드 이미지 즉시 반환 (변환 대기 없음, GUI 스레드용).
 
-        캐시 미스면 None을 반환하고, 백그라운드 로드가 진행 중이 아니면
-        해당 파일의 변환을 워커에 예약한다 — 완료되면 load_finished가
-        발사되므로 UI는 그때 다시 조회해 채워 넣으면 된다.
+        캐시 미스면 None을 반환하고, schedule=True면 해당 파일의 변환을
+        워커에 예약한다 — 완료되면 load_finished가 발사되므로 UI는 그때
+        다시 조회해 채워 넣으면 된다.
         get_slide_image의 인라인 변환은 큰 PPT에서 UI를 얼리므로 GUI
         스레드에서는 반드시 이것을 쓸 것.
+
+        Args:
+            schedule: False면 캐시만 들여다보고 변환을 예약하지 않는다.
+                짧은 주기로 완료를 기다리는 폴링에서 쓴다 — 폴링마다
+                예약하면 PowerPoint 변환이 초당 몇 번씩 다시 돌아
+                작은 창이 계속 떴다 사라진다.
         """
         lru_key = self.get_slide_cache_key(index)
         if lru_key is not None and lru_key in self._peek_lru:
@@ -552,7 +587,8 @@ class SlideManager(QObject):
                     song.abs_slides_path, local_index
                 )
                 if img is None:
-                    self._ensure_background_conversion(song.abs_slides_path)
+                    if schedule:
+                        self._ensure_background_conversion(song.abs_slides_path)
                 else:
                     self._store_peek_lru(lru_key, img)
                 return img
@@ -567,7 +603,8 @@ class SlideManager(QObject):
             return None
         img = self._converter.get_cached_slide(self._pptx_path, index)
         if img is None:
-            self._ensure_background_conversion(self._pptx_path)
+            if schedule:
+                self._ensure_background_conversion(self._pptx_path)
         else:
             self._store_peek_lru(lru_key, img)
         return img
@@ -681,21 +718,35 @@ class SlideManager(QObject):
             self._worker.queue_task(
                 PPTTask(PPTTask.LOAD_SINGLE, song.abs_slides_path)
             )
+            self._queued_conversions.add(Path(song.abs_slides_path))
             self._pending_conversions += 1
             self._loading = True
 
         return self.get_song_offset(song.name)
 
     def _ensure_background_conversion(self, path) -> None:
-        """유휴 상태일 때만 해당 파일의 전체 변환을 워커에 예약.
+        """해당 파일의 전체 변환을 워커에 예약 (중복 예약은 무시).
 
         load_started를 발신하지 않는다 — 조용한 백그라운드 워밍이므로
         로딩 오버레이(썸네일 영역 가림)를 띄우면 안 된다. 진행 표시는
         워커의 progress 신호가 패널 제목에 비차단으로 반영한다.
+
+        다른 파일을 변환 중이더라도 요청을 버리지 않고 큐 뒤에 붙인다 —
+        버리면 방금 필요해진 슬라이드가 영영 변환되지 않을 수 있다.
         """
-        if self._loading or self._worker is None or self._auto_retry_blocked:
+        if self._worker is None or self._auto_retry_blocked:
+            return
+        path = Path(path)
+        if path in self._queued_conversions:
+            return
+        if self._loading:
+            self._queued_conversions.add(path)
+            self._pending_conversions += 1
+            self._worker.queue_task(PPTTask(PPTTask.LOAD_SINGLE, path))
             return
         self._loading = True
+        self._pending_conversions = 1
+        self._queued_conversions = {path}
         self._worker.add_task(PPTTask(PPTTask.LOAD_SINGLE, path))
 
     def get_song_slide_image(
@@ -806,8 +857,19 @@ class SlideManager(QObject):
         return self._slide_offsets.get(song_name, 0)
 
     def _recalculate_offsets(self) -> None:
+        """곡별 전역 슬라이드 오프셋 재계산.
+
+        셋리스트에 같은 곡이 두 번 들어갈 수 있다 (오전·오후 등). 슬라이드
+        자체는 하나이므로 오프셋도 하나만 잡는다 — 등장할 때마다 더하면
+        전체 장수가 부풀고 뒤 곡들의 인덱스가 전부 밀린다.
+        """
         offset = 0
+        # 매번 처음부터 다시 만든다 — 남겨두면 두 번째 호출에서 전부
+        # "이미 있음"으로 걸러져 총 장수가 0이 된다.
+        self._slide_offsets = {}
         for song in self._songs:
+            if song.name in self._slide_offsets:
+                continue  # 같은 곡의 두 번째 등장 — 슬라이드는 공유한다
             source = getattr(song, "slide_source", None)
             has_source = (
                 source in ("markdown", "pptx")
@@ -847,7 +909,11 @@ class SlideManager(QObject):
         if self._songs:
             self._pending_reload_song = song
         self._auto_retry_blocked = False  # 사용자 새로고침 = 재시도 허용
+        # add_task는 큐를 비운다 — 예약 카운터도 이 한 건으로 맞춰야
+        # 사라진 예약분 때문에 _loading이 True로 굳지 않는다.
         self._loading = True
+        self._pending_conversions = 1
+        self._queued_conversions = {Path(target_path)}
         self.load_started.emit()
         worker.add_task(PPTTask(PPTTask.LOAD_SINGLE, target_path))
 

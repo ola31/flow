@@ -221,3 +221,195 @@ class TestLiveNeverConvertsInline:
 
         assert spy.called and spy.args[0] is img
         assert mgr.inline_calls == 0
+
+
+class TestVerseChangeDoesNotMoveLive:
+    """절 이동은 프리뷰까지만 — 송출은 Enter로만 바뀐다.
+
+    sync_live가 현재 절로 슬라이드를 다시 계산하면, 절 버튼을 누르는
+    순간(또는 변환 완료로 sync_live가 불리는 순간) 송출 화면이 튄다.
+    """
+
+    class _PeekManager:
+        def __init__(self, image=None):
+            self.image = image
+
+        def peek_slide_image(self, index):
+            return self.image
+
+    def _controller(self, mgr):
+        controller = LiveController(slide_manager=mgr)
+        project = Project(name="P")
+        project.add_score_sheet(ScoreSheet(name="S"))
+        controller.set_project(project)
+        return controller
+
+    def _hotspot(self):
+        h = Hotspot(x=1, y=1)
+        h.set_slide_index(10, verse_index=0)  # 1절 → 슬라이드 10
+        h.set_slide_index(20, verse_index=1)  # 2절 → 슬라이드 20
+        return h
+
+    def test_sync_live_keeps_slide_after_verse_change(self, qapp):
+        img = QImage(8, 8, QImage.Format.Format_RGB32)
+        mgr = self._PeekManager(image=img)
+        controller = self._controller(mgr)
+        controller.set_preview(self._hotspot())
+        controller.send_to_live()
+        assert controller.live_slide_index == 10
+
+        # 사용자가 2절로 이동 (프로젝트 상태만 바뀜)
+        controller._project.current_verse_index = 1
+        controller.sync_live()
+
+        assert controller.live_slide_index == 10, (
+            "절만 바꿨는데 송출 슬라이드가 따라 움직이면 안 됨"
+        )
+
+    def test_send_to_live_commits_new_verse(self, qapp):
+        img = QImage(8, 8, QImage.Format.Format_RGB32)
+        mgr = self._PeekManager(image=img)
+        controller = self._controller(mgr)
+        h = self._hotspot()
+        controller.set_preview(h)
+        controller.send_to_live()
+
+        controller._project.current_verse_index = 1
+        controller.set_preview(h)
+        controller.send_to_live()  # Enter — 이때 비로소 2절이 송출됨
+
+        assert controller.live_slide_index == 20
+
+
+class TestPendingSlideRetry:
+    """미변환 슬라이드는 변환이 끝나는 대로 자동으로 채워진다.
+
+    load_finished만 믿으면 화면 전환 중이거나 워커 큐가 비워졌을 때
+    재시도가 오지 않아 이전 슬라이드가 그대로 남는다.
+    """
+
+    class _LateManager:
+        def __init__(self):
+            self.image = None
+
+        def peek_slide_image(self, index):
+            return self.image
+
+    def _controller(self, mgr):
+        controller = LiveController(slide_manager=mgr)
+        project = Project(name="P")
+        project.add_score_sheet(ScoreSheet(name="S"))
+        controller.set_project(project)
+        return controller
+
+    def test_retry_emits_once_conversion_lands(self, qtbot):
+        mgr = self._LateManager()
+        controller = self._controller(mgr)
+        controller._RETRY_INTERVAL_MS = 10
+        controller._retry_timer.setInterval(10)
+
+        h = Hotspot(x=1, y=1)
+        h.set_slide_index(3, verse_index=0)
+        controller.set_preview(h)
+
+        spy = SignalSpy(controller.slide_changed)
+        controller.send_to_live()
+        assert not spy.called  # 캐시 미스 — 이전 프레임 유지
+        assert controller._retry_timer.isActive()
+
+        img = QImage(8, 8, QImage.Format.Format_RGB32)
+        mgr.image = img  # 백그라운드 변환 완료
+
+        qtbot.waitUntil(lambda: spy.called, timeout=2000)
+        assert spy.args[0] is img
+        assert not controller._retry_timer.isActive()
+
+    def test_clear_live_stops_retry(self, qapp):
+        mgr = self._LateManager()
+        controller = self._controller(mgr)
+        h = Hotspot(x=1, y=1)
+        h.set_slide_index(3, verse_index=0)
+        controller.set_preview(h)
+        controller.send_to_live()
+        assert controller._retry_timer.isActive()
+
+        controller.clear_live()
+
+        assert not controller._retry_timer.isActive()
+
+
+class TestRetryDoesNotStormConversions:
+    """폴링이 매 틱 변환을 예약하면 PowerPoint가 초당 몇 번씩 뜬다."""
+
+    class _CountingManager:
+        def __init__(self):
+            self.image = None
+            self.scheduled = 0
+            self.peeks = 0
+
+        def peek_slide_image(self, index, *, schedule=True):
+            self.peeks += 1
+            if schedule:
+                self.scheduled += 1
+            return self.image
+
+    def _controller(self, mgr):
+        controller = LiveController(slide_manager=mgr)
+        project = Project(name="P")
+        project.add_score_sheet(ScoreSheet(name="S"))
+        controller.set_project(project)
+        return controller
+
+    def _pending(self, mgr):
+        controller = self._controller(mgr)
+        h = Hotspot(x=1, y=1)
+        h.set_slide_index(3, verse_index=0)
+        controller.set_preview(h)
+        controller.send_to_live()
+        return controller
+
+    def test_first_miss_schedules_once(self, qapp):
+        mgr = self._CountingManager()
+        controller = self._pending(mgr)
+
+        assert mgr.scheduled == 1
+        assert controller._retry_timer.isActive()
+
+    def test_polling_does_not_reschedule_every_tick(self, qapp):
+        mgr = self._CountingManager()
+        controller = self._pending(mgr)
+        before = mgr.scheduled
+
+        for _ in range(controller._RESCHEDULE_EVERY_TICKS - 1):
+            controller._retry_pending_slide()
+
+        assert mgr.peeks > before  # 캐시는 계속 확인하되
+        assert mgr.scheduled == before  # 변환 재예약은 하지 않는다
+
+    def test_reschedules_occasionally(self, qapp):
+        mgr = self._CountingManager()
+        controller = self._pending(mgr)
+        before = mgr.scheduled
+
+        for _ in range(controller._RESCHEDULE_EVERY_TICKS):
+            controller._retry_pending_slide()
+
+        # 화면 전환 등으로 큐가 비워졌을 경우를 대비해 가끔 한 번만
+        assert mgr.scheduled == before + 1
+
+    def test_stop_pending_slide_halts_polling(self, qapp):
+        mgr = self._CountingManager()
+        controller = self._pending(mgr)
+
+        controller.stop_pending_slide()
+
+        assert not controller._retry_timer.isActive()
+        assert controller._pending_slide_index == -1
+
+    def test_set_project_halts_polling(self, qapp):
+        mgr = self._CountingManager()
+        controller = self._pending(mgr)
+
+        controller.set_project(Project(name="다른 프로젝트"))
+
+        assert not controller._retry_timer.isActive()

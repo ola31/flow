@@ -40,6 +40,7 @@ class MarkdownEditor(QWidget):
         self._original_text = (
             md_path.read_text(encoding="utf-8") if md_path.exists() else ""
         )
+        self._saved_changes = False  # 이 세션에서 변경 내용을 저장했는가
         # Per-instance content-hash cache so re-renders (after save / nav)
         # only repaint slides whose content actually changed.
         self._slide_render_cache: dict[str, "QImage"] = {}
@@ -152,7 +153,10 @@ class MarkdownEditor(QWidget):
         # Defer first render until after layout has settled — otherwise the
         # preview_label is still at minimumSize and the main preview comes out
         # too small until the user clicks the editor.
-        QTimer.singleShot(0, self._render_preview)
+        # 컨텍스트 객체(self)를 넘기면 위젯이 파괴될 때 Qt가 호출을
+        # 취소한다 — 안 넘기면 삭제된 C++ 객체를 건드려 터진다
+        # (에디터를 열자마자 다른 곡으로 바꾸거나 나갈 때).
+        QTimer.singleShot(0, self, self._render_preview)
 
         # Show patches bar if unreconciled patches exist for this song.
         self._refresh_patches_bar(md_path)
@@ -173,8 +177,18 @@ class MarkdownEditor(QWidget):
     def is_dirty(self) -> bool:
         return self.text() != self._original_text
 
+    def content_changed(self) -> bool:
+        """이 에디터 세션에서 내용이 실제로 바뀌었는가.
+
+        save()가 dirty 기준을 리셋하므로, '저장 후 나가기'를 감지하려면
+        저장 이력을 따로 기억해야 한다 (복귀 시 슬라이드 재로딩 판단용).
+        """
+        return self._saved_changes or self.is_dirty()
+
     def save(self) -> None:
         text = self.text()
+        if text != self._original_text:
+            self._saved_changes = True
         self._md_path.write_text(text, encoding="utf-8")
         self._original_text = text
         self._render_preview()
@@ -185,6 +199,7 @@ class MarkdownEditor(QWidget):
         self._original_text = (
             md_path.read_text(encoding="utf-8") if md_path.exists() else ""
         )
+        self._saved_changes = False
         self._text_edit.setPlainText(self._original_text)
         self._refresh_patches_bar(md_path)
 
@@ -309,7 +324,7 @@ class MarkdownEditor(QWidget):
         # Bump generation so any in-flight chain stops; queue the new one.
         self._render_generation += 1
         gen = self._render_generation
-        QTimer.singleShot(0, lambda: self._render_thumb_async(0, gen))
+        QTimer.singleShot(0, self, lambda: self._render_thumb_async(0, gen))
 
     def _render_thumb_async(self, idx: int, gen: int) -> None:
         # Stop if a newer render request superseded this chain or the
@@ -330,7 +345,7 @@ class MarkdownEditor(QWidget):
             except Exception:
                 # Skip on render failure, continue with the next thumb
                 QTimer.singleShot(
-                    0, lambda: self._render_thumb_async(idx + 1, gen)
+                    0, self, lambda: self._render_thumb_async(idx + 1, gen)
                 )
                 return
         item = QListWidgetItem(f"{idx + 1}")
@@ -341,7 +356,7 @@ class MarkdownEditor(QWidget):
         item.setIcon(QIcon(pix))
         self._thumbs.addItem(item)
         # Schedule next thumbnail
-        QTimer.singleShot(0, lambda: self._render_thumb_async(idx + 1, gen))
+        QTimer.singleShot(0, self, lambda: self._render_thumb_async(idx + 1, gen))
 
     def _render_main_preview(self, idx: int) -> None:
         text = self.text()

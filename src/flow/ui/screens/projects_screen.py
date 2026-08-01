@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
     QLabel,
@@ -43,6 +44,8 @@ class ProjectsScreen(QWidget):
 
     project_selected = Signal(str)
     new_project_requested = Signal()
+    # 이름 변경 요청 (프로젝트 폴더 경로) — 실제 처리는 MainWindow가 한다
+    project_rename_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -62,7 +65,14 @@ class ProjectsScreen(QWidget):
         self._toolbar.new_clicked.connect(self.new_project_requested.emit)
         self._toolbar.search_changed.connect(self._on_search_changed)
         self._toolbar.sort_changed.connect(self._on_sort_changed)
+        self._toolbar.refresh_clicked.connect(self.force_refresh)
         root.addWidget(self._toolbar)
+
+        # F5 — 이 화면이 떠 있을 때만 동작하도록 위젯 범위로 제한한다
+        # (MainWindow의 F5는 라이브 모드 토글이라 겹치면 안 된다).
+        shortcut = QShortcut(QKeySequence("F5"), self)
+        shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        shortcut.activated.connect(self.force_refresh)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -93,6 +103,18 @@ class ProjectsScreen(QWidget):
 
     def set_workspace(self, workspace) -> None:
         self._workspace = workspace
+        self.refresh()
+
+    def force_refresh(self) -> None:
+        """디스크에서 다시 읽는다 (새로고침 버튼 / F5).
+
+        곡 메타데이터 캐시도 함께 버린다 — 프로젝트 카드의 곡 수는
+        project.json에서 읽지만, 여기서 새로고침한 사용자는 워크스페이스
+        전체가 최신이길 기대한다.
+        """
+        from flow.services import song_index
+
+        song_index.invalidate()
         self.refresh()
 
     def refresh(self) -> None:
@@ -131,8 +153,10 @@ class ProjectsScreen(QWidget):
                 title=path.name,
                 subtitle=subtitle,
                 path_display=str(path),
+                renamable=True,
             )
             card.clicked.connect(self.project_selected.emit)
+            card.rename_requested.connect(self._on_rename_requested)
             self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
 
     def _build_subtitle(self, project_dir: Path) -> str:
@@ -144,6 +168,12 @@ class ProjectsScreen(QWidget):
             return f"곡 {count}개"
         except Exception:
             return ""
+
+    def _on_rename_requested(self, project_json_path: str) -> None:
+        """카드는 project.json 경로를 들고 있다 — 폴더 경로로 바꿔 올린다."""
+        self.project_rename_requested.emit(
+            str(Path(project_json_path).parent)
+        )
 
     def _on_search_changed(self, text: str) -> None:
         self._search_text = text.strip()

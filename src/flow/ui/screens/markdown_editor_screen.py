@@ -39,6 +39,7 @@ class MarkdownEditorScreen(QWidget):
         super().__init__(parent)
         self._md_path: Path | None = None
         self._song_name: str = ""
+        self._song = None
         self._editor: MarkdownEditor | None = None
 
         self.setStyleSheet(f"background: {BG_DEEP};")
@@ -88,6 +89,9 @@ class MarkdownEditorScreen(QWidget):
         """Replace the current editor with a new one for the given song."""
         self._md_path = song.markdown_path
         self._song_name = song.name
+        # 편집을 마치고 나갈 때 이 곡의 슬라이드를 다시 세고 렌더해야 하므로
+        # 곡 객체를 붙들어 둔다 (SlideManager._songs와 같은 인스턴스).
+        self._song = song
         self._title_label.setText(song.name)
 
         # Tear down previous editor
@@ -102,6 +106,14 @@ class MarkdownEditorScreen(QWidget):
     def is_dirty(self) -> bool:
         return self._editor is not None and self._editor.is_dirty()
 
+    def content_changed(self) -> bool:
+        """이 편집 세션에서 저장했든 안 했든 내용이 바뀐 적 있는가."""
+        return self._editor is not None and self._editor.content_changed()
+
     def save_if_dirty(self) -> None:
         if self.is_dirty() and self._editor is not None:
             self._editor.save()
+
+    def current_song(self):
+        """편집 중인 곡 (없으면 None)."""
+        return self._song

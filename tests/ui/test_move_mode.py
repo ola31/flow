@@ -218,3 +218,61 @@ class TestSongMoveMode:
         w._enter_move_mode("song", w._project.selected_songs[0])
 
         assert w._move_mode is None
+
+
+class TestMoveModeVisualReset:
+    """카드 풀 재사용 후에도 모드 종료 시 강조/흐림이 반드시 원복돼야 한다."""
+
+    def _widget_with_project(self, qtbot):
+        from pathlib import Path
+
+        from flow.domain.project import Project
+        from flow.domain.song import Song
+        from flow.ui.editor.song_list_widget import SongListWidget
+
+        class _MW:
+            _project_path = Path("/tmp/p.json")
+            _is_live = False
+            def _mark_dirty(self): pass
+            def _on_songs_changed(self): pass
+            def statusBar(self):  # noqa: N802
+                class _B:
+                    def showMessage(self, *a):  # noqa: N802
+                        pass
+                return _B()
+
+        w = SongListWidget()
+        qtbot.addWidget(w)
+        w.set_main_window(_MW())
+        p = Project(name="p")
+        p.selected_songs = [
+            Song(name=f"곡{i}", folder=Path(f"songs/곡{i}")) for i in range(3)
+        ]
+        w.set_project(p)
+        return w, p
+
+    def test_escape_restores_card_visuals(self, qtbot):
+        w, p = self._widget_with_project(qtbot)
+        target = p.selected_songs[1]
+
+        w._enter_move_mode("song", target)
+        w._shift_moving(1)
+        w._exit_move_mode(confirm=False)
+
+        for card in w._cards:
+            assert card.isEnabled(), "모드 종료 후에도 카드가 비활성"
+            assert card.graphicsEffect() is None, "흐림 효과가 남음"
+            assert "2px solid" not in card.styleSheet(), "이동 강조 테두리가 남음"
+
+    def test_repeated_marks_do_not_accumulate_style(self, qtbot):
+        w, p = self._widget_with_project(qtbot)
+        target = p.selected_songs[1]
+
+        w._enter_move_mode("song", target)
+        for _ in range(5):
+            w._shift_moving(1)
+            w._shift_moving(-1)
+
+        card = next(c for c in w._cards if c._song is target)
+        assert card.styleSheet().count("2px solid") <= 1, "강조 스타일 누적"
+        w._exit_move_mode(confirm=True)

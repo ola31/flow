@@ -52,6 +52,15 @@ def _first_card(screen):
     return None
 
 
+def _card_titles(screen):
+    titles = []
+    for i in range(screen._cards_layout.count()):
+        w = screen._cards_layout.itemAt(i).widget()
+        if w is not None:
+            titles.append(w._title_lbl.text())
+    return titles
+
+
 class TestLibraryRefreshSkip:
     def test_unchanged_library_keeps_cards(self, screen):
         card_before = _first_card(screen)
@@ -61,20 +70,27 @@ class TestLibraryRefreshSkip:
 
         assert _first_card(screen) is card_before  # 재생성 없음
 
-    def test_songjson_change_rebuilds(self, screen, tmp_path):
+    def test_content_change_updates_card_in_place(self, screen, tmp_path):
+        """변경 감지 시 카드 위젯은 재사용하되 내용은 갱신된다.
+
+        카드를 통째로 다시 만들면 검색 한 글자마다 수백 개 QFrame이
+        재생성돼 타이핑이 밀린다 — 위젯은 유지하고 텍스트만 갈아끼운다.
+        """
         card_before = _first_card(screen)
-        target = tmp_path / "library" / "song_one" / "song.json"
+        assert "슬라이드 없음" in card_before._sub_lbl.text()
         time.sleep(0.01)
-        target.write_text(
-            json.dumps({"name": "song_one", "sheets": []}), encoding="utf-8-sig"
+        # 슬라이드가 생기면 부제가 "슬라이드 없음" → ".md"로 바뀜
+        (tmp_path / "library" / "song_one" / "slides.md").write_text(
+            "---\n---\n\n# song_one\n", encoding="utf-8"
         )
 
         screen.refresh()
 
-        assert _first_card(screen) is not card_before  # 변경 감지 → 재구성
+        assert _first_card(screen) is card_before  # 위젯은 재사용
+        assert ".md" in card_before._sub_lbl.text()  # 내용은 갱신
 
-    def test_new_song_rebuilds(self, screen, tmp_path):
-        card_before = _first_card(screen)
+    def test_new_song_appears(self, screen, tmp_path):
+        titles_before = _card_titles(screen)
         d = tmp_path / "library" / "song_three"
         d.mkdir()
         with open(d / "song.json", "w", encoding="utf-8-sig") as f:
@@ -82,7 +98,17 @@ class TestLibraryRefreshSkip:
 
         screen.refresh()
 
-        assert _first_card(screen) is not card_before
+        assert "song_three" not in titles_before
+        assert "song_three" in _card_titles(screen)
+
+    def test_removed_song_disappears(self, screen, tmp_path):
+        import shutil
+
+        shutil.rmtree(tmp_path / "library" / "song_one")
+
+        screen.refresh()
+
+        assert "song_one" not in _card_titles(screen)
 
 
 class TestRecentItemsSkip:
@@ -205,3 +231,117 @@ class TestHomePanelPaintCost:
         assert panels, "홈 패널이 있어야 함"
         for panel in panels:
             assert panel.graphicsEffect() is None
+
+
+class TestEditReflectsWithoutManualRefresh:
+    """곡 편집(악보 추가·마크다운 수정) 후 돌아오면 새로고침 없이 반영.
+
+    지문이 곡 폴더/song.json mtime만 보면 "기존 sheets/ 안에 이미지 추가"와
+    "기존 slides.md 내용 수정"을 놓친다 (폴더 mtime이 안 바뀜) — 항상
+    수동 새로고침이 필요했던 원인.
+    """
+
+    def test_added_sheet_image_rebuilds(self, screen, tmp_path):
+        d = tmp_path / "library" / "song_one" / "sheets"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "p0.png").touch()
+        screen.refresh()
+        assert "악보 1장" in _first_card(screen)._sub_lbl.text()
+        time.sleep(0.01)
+
+        (d / "p1.png").touch()  # 기존 sheets/에 추가 — 곡 폴더 mtime 불변
+
+        screen.refresh()
+        assert "악보 2장" in _first_card(screen)._sub_lbl.text()
+
+    def test_edited_markdown_changes_fingerprint(self, screen, tmp_path):
+        md = tmp_path / "library" / "song_one" / "slides.md"
+        md.write_text("# p\n첫 가사\n", encoding="utf-8")
+        screen.refresh()
+        fp_before = screen._last_fingerprint
+        time.sleep(0.01)
+
+        md.write_text("# p\n첫 가사\n둘째 가사\n", encoding="utf-8")
+
+        screen.refresh()
+        assert screen._last_fingerprint != fp_before, (
+            "md 내용 수정이 지문에 반영 안 됨 — 수동 새로고침 필요해짐"
+        )
+
+
+class TestNoTopLevelFlash:
+    """카드 안 라벨이 최상위 창으로 뜨면 안 된다.
+
+    부모 없는 QWidget을 보이게 하면 Qt는 그것을 독립 창으로 띄운다.
+    레이아웃에 넣기 전에 setVisible을 부르면 카드 수만큼(라이브러리
+    150곡이면 150개) 작은 창이 우르르 떴다 사라져 페이지 전환이
+    번쩍인다 — 반드시 addWidget 뒤에 보이게 해야 한다.
+    """
+
+    def _shown_parentless(self, fn):
+        from PySide6.QtWidgets import QWidget
+
+        seen = []
+        orig_show, orig_setvis = QWidget.show, QWidget.setVisible
+
+        def record(w):
+            if w.parent() is None:
+                seen.append(type(w).__name__)
+
+        def show(self):
+            record(self)
+            return orig_show(self)
+
+        def set_visible(self, v):  # noqa: ANN001
+            if v:
+                record(self)
+            return orig_setvis(self, v)
+
+        QWidget.show, QWidget.setVisible = show, set_visible
+        try:
+            fn()
+        finally:
+            QWidget.show, QWidget.setVisible = orig_show, orig_setvis
+        return seen
+
+    def test_item_card_shows_nothing_parentless(self, qtbot):
+        from flow.ui.screens._browser_widgets import ItemCard
+
+        cards = []
+
+        def build():
+            cards.append(
+                ItemCard(path="/p", title="t", subtitle="PPT · 악보 2장",
+                         match_snippet="가사 한 줄")
+            )
+
+        seen = self._shown_parentless(build)
+        qtbot.addWidget(cards[0])
+
+        assert seen == []
+
+    def test_library_song_card_shows_nothing_parentless(self, qtbot):
+        from flow.ui.editor.song_list_widget import _LibrarySongCard
+
+        info = {
+            "name": "곡A", "sheet_count": 1, "has_ppt": True, "has_md": False,
+            "total_hotspots": 1, "mapped_hotspots": 1,
+        }
+        cards = []
+
+        def build():
+            cards.append(_LibrarySongCard(info, match_snippet="가사"))
+
+        seen = self._shown_parentless(build)
+        qtbot.addWidget(cards[0])
+
+        assert seen == []
+
+    def test_library_refresh_shows_nothing_parentless(self, screen, tmp_path):
+        (tmp_path / "library" / "song_one" / "slides.md").write_text(
+            "---\n---\n\n# song_one\n", encoding="utf-8"
+        )
+
+        seen = self._shown_parentless(screen.force_refresh)
+
+        assert seen == []

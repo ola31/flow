@@ -152,6 +152,50 @@ class DisplayWindow(QWidget):
         self._lyric_label.clear()
         self._lyric_label.setPixmap(QPixmap())
     
+    def _apply_window_flags(self, *, frameless: bool) -> None:
+        """창 테두리 유무를 모드에 맞춘다.
+
+        윈도우 모드는 제목표시줄이 있어야 옮기고 닫을 수 있고, 전체화면은
+        테두리가 없어야 한다. 예전에는 윈도우 모드가 FramelessWindowHint를
+        떼기만 하고 되돌리지 않아, 한 번 윈도우 모드로 띄우면 이후 전체화면
+        송출에도 제목표시줄이 남았다.
+        """
+        flags = Qt.WindowType.Window
+        if frameless:
+            flags |= Qt.WindowType.FramelessWindowHint
+        if self.windowFlags() != flags:
+            # setWindowFlags는 네이티브 창을 다시 만들며 창을 숨긴다 —
+            # 호출한 쪽에서 반드시 다시 show해야 한다.
+            self.setWindowFlags(flags)
+
+    def _attach_to_screen(self, screen) -> None:
+        """대상 모니터로 창을 옮긴다.
+
+        windowHandle()은 네이티브 창이 만들어진 뒤에야 생긴다. 한 번도 띄운
+        적 없는 창에서는 None이라 setScreen이 조용히 건너뛰어졌고, 그 결과
+        첫 송출이 대상 모니터가 아닌 곳에서 전체화면이 되거나 작은 창으로
+        떴다. winId()로 네이티브 창을 먼저 만들어 둔다.
+        """
+        if screen is None:
+            return
+        self.winId()  # 네이티브 창 강제 생성 → windowHandle() 확보
+        handle = self.windowHandle()
+        if handle is not None:
+            handle.setScreen(screen)
+        # showFullScreen은 창이 놓인 모니터를 기준으로 펼쳐진다 —
+        # 좌표를 먼저 대상 모니터로 옮겨야 그 모니터에서 전체화면이 된다.
+        self.move(screen.geometry().topLeft())
+
+    @staticmethod
+    def _resolve_screen(screen):
+        if screen is not None:
+            return screen
+        primary = QApplication.primaryScreen()
+        if primary is not None:
+            return primary
+        screens = QApplication.screens()
+        return screens[0] if screens else None
+
     def show_on_screen(self, screen, *, windowed: bool = False) -> None:
         """지정한 QScreen에 표시.
 
@@ -159,17 +203,11 @@ class DisplayWindow(QWidget):
             screen: 표시할 QScreen. None이면 주 모니터.
             windowed: True면 작은 창 모드(960×540, 우측 하단), False면 전체화면.
         """
+        target_screen = self._resolve_screen(screen)
+
         if windowed:
-            self.setWindowFlags(Qt.WindowType.Window)
-            target_screen = screen
-            if target_screen is None:
-                screens = QApplication.screens()
-                if screens:
-                    target_screen = screens[0]
-            if target_screen is not None:
-                handle = self.windowHandle()
-                if handle is not None:
-                    handle.setScreen(target_screen)
+            self._apply_window_flags(frameless=False)
+            self._attach_to_screen(target_screen)
             self.setWindowState(Qt.WindowState.WindowNoState)
             self.resize(960, 540)
             if target_screen is not None:
@@ -182,18 +220,15 @@ class DisplayWindow(QWidget):
             self.raise_()
             return
 
-        # 전체화면 모드
-        if screen is None:
-            screens = QApplication.screens()
-            if screens:
-                screen = screens[0]
-        if screen is not None:
-            geometry = screen.geometry()
-            self.setGeometry(geometry)
-            handle = self.windowHandle()
-            if handle is not None:
-                handle.setScreen(screen)
-            self.showFullScreen()
+        # 전체화면 모드 — 플래그를 먼저 맞춘 뒤 화면에 붙인다.
+        # setWindowFlags가 네이티브 창을 다시 만들어 windowHandle을
+        # 무효화하므로 순서를 바꾸면 안 된다.
+        self._apply_window_flags(frameless=True)
+        self._attach_to_screen(target_screen)
+        if target_screen is not None:
+            self.setGeometry(target_screen.geometry())
+        self.showFullScreen()
+        self.raise_()
 
     def show_fullscreen_on_secondary(self) -> None:
         """레거시 호환 — 두 번째 모니터(없으면 윈도우)에 표시."""

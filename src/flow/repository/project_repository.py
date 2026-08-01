@@ -67,7 +67,12 @@ class ProjectRepository:
 
             # project.json에 저장할 곡 정보
             selected_songs_data.append(
-                {"name": song.name, "order": song.order, "folder": str(song.folder)}
+                {
+                    "name": song.name,
+                    "order": song.order,
+                    "folder": str(song.folder),
+                    "section": song.section,
+                }
             )
 
         # 2. project.json 저장
@@ -105,7 +110,16 @@ class ProjectRepository:
 
         # 1. 각 곡 로드
         selected_songs = []
+        # 중복 등장(오전·오후 등)은 등장 사본으로 — 악보/핫스팟 공유
+        first_of: dict[str, Song] = {}
         for song_info in data.get("selected_songs", []):
+            base = first_of.get(song_info["name"])
+            if base is not None:
+                dup = base.duplicate_reference(song_info.get("section", ""))
+                dup.order = song_info.get("order", 0)
+                selected_songs.append(dup)
+                continue
+
             song_folder = project_dir / song_info["folder"]
             song_json_path = song_folder / "song.json"
 
@@ -133,7 +147,9 @@ class ProjectRepository:
                 order=song_info.get("order", 0),
                 project_dir=project_dir,
                 show_sheet_names=song_data.get("show_sheet_names", False),
+                section=song_info.get("section", ""),
             )
+            first_of[song.name] = song
             selected_songs.append(song)
 
         # 2. Project 객체 생성
@@ -194,6 +210,7 @@ class ProjectRepository:
                     "name": song.name,
                     "order": song.order,
                     "source": source,
+                    "section": song.section,
                 }
             )
 
@@ -235,16 +252,31 @@ class ProjectRepository:
             )
 
         selected_songs = []
+        # 같은 곡이 셋리스트에 두 번 들어갈 수 있다 (오전·오후 등).
+        # 두 번째 등장은 등장 사본으로 만든다 — 악보/핫스팟은 원본과 공유해
+        # 매핑이 하나로 유지되고, 구간만 자리마다 따로 갖는다. 매번 새로
+        # 로드하면 같은 song.json에서 온 ID가 겹치는 객체가 두 벌 생겨
+        # 저장할 때 서로 덮어쓴다.
+        first_of: dict[str, Song] = {}
         for song_info in data.get("selected_songs", []):
             song_name = song_info["name"]
             order = song_info.get("order", 0)
+            # 구간은 프로젝트 소유 — song.json이 아니라 project.json에서 온다
+            section = song_info.get("section", "")
 
-            song = Song.load_from_workspace(
-                workspace, project_name, song_name, order=order
-            )
-            if song is None:
-                print(f"⚠️  곡을 찾을 수 없음: {song_name}")
-                continue
+            base = first_of.get(song_name)
+            if base is None:
+                song = Song.load_from_workspace(
+                    workspace, project_name, song_name, order=order
+                )
+                if song is None:
+                    print(f"⚠️  곡을 찾을 수 없음: {song_name}")
+                    continue
+                song.section = section
+                first_of[song_name] = song
+            else:
+                song = base.duplicate_reference(section)
+                song.order = order
             selected_songs.append(song)
 
         return Project(
@@ -304,6 +336,260 @@ class ProjectRepository:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
         return dst_file
+
+    def rename_workspace_project(
+        self, project_dir: Path | str, new_name: str
+    ) -> Path:
+        """프로젝트 폴더 이름과 project.json의 name을 함께 바꾼다.
+
+        프로젝트의 정체성은 폴더명이다 (workspace.project_dir(name)).
+        같은 날 오전/오후처럼 셋리스트가 여러 개일 때 구분하려면 이름을
+        바꿀 수 있어야 한다.
+
+        Returns:
+            새 프로젝트 폴더 경로
+
+        Raises:
+            ValueError: 이름이 유효하지 않을 때
+            FileNotFoundError: 원본 폴더가 없을 때
+            FileExistsError: 같은 이름의 프로젝트가 이미 있을 때
+        """
+        project_dir = Path(project_dir).resolve()
+        new_name = self.validate_folder_name(new_name)
+
+        if not project_dir.is_dir():
+            raise FileNotFoundError(f"프로젝트 폴더가 없습니다: {project_dir}")
+
+        if new_name == project_dir.name:
+            return project_dir
+
+        new_dir = project_dir.parent / new_name
+        if new_dir.exists() and new_dir.resolve() != project_dir:
+            raise FileExistsError(
+                f"같은 이름의 프로젝트가 이미 있습니다: {new_name}"
+            )
+
+        project_dir.rename(new_dir)
+
+        pj = new_dir / "project.json"
+        if pj.exists():
+            try:
+                with open(pj, encoding="utf-8-sig") as f:
+                    data = json.load(f)
+                data["name"] = new_name
+                with open(pj, "w", encoding="utf-8-sig") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+            except (OSError, ValueError):
+                pass  # 폴더명이 정본 — project.json 갱신 실패는 치명적이지 않음
+
+        return new_dir
+
+    # ==== 곡 이름 변경 ====
+
+    @staticmethod
+    def validate_folder_name(name: str) -> str:
+        """폴더명으로 쓸 수 있는 곡 이름인지 검사하고 정규화해 반환.
+
+        곡 이름은 곧 폴더명이고 프로젝트는 곡을 이름으로 참조하므로
+        (project.json의 song_order/selected_songs), 경로 구분자나 예약
+        문자가 섞이면 참조가 깨진다.
+
+        Raises:
+            ValueError: 빈 이름이거나 파일명에 못 쓰는 문자가 있을 때
+        """
+        cleaned = name.strip().rstrip(".")
+        if not cleaned:
+            raise ValueError("이름을 입력해 주세요.")
+        bad = set('\\/:*?"<>|') & set(cleaned)
+        if bad:
+            raise ValueError(
+                f"이름에 쓸 수 없는 문자가 있습니다: {' '.join(sorted(bad))}"
+            )
+        return cleaned
+
+    def rename_song_folder(
+        self,
+        song_dir: Path | str,
+        new_name: str,
+        workspace: "Workspace | None" = None,
+    ) -> Path:
+        """곡 폴더 이름을 바꾸고 참조를 함께 갱신한다.
+
+        폴더명 변경 + song.json의 name 갱신 + (워크스페이스가 주어지면)
+        이 곡을 참조하는 모든 project.json의 이름 참조 갱신.
+
+        Returns:
+            새 곡 폴더 경로
+
+        Raises:
+            ValueError: 이름이 유효하지 않을 때
+            FileNotFoundError: 원본 폴더가 없을 때
+            FileExistsError: 같은 이름의 폴더가 이미 있을 때
+        """
+        song_dir = Path(song_dir).resolve()
+        new_name = self.validate_folder_name(new_name)
+
+        if not song_dir.is_dir():
+            raise FileNotFoundError(f"곡 폴더가 없습니다: {song_dir}")
+
+        old_name = song_dir.name
+        if new_name == old_name:
+            return song_dir
+
+        new_dir = song_dir.parent / new_name
+        # 대소문자만 바꾸는 변경은 Windows에서 exists()가 True로 나온다 —
+        # 같은 폴더를 가리키면 충돌이 아니다.
+        if new_dir.exists() and new_dir.resolve() != song_dir:
+            raise FileExistsError(f"같은 이름의 곡이 이미 있습니다: {new_name}")
+
+        song_dir.rename(new_dir)
+
+        song_json = new_dir / "song.json"
+        if song_json.exists():
+            try:
+                with open(song_json, encoding="utf-8-sig") as f:
+                    data = json.load(f)
+                data["name"] = new_name
+                with open(song_json, "w", encoding="utf-8-sig") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+            except (OSError, ValueError):
+                # 이름 참조의 정본은 폴더명 — song.json 갱신 실패는 치명적이지 않음
+                pass
+
+        if workspace is not None:
+            self._retarget_song_references(workspace, old_name, new_name)
+
+        from flow.services import song_index
+
+        song_index.invalidate(song_dir)
+        song_index.invalidate(new_dir)
+        return new_dir
+
+    @staticmethod
+    def _retarget_song_references(
+        workspace: "Workspace", old_name: str, new_name: str
+    ) -> int:
+        """워크스페이스의 모든 project.json에서 곡 이름 참조를 갱신.
+
+        Returns:
+            수정된 프로젝트 수
+        """
+        changed = 0
+        for project_dir in workspace.list_projects():
+            pj = project_dir / "project.json"
+            try:
+                with open(pj, encoding="utf-8-sig") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                continue
+
+            hit = False
+            order = data.get("song_order", [])
+            for i, name in enumerate(order):
+                if name == old_name:
+                    order[i] = new_name
+                    hit = True
+            for entry in data.get("selected_songs", []):
+                if entry.get("name") == old_name:
+                    entry["name"] = new_name
+                    hit = True
+                folder = entry.get("folder")
+                if folder and Path(folder).name == old_name:
+                    entry["folder"] = (
+                        Path(folder).parent / new_name
+                    ).as_posix()
+                    hit = True
+            if not hit:
+                continue
+
+            try:
+                with open(pj, "w", encoding="utf-8-sig") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                changed += 1
+            except OSError:
+                continue
+        return changed
+
+    @staticmethod
+    def find_song_references(
+        workspace: "Workspace", song_name: str
+    ) -> list[str]:
+        """이 곡을 셋리스트에 담고 있는 프로젝트 이름 목록.
+
+        곡을 지우기 전에 "어느 셋리스트가 깨지는지"를 사용자에게 보여주기
+        위한 것 — 프로젝트는 곡을 이름으로만 참조하므로 폴더가 사라지면
+        그 자리는 조용히 비어버린다.
+        """
+        found: list[str] = []
+        for project_dir in workspace.list_projects():
+            try:
+                with open(project_dir / "project.json", encoding="utf-8-sig") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                continue
+            names = set(data.get("song_order", []))
+            names.update(
+                s.get("name") for s in data.get("selected_songs", [])
+            )
+            if song_name in names:
+                found.append(project_dir.name)
+        return found
+
+    def delete_song_folder(
+        self,
+        song_dir: Path | str,
+        workspace: "Workspace | None" = None,
+    ) -> None:
+        """곡 폴더를 삭제하고 프로젝트의 참조도 함께 정리한다.
+
+        참조를 남겨두면 프로젝트를 열 때마다 "곡을 찾을 수 없음" 경고가
+        나므로 song_order와 selected_songs에서 같이 뺀다.
+
+        Raises:
+            FileNotFoundError: 폴더가 없을 때
+        """
+        song_dir = Path(song_dir).resolve()
+        if not song_dir.is_dir():
+            raise FileNotFoundError(f"곡 폴더가 없습니다: {song_dir}")
+
+        name = song_dir.name
+        shutil.rmtree(song_dir)
+
+        if workspace is not None:
+            self._drop_song_references(workspace, name)
+
+        from flow.services import song_index
+
+        song_index.invalidate(song_dir)
+
+    @staticmethod
+    def _drop_song_references(workspace: "Workspace", song_name: str) -> int:
+        """모든 project.json에서 이 곡 참조를 제거. 수정된 프로젝트 수 반환."""
+        changed = 0
+        for project_dir in workspace.list_projects():
+            pj = project_dir / "project.json"
+            try:
+                with open(pj, encoding="utf-8-sig") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                continue
+
+            order = data.get("song_order", [])
+            selected = data.get("selected_songs", [])
+            new_order = [n for n in order if n != song_name]
+            new_selected = [s for s in selected if s.get("name") != song_name]
+            if len(new_order) == len(order) and len(new_selected) == len(selected):
+                continue
+
+            data["song_order"] = new_order
+            data["selected_songs"] = new_selected
+            try:
+                with open(pj, "w", encoding="utf-8-sig") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                changed += 1
+            except OSError:
+                continue
+        return changed
 
     # ==== Legacy methods ====
 
