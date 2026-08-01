@@ -2189,6 +2189,9 @@ class MainWindow(QMainWindow):
 
     def _exit_live(self) -> None:
         self._is_live = False
+        # 미변환 슬라이드를 기다리던 폴링을 멈춘다 — 남겨두면 라이브를
+        # 끝낸 뒤에도 변환이 주기적으로 다시 돈다.
+        self._live_controller.stop_pending_slide()
         self._live_mode_action.setChecked(False)
         self._canvas.set_edit_mode(True)
         self._set_project_editable(True)
@@ -2867,6 +2870,9 @@ class MainWindow(QMainWindow):
         self._project_path = None
         self._is_standalone = False
 
+        # 프로젝트를 닫으면 기다릴 슬라이드도 없다 — 폴링을 남겨두면
+        # 홈/라이브러리로 나온 뒤에도 변환이 다시 돈다.
+        self._live_controller.stop_pending_slide()
         self._song_list.set_project(None)
         self._canvas.set_score_sheet(None)
 

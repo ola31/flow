@@ -546,14 +546,20 @@ class SlideManager(QObject):
             self._pptx_path, index, status_callback=status_callback
         )
 
-    def peek_slide_image(self, index: int):
+    def peek_slide_image(self, index: int, *, schedule: bool = True):
         """캐시된 슬라이드 이미지 즉시 반환 (변환 대기 없음, GUI 스레드용).
 
-        캐시 미스면 None을 반환하고, 백그라운드 로드가 진행 중이 아니면
-        해당 파일의 변환을 워커에 예약한다 — 완료되면 load_finished가
-        발사되므로 UI는 그때 다시 조회해 채워 넣으면 된다.
+        캐시 미스면 None을 반환하고, schedule=True면 해당 파일의 변환을
+        워커에 예약한다 — 완료되면 load_finished가 발사되므로 UI는 그때
+        다시 조회해 채워 넣으면 된다.
         get_slide_image의 인라인 변환은 큰 PPT에서 UI를 얼리므로 GUI
         스레드에서는 반드시 이것을 쓸 것.
+
+        Args:
+            schedule: False면 캐시만 들여다보고 변환을 예약하지 않는다.
+                짧은 주기로 완료를 기다리는 폴링에서 쓴다 — 폴링마다
+                예약하면 PowerPoint 변환이 초당 몇 번씩 다시 돌아
+                작은 창이 계속 떴다 사라진다.
         """
         lru_key = self.get_slide_cache_key(index)
         if lru_key is not None and lru_key in self._peek_lru:
@@ -581,7 +587,8 @@ class SlideManager(QObject):
                     song.abs_slides_path, local_index
                 )
                 if img is None:
-                    self._ensure_background_conversion(song.abs_slides_path)
+                    if schedule:
+                        self._ensure_background_conversion(song.abs_slides_path)
                 else:
                     self._store_peek_lru(lru_key, img)
                 return img
@@ -596,7 +603,8 @@ class SlideManager(QObject):
             return None
         img = self._converter.get_cached_slide(self._pptx_path, index)
         if img is None:
-            self._ensure_background_conversion(self._pptx_path)
+            if schedule:
+                self._ensure_background_conversion(self._pptx_path)
         else:
             self._store_peek_lru(lru_key, img)
         return img

@@ -28,6 +28,8 @@ class LiveController(QObject):
     # 미변환 슬라이드를 기다리는 폴링 주기/한도.
     _RETRY_INTERVAL_MS = 250
     _RETRY_MAX_TICKS = 120  # 30초
+    # 변환 재예약 주기 (틱 수). 매 틱 예약하면 PowerPoint 변환이 폭주한다.
+    _RESCHEDULE_EVERY_TICKS = 20  # 5초에 한 번
 
     def __init__(self, parent: QObject | None = None, slide_manager = None) -> None:
         super().__init__(parent)
@@ -54,6 +56,9 @@ class LiveController(QObject):
         self._project = project
         self._preview_hotspot = None
         self._live_hotspot = None
+        # 이전 프로젝트의 미변환 슬라이드를 계속 기다리면 안 된다 —
+        # 폴링이 남아 화면을 전환할 때마다 변환이 다시 돌게 된다.
+        self.stop_pending_slide()
 
     def set_preview(self, hotspot: Hotspot) -> None:
         """Preview에 핫스팟 설정"""
@@ -67,10 +72,14 @@ class LiveController(QObject):
         self._preview_hotspot = None # 슬라이드 직접 선택 시 핫스팟 미리보기 해제
         self.preview_changed.emit(f"Slide {index + 1} (Direct)")
 
-    def _peek(self, slide_idx: int):
+    def _peek(self, slide_idx: int, *, schedule: bool = True):
         peek = getattr(self._slide_manager, "peek_slide_image", None)
         if peek is not None:
-            return peek(slide_idx)
+            try:
+                return peek(slide_idx, schedule=schedule)
+            except TypeError:
+                # schedule 인자가 없는 구형/테스트 더블 매니저
+                return peek(slide_idx)
         # 테스트 더블 등 peek이 없는 매니저 폴백
         return self._slide_manager.get_slide_image(slide_idx)
 
@@ -100,15 +109,26 @@ class LiveController(QObject):
         self._retry_ticks = 0
         self._retry_timer.stop()
 
+    def stop_pending_slide(self) -> None:
+        """미변환 슬라이드 대기를 중단한다 (라이브 종료·프로젝트 닫기 등)."""
+        self._clear_pending_slide()
+
     def _retry_pending_slide(self) -> None:
-        """변환이 끝났는지 확인하고, 되면 송출한다."""
+        """변환이 끝났는지 확인하고, 되면 송출한다.
+
+        폴링은 캐시만 들여다본다 — 매 틱마다 변환을 다시 예약하면
+        PowerPoint가 초당 몇 번씩 뜨고 사라진다. 다만 화면 전환 등으로
+        워커 큐가 통째로 비워졌을 수 있으므로, 주기적으로 한 번씩만
+        예약을 다시 건다.
+        """
         idx = self._pending_slide_index
         if idx < 0 or not self._slide_manager:
             self._clear_pending_slide()
             return
 
         self._retry_ticks += 1
-        image = self._peek(idx)
+        reschedule = self._retry_ticks % self._RESCHEDULE_EVERY_TICKS == 0
+        image = self._peek(idx, schedule=reschedule)
         if image is not None and not image.isNull():
             self._clear_pending_slide()
             self.slide_changed.emit(image)

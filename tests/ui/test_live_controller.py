@@ -336,3 +336,80 @@ class TestPendingSlideRetry:
         controller.clear_live()
 
         assert not controller._retry_timer.isActive()
+
+
+class TestRetryDoesNotStormConversions:
+    """폴링이 매 틱 변환을 예약하면 PowerPoint가 초당 몇 번씩 뜬다."""
+
+    class _CountingManager:
+        def __init__(self):
+            self.image = None
+            self.scheduled = 0
+            self.peeks = 0
+
+        def peek_slide_image(self, index, *, schedule=True):
+            self.peeks += 1
+            if schedule:
+                self.scheduled += 1
+            return self.image
+
+    def _controller(self, mgr):
+        controller = LiveController(slide_manager=mgr)
+        project = Project(name="P")
+        project.add_score_sheet(ScoreSheet(name="S"))
+        controller.set_project(project)
+        return controller
+
+    def _pending(self, mgr):
+        controller = self._controller(mgr)
+        h = Hotspot(x=1, y=1)
+        h.set_slide_index(3, verse_index=0)
+        controller.set_preview(h)
+        controller.send_to_live()
+        return controller
+
+    def test_first_miss_schedules_once(self, qapp):
+        mgr = self._CountingManager()
+        controller = self._pending(mgr)
+
+        assert mgr.scheduled == 1
+        assert controller._retry_timer.isActive()
+
+    def test_polling_does_not_reschedule_every_tick(self, qapp):
+        mgr = self._CountingManager()
+        controller = self._pending(mgr)
+        before = mgr.scheduled
+
+        for _ in range(controller._RESCHEDULE_EVERY_TICKS - 1):
+            controller._retry_pending_slide()
+
+        assert mgr.peeks > before  # 캐시는 계속 확인하되
+        assert mgr.scheduled == before  # 변환 재예약은 하지 않는다
+
+    def test_reschedules_occasionally(self, qapp):
+        mgr = self._CountingManager()
+        controller = self._pending(mgr)
+        before = mgr.scheduled
+
+        for _ in range(controller._RESCHEDULE_EVERY_TICKS):
+            controller._retry_pending_slide()
+
+        # 화면 전환 등으로 큐가 비워졌을 경우를 대비해 가끔 한 번만
+        assert mgr.scheduled == before + 1
+
+    def test_stop_pending_slide_halts_polling(self, qapp):
+        mgr = self._CountingManager()
+        controller = self._pending(mgr)
+
+        controller.stop_pending_slide()
+
+        assert not controller._retry_timer.isActive()
+        assert controller._pending_slide_index == -1
+
+    def test_set_project_halts_polling(self, qapp):
+        mgr = self._CountingManager()
+        controller = self._pending(mgr)
+
+        controller.set_project(Project(name="다른 프로젝트"))
+
+        assert not controller._retry_timer.isActive()
