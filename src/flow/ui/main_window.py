@@ -1378,14 +1378,31 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"Flow - 마크다운 편집: {song.name}")
 
     def _exit_markdown_editor(self) -> None:
-        """마크다운 에디터에서 이전 화면으로 복귀."""
+        """마크다운 에디터에서 이전 화면으로 복귀.
+
+        편집한 곡의 슬라이드를 다시 세고 렌더한다. 예전에는 단일 파일
+        모드(_pptx_path)만 확인해서, 프로젝트 안 곡의 마크다운을 고치면
+        에디터에서만 반영되고 곡/프로젝트 화면은 옛 슬라이드를 계속
+        보여줬다. 슬라이드 수가 달라졌을 수도 있으므로 캐시만 버리지 않고
+        reload_song으로 개수·오프셋까지 다시 잡는다.
+        """
         self._markdown_editor_screen.save_if_dirty()
-        # 슬라이드 리렌더 트리거 — 현재 곡이 마크다운이면 캐시 리로드
-        if self._slide_manager._pptx_path is not None:
+
+        song = self._markdown_editor_screen.current_song()
+        reloaded = False
+        if song is not None and getattr(song, "slide_source", None) == "markdown":
+            self._slide_manager.invalidate_markdown_cache(song.markdown_path)
+            if any(s is song for s in (self._slide_manager._songs or [])):
+                self._slide_manager.reload_song(song)
+                reloaded = True
+
+        # 단일 파일 모드 폴백 (프로젝트에 속하지 않은 .md를 직접 연 경우)
+        if not reloaded and self._slide_manager._pptx_path is not None:
             p = self._slide_manager._pptx_path
             if str(p).lower().endswith(".md"):
-                self._slide_manager._markdown_converter.invalidate_cache(p)
+                self._slide_manager.invalidate_markdown_cache(p)
                 self._slide_manager.file_changed.emit()
+
         self._stack.setCurrentIndex(self._markdown_editor_prev_index)
         self._toolbar.show()
         self._statusbar.show()

@@ -152,7 +152,10 @@ class MarkdownEditor(QWidget):
         # Defer first render until after layout has settled — otherwise the
         # preview_label is still at minimumSize and the main preview comes out
         # too small until the user clicks the editor.
-        QTimer.singleShot(0, self._render_preview)
+        # 컨텍스트 객체(self)를 넘기면 위젯이 파괴될 때 Qt가 호출을
+        # 취소한다 — 안 넘기면 삭제된 C++ 객체를 건드려 터진다
+        # (에디터를 열자마자 다른 곡으로 바꾸거나 나갈 때).
+        QTimer.singleShot(0, self, self._render_preview)
 
         # Show patches bar if unreconciled patches exist for this song.
         self._refresh_patches_bar(md_path)
@@ -309,7 +312,7 @@ class MarkdownEditor(QWidget):
         # Bump generation so any in-flight chain stops; queue the new one.
         self._render_generation += 1
         gen = self._render_generation
-        QTimer.singleShot(0, lambda: self._render_thumb_async(0, gen))
+        QTimer.singleShot(0, self, lambda: self._render_thumb_async(0, gen))
 
     def _render_thumb_async(self, idx: int, gen: int) -> None:
         # Stop if a newer render request superseded this chain or the
@@ -330,7 +333,7 @@ class MarkdownEditor(QWidget):
             except Exception:
                 # Skip on render failure, continue with the next thumb
                 QTimer.singleShot(
-                    0, lambda: self._render_thumb_async(idx + 1, gen)
+                    0, self, lambda: self._render_thumb_async(idx + 1, gen)
                 )
                 return
         item = QListWidgetItem(f"{idx + 1}")
@@ -341,7 +344,7 @@ class MarkdownEditor(QWidget):
         item.setIcon(QIcon(pix))
         self._thumbs.addItem(item)
         # Schedule next thumbnail
-        QTimer.singleShot(0, lambda: self._render_thumb_async(idx + 1, gen))
+        QTimer.singleShot(0, self, lambda: self._render_thumb_async(idx + 1, gen))
 
     def _render_main_preview(self, idx: int) -> None:
         text = self.text()

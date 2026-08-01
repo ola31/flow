@@ -898,7 +898,11 @@ class SlideManager(QObject):
         if self._songs:
             self._pending_reload_song = song
         self._auto_retry_blocked = False  # 사용자 새로고침 = 재시도 허용
+        # add_task는 큐를 비운다 — 예약 카운터도 이 한 건으로 맞춰야
+        # 사라진 예약분 때문에 _loading이 True로 굳지 않는다.
         self._loading = True
+        self._pending_conversions = 1
+        self._queued_conversions = {Path(target_path)}
         self.load_started.emit()
         worker.add_task(PPTTask(PPTTask.LOAD_SINGLE, target_path))
 
