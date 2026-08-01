@@ -2315,11 +2315,18 @@ class SongListWidget(QWidget):
         # 구간이 하나라도 지정돼 있을 때만 머리글을 낸다 — 안 쓰는 프로젝트에
         # 빈 머리글이 생기지 않게.
         use_sections = any(s.section for s in songs)
-        section_counts: dict[str, int] = {}
+        # 머리글은 '연속 구간'마다 나오므로 개수도 그 구간의 길이여야 한다 —
+        # 이름별 총합을 쓰면 떨어져 있는 두 그룹이 똑같이 전체 합계를 띄운다.
+        run_lengths: list[int] = [0] * len(songs)
         if use_sections:
-            for s in songs:
-                key = s.section or ""
-                section_counts[key] = section_counts.get(key, 0) + 1
+            start = 0
+            for i in range(len(songs) + 1):
+                at_end = i == len(songs)
+                if at_end or (songs[i].section or "") != (songs[start].section or ""):
+                    run_lengths[start] = i - start
+                    start = i
+                    if at_end:
+                        break
         last_section: str | None = None
         active_occurrence = self._occurrence_of_current_sheet()
 
@@ -2327,7 +2334,7 @@ class SongListWidget(QWidget):
             if use_sections and (song.section or "") != last_section:
                 last_section = song.section or ""
                 header = _SectionHeader(
-                    last_section or "구간 없음", section_counts[last_section]
+                    last_section or "구간 없음", run_lengths[i]
                 )
                 self._section_headers.append(header)
                 self._cards_layout.insertWidget(

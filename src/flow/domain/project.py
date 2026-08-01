@@ -119,12 +119,21 @@ class Project:
             i for i, s in enumerate(self.selected_songs) if s.name == song_name
         ]
 
-    def add_song_occurrence(self, song: "Song", section: str = "") -> "Song":
+    def add_song_occurrence(
+        self, song: "Song", section: str | None = None
+    ) -> "Song":
         """곡을 셋리스트 끝에 추가한다. 이미 있으면 등장 사본을 붙인다.
+
+        Args:
+            section: None이면 바로 앞 곡의 구간을 따라간다 — 구간을 쓰는
+                셋리스트 끝에 곡을 넣을 때 매번 '구간 없음' 그룹이 새로
+                생기지 않게. 무소속으로 넣으려면 ""를 명시한다.
 
         Returns:
             실제로 셋리스트에 들어간 Song (신규이거나 등장 사본)
         """
+        if section is None:
+            section = self.selected_songs[-1].section if self.selected_songs else ""
         existing = next(
             (s for s in self.selected_songs if s.name == song.name), None
         )

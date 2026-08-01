@@ -268,3 +268,70 @@ class TestSectionAppliesDownward:
         widget._set_song_section(p.selected_songs[0])
 
         assert [s.section for s in p.selected_songs] == ["", ""]
+
+
+class TestSectionHeaderCount:
+    """머리글은 연속 구간마다 나오므로 개수도 그 구간의 길이여야 한다."""
+
+    def _headers(self, widget):
+        from PySide6.QtWidgets import QLabel
+
+        out = []
+        for i in range(widget._cards_layout.count()):
+            w = widget._cards_layout.itemAt(i).widget()
+            if isinstance(w, _SectionHeader):
+                labels = [lbl.text() for lbl in w.findChildren(QLabel)]
+                out.append((w._title, labels[1]))
+        return out
+
+    def test_counts_the_run_not_the_whole_section(self, widget):
+        p = Project(name="p")
+        # 무소속이 두 덩어리로 갈려 있다 — 각 머리글은 자기 덩어리만 센다
+        p.selected_songs = [
+            _song("A"), _song("B"),
+            _song("C", "오전"),
+            _song("D"), _song("E"), _song("F"),
+        ]
+
+        widget.set_project(p)
+
+        assert self._headers(widget) == [
+            ("구간 없음", "2곡"), ("오전", "1곡"), ("구간 없음", "3곡"),
+        ]
+
+    def test_single_run_counts_normally(self, widget):
+        p = Project(name="p")
+        p.selected_songs = [_song("A", "오전"), _song("B", "오전")]
+
+        widget.set_project(p)
+
+        assert self._headers(widget) == [("오전", "2곡")]
+
+
+class TestAddedSongJoinsTrailingSection:
+    """구간을 쓰는 셋리스트 끝에 곡을 넣으면 앞 곡의 구간을 따라간다 —
+    추가할 때마다 '구간 없음' 그룹이 새로 생기면 안 된다."""
+
+    def test_inherits_previous_section(self):
+        p = Project(name="p")
+        p.add_song_occurrence(_song("A"), "오전")
+        p.add_song_occurrence(_song("B"), "오후")
+
+        p.add_song_occurrence(_song("C"))
+
+        assert p.selected_songs[-1].section == "오후"
+
+    def test_explicit_empty_stays_unassigned(self):
+        p = Project(name="p")
+        p.add_song_occurrence(_song("A"), "오전")
+
+        p.add_song_occurrence(_song("B"), "")
+
+        assert p.selected_songs[-1].section == ""
+
+    def test_first_song_has_no_section(self):
+        p = Project(name="p")
+
+        p.add_song_occurrence(_song("A"))
+
+        assert p.selected_songs[0].section == ""
