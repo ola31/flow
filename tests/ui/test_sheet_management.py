@@ -206,3 +206,35 @@ class TestPanelWiring:
         page_cards[0].rename_requested.emit(page_cards[0]._sheet)
 
         assert _sheets(widget)[0].name == "via_menu"
+
+
+class TestPageCardMenuButton:
+    """우클릭은 발견성이 없다 — 시트 카드에 상시 노출 ⋯ 버튼으로 같은
+    메뉴(이름 변경/이동/매핑 해제/삭제)를 연다."""
+
+    def _card(self, qtbot):
+        from flow.domain.score_sheet import ScoreSheet
+        from flow.ui.editor.song_list_widget import _PageCard
+
+        sheet = ScoreSheet(name="페이지1", image_path="p1.png")
+        card = _PageCard(sheet, 1, active=False)
+        qtbot.addWidget(card)
+        return card
+
+    def test_menu_button_always_visible(self, qtbot):
+        card = self._card(qtbot)
+        card.show()
+        assert not card._btn_menu.isHidden()
+
+    def test_menu_button_opens_context_menu(self, qtbot, monkeypatch):
+        card = self._card(qtbot)
+        opened = []
+
+        class _FakeMenu:
+            def exec(self, *a):
+                opened.append(True)
+
+        monkeypatch.setattr(card, "_build_context_menu", lambda: _FakeMenu())
+        card._btn_menu.click()
+
+        assert opened == [True]

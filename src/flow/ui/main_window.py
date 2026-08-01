@@ -1396,31 +1396,39 @@ class MainWindow(QMainWindow):
         편집한 곡의 슬라이드를 다시 세고 렌더한다. 예전에는 단일 파일
         모드(_pptx_path)만 확인해서, 프로젝트 안 곡의 마크다운을 고치면
         에디터에서만 반영되고 곡/프로젝트 화면은 옛 슬라이드를 계속
-        보여줬다. 슬라이드 수가 달라졌을 수도 있으므로 캐시만 버리지 않고
-        reload_song으로 개수·오프셋까지 다시 잡는다.
+        보여줬다. 슬라이드 수가 달라지면 뒤 곡들의 전역 오프셋까지 밀리므로
+        캐시만 버리지 않고 _on_songs_changed 파이프라인을 태운다.
         """
         self._markdown_editor_screen.save_if_dirty()
-
-        song = self._markdown_editor_screen.current_song()
-        reloaded = False
-        if song is not None and getattr(song, "slide_source", None) == "markdown":
-            self._slide_manager.invalidate_markdown_cache(song.markdown_path)
-            if any(s is song for s in (self._slide_manager._songs or [])):
-                self._slide_manager.reload_song(song)
-                reloaded = True
-
-        # 단일 파일 모드 폴백 (프로젝트에 속하지 않은 .md를 직접 연 경우)
-        if not reloaded and self._slide_manager._pptx_path is not None:
-            p = self._slide_manager._pptx_path
-            if str(p).lower().endswith(".md"):
-                self._slide_manager.invalidate_markdown_cache(p)
-                self._slide_manager.file_changed.emit()
+        # is_dirty가 아니라 content_changed — 사용자가 Ctrl+S로 저장한 뒤
+        # 나가면 dirty는 이미 False라 재로딩을 놓친다
+        was_dirty = self._markdown_editor_screen.content_changed()
 
         self._stack.setCurrentIndex(self._markdown_editor_prev_index)
         self._toolbar.show()
         self._statusbar.show()
         if self._project:
             self.setWindowTitle(f"Flow - {self._project.name}")
+
+        if not was_dirty:
+            return  # 수정 없이 나가면 재로딩도 없다
+
+        md_path = getattr(self._markdown_editor_screen, "_md_path", None)
+        if md_path is None:
+            return
+        # 편집으로 슬라이드 수가 바뀌면 뒤 곡들의 전역 오프셋까지 달라진다.
+        # 렌더 캐시만 비우는 걸로는 하단 슬라이드 리스트가 갱신되지 않아,
+        # 편집된 곡의 카운트를 리셋하고 _on_songs_changed 파이프라인
+        # (저장·재카운트·globalize·목록 갱신)을 태운다.
+        # 단독/프로젝트 공통 — file_changed 시그널은 패널 다시 그리기만
+        # 연결돼 있어 재카운트·재변환이 일어나지 않는다.
+        self._slide_manager.invalidate_markdown_cache(md_path)
+        if self._project:
+            for s in self._project.selected_songs:
+                if s.has_markdown and s.markdown_path == md_path:
+                    s.set_slide_count(0)
+                    break
+            self._on_songs_changed()
 
     def _enter_song_edit_mode(self, song) -> None:
         if self._is_live:

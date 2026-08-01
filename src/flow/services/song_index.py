@@ -35,11 +35,18 @@ def _mtime(p: Path) -> float:
 
 
 def _stamp(song_dir: Path) -> tuple:
-    """캐시 유효성 판정용 mtime 지문. 접근 실패는 0.0으로 낮춘다."""
+    """캐시 유효성 판정용 mtime 지문. 접근 실패는 0.0으로 낮춘다.
+
+    sheets/ 하위에 이미지를 추가해도 곡 폴더 mtime은 안 바뀌므로
+    악보 폴더 mtime을 반드시 포함한다 (빠지면 곡 편집 후 돌아와도
+    악보 수가 갱신되지 않는다).
+    """
     return (
         _mtime(song_dir),
         _mtime(song_dir / "song.json"),
         _mtime(song_dir / "slides.md"),
+        _mtime(song_dir / "sheets"),
+        _mtime(song_dir / "sheet"),
     )
 
 

@@ -335,3 +335,269 @@ class TestAddedSongJoinsTrailingSection:
         p.add_song_occurrence(_song("A"))
 
         assert p.selected_songs[0].section == ""
+class TestSectionInsertZone:
+    """카드 사이 hover 삽입 핸들 — 클릭하면 인라인 입력으로 구간을 꽂는다."""
+
+    def _project(self, widget, sections=("", "", "", "")):
+        p = Project(name="p")
+        p.selected_songs = [
+            _song(f"곡{i}", sec) for i, sec in enumerate(sections)
+        ]
+        widget.set_project(p)
+        widget._btn_section_mode.setChecked(True)  # 구간 나누기 모드 켜기
+        return p
+
+    def test_no_zones_by_default(self, widget):
+        p = Project(name="p")
+        p.selected_songs = [_song("곡0"), _song("곡1")]
+        widget.set_project(p)
+
+        assert widget._section_zones == []  # 모드 꺼짐
+
+    def test_zone_per_card_in_section_mode(self, widget):
+        self._project(widget)
+        assert len(widget._section_zones) == 4
+
+    def test_toggle_off_removes_zones(self, widget):
+        self._project(widget)
+        widget._btn_section_mode.setChecked(False)
+        assert widget._section_zones == []
+
+    def test_commit_exits_section_mode(self, widget):
+        """구분선을 꽂으면 모드가 자동 종료돼 간격이 원래대로 돌아온다."""
+        self._project(widget)
+
+        widget._apply_section_from(2, "오후")
+
+        assert not widget._btn_section_mode.isChecked()
+        assert widget._section_zones == []
+
+    def test_zone_click_opens_inline_edit(self, widget, qtbot):
+        self._project(widget)
+        zone = widget._section_zones[0]
+
+        zone.begin_edit()
+
+        assert not zone._edit.isHidden()
+
+    def test_zone_commit_emits_index_and_name(self, widget, qtbot):
+        self._project(widget)
+        zone = widget._section_zones[2]
+        got = []
+        zone.section_committed.connect(lambda i, n: got.append((i, n)))
+
+        zone.begin_edit()
+        zone._edit.setText("오후")
+        zone._commit()
+
+        assert got == [(2, "오후")]
+
+    def test_existing_name_chip_commits_immediately(self, widget, qtbot):
+        """IME 조합을 방해하는 자동완성 대신 칩 클릭 한 번으로 확정.
+        칩은 이미 쓰는 구간 이름만 — 오전/오후 프리셋은 넣지 않는다."""
+        self._project(widget, sections=("", "", "오후", "오후"))
+        zone = widget._section_zones[1]
+        got = []
+        zone.section_committed.connect(lambda i, n: got.append((i, n)))
+
+        zone.begin_edit()
+        chip = next(
+            b for b in zone._chips if b.text() == "오후"
+        )
+        chip.click()
+
+        assert got == [(1, "오후")]
+
+    def test_no_preset_chips_without_existing_sections(self, widget):
+        self._project(widget)  # 구간 전무
+        assert widget._section_zones[0]._chips == []
+
+    def test_edit_has_no_completer(self, widget):
+        """QCompleter는 한글 조합 중 글자를 지운다 — 쓰지 않는다."""
+        self._project(widget)
+        assert widget._section_zones[0]._edit.completer() is None
+
+    def test_empty_name_commit_cancels(self, widget, qtbot):
+        self._project(widget)
+        zone = widget._section_zones[1]
+        got = []
+        zone.section_committed.connect(lambda i, n: got.append((i, n)))
+
+        zone.begin_edit()
+        zone._edit.setText("   ")
+        zone._commit()
+
+        assert got == []
+        assert zone._edit.isHidden()  # 에딧 닫힘
+
+    def test_apply_fills_until_next_boundary(self, widget):
+        p = self._project(widget, sections=("", "", "오후", "오후"))
+
+        widget._apply_section_from(0, "오전")
+
+        assert [s.section for s in p.selected_songs] == [
+            "오전", "오전", "오후", "오후",
+        ]
+
+    def test_apply_without_boundary_fills_to_end(self, widget):
+        p = self._project(widget)
+
+        widget._apply_section_from(1, "오후")
+
+        assert [s.section for s in p.selected_songs] == [
+            "", "오후", "오후", "오후",
+        ]
+
+    def test_no_zones_in_live_mode(self, widget):
+        widget._main_window._is_live = True
+        self._project(widget)
+
+        assert widget._section_zones == []
+        assert not widget._btn_section_mode.isChecked()  # 라이브 중 토글 거부
+
+
+class TestHeaderRenameRemove:
+    def _project(self, widget, sections):
+        p = Project(name="p")
+        p.selected_songs = [
+            _song(f"곡{i}", sec) for i, sec in enumerate(sections)
+        ]
+        widget.set_project(p)
+        return p
+
+    def test_rename_applies_to_contiguous_group_only(self, widget):
+        p = self._project(widget, ("오전", "오전", "오후", "오전"))
+
+        widget._rename_section_at(0, "1부")
+
+        assert [s.section for s in p.selected_songs] == [
+            "1부", "1부", "오후", "오전",
+        ]
+
+    def test_remove_merges_into_previous_section(self, widget):
+        p = self._project(widget, ("오전", "오전", "오후", "오후"))
+
+        widget._remove_section_at(2)
+
+        assert [s.section for s in p.selected_songs] == [
+            "오전", "오전", "오전", "오전",
+        ]
+
+    def test_remove_first_section_clears(self, widget):
+        p = self._project(widget, ("오전", "오전", "오후", "오후"))
+
+        widget._remove_section_at(0)
+
+        assert [s.section for s in p.selected_songs] == [
+            "", "", "오후", "오후",
+        ]
+
+    def test_header_dblclick_opens_rename_edit(self, widget, qtbot):
+        self._project(widget, ("오전", "오전", "", ""))
+        header = widget._section_headers[0]
+
+        header.begin_edit()
+
+        assert not header._edit.isHidden()
+
+    def test_remove_button_always_visible(self, widget, qtbot):
+        """hover에서만 보이면 존재를 모른다 — 상시 노출."""
+        self._project(widget, ("오전", "오전", "", ""))
+        widget.show()
+        header = widget._section_headers[0]
+        assert not header._btn_remove.isHidden()
+        # 전역 QPushButton padding(8px 16px)이 상속되면 20px 버튼에서
+        # ✕ 글리프가 안 그려진다 — 자체 시트에 padding 명시 필수
+        assert "padding" in header._btn_remove.styleSheet()
+
+    def test_no_section_header_has_no_remove_button(self, widget, qtbot):
+        """'구간 없음' 머리글은 해제할 경계가 아니다 — ×를 안 보인다."""
+        self._project(widget, ("", "", "오후", "오후"))
+        widget.show()
+        none_header = next(
+            h for h in widget._section_headers if h._title == "구간 없음"
+        )
+        assert none_header._btn_remove.isHidden()
+
+    def test_header_remove_button_emits(self, widget, qtbot):
+        self._project(widget, ("오전", "오전", "", ""))
+        header = widget._section_headers[0]
+        got = []
+        header.remove_requested.connect(got.append)
+
+        header._btn_remove.click()
+
+        assert got == [0]
+
+
+class TestReorderReusesCards:
+    """순서 변경마다 카드를 전부 재생성하면 이동이 버벅인다 — 같은 곡의
+    카드는 재사용하고 위치 배지만 갱신한다."""
+
+    def _setup(self, widget):
+        p = Project(name="p")
+        p.selected_songs = [_song(f"곡{i}") for i in range(4)]
+        widget.set_project(p)
+        # _move_song은 메인윈도의 _on_songs_changed를 부른다 — 테스트에선
+        # 저장/리로드 없이 목록만 갱신
+        widget._main_window._on_songs_changed = widget.refresh_list
+        return p
+
+    def test_cards_reused_after_move(self, widget):
+        p = self._setup(widget)
+        moved = p.selected_songs[1]
+        card_before = next(
+            c for c in widget._cards if c._song is moved
+        )
+
+        widget._move_song(moved, 1)
+
+        card_after = next(
+            c for c in widget._cards if c._song is moved
+        )
+        assert card_after is card_before  # 재생성 없음
+
+    def test_position_badge_updates_on_move(self, widget):
+        p = self._setup(widget)
+        moved = p.selected_songs[1]
+
+        widget._move_song(moved, 1)
+
+        card = next(c for c in widget._cards if c._song is moved)
+        assert card._badge.text() == "3"
+
+    def test_removed_song_card_is_dropped(self, widget):
+        p = self._setup(widget)
+        removed = p.selected_songs.pop(0)
+        widget.refresh_list()
+
+        assert all(c._song is not removed for c in widget._cards)
+        assert len(widget._cards) == 3
+
+
+class TestSingleSheetNoTabs:
+    """시트가 하나뿐인 곡은 전환할 대상이 없다 — P1 탭을 표시하지 않는다."""
+
+    def _card(self, widget, sheet_count: int):
+        from flow.domain.score_sheet import ScoreSheet
+
+        p = Project(name="p")
+        song = _song("곡0")
+        song.score_sheets = [
+            ScoreSheet(name=f"페이지{i}", image_path=f"p{i}.png")
+            for i in range(sheet_count)
+        ]
+        p.selected_songs = [song]
+        widget.set_project(p)
+        card = widget._cards[0]
+        card.set_selected(True, song.score_sheets[0].id)
+        return card
+
+    def test_single_sheet_hides_tabs(self, widget):
+        card = self._card(widget, 1)
+        assert card._sheet_tabs == []
+        assert not card._tabs_container.isVisibleTo(card)
+
+    def test_multi_sheet_shows_tabs(self, widget):
+        card = self._card(widget, 2)
+        assert len(card._sheet_tabs) == 2

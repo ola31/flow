@@ -794,17 +794,181 @@ class _SheetTab(QPushButton):
 # ─── 곡 카드 ────────────────────────────────────────────────────────────────
 
 
-class _SectionHeader(QFrame):
+class _SectionEditMixin:
+    """구간 이름 인라인 입력 공통 동작 (삽입 존/헤더가 공유).
+
+    Esc·포커스 이탈은 취소, Enter는 확정. 자동완성 팝업이 포커스를
+    가져가는 동안의 FocusOut은 취소로 치지 않는다.
+    """
+
+    def _setup_edit(self, existing_names: list[str]) -> QLineEdit:
+        # QCompleter는 쓰지 않는다 — 한글 IME 조합 중 팝업이 뜨면서
+        # 조합 중인 글자를 지워버린다. 기존 이름 제시는 칩 버튼으로.
+        edit = QLineEdit()
+        edit.setPlaceholderText("구간 이름")
+        edit.setFixedHeight(24)
+        edit.setStyleSheet(
+            f"QLineEdit {{ background: {BG_INPUT}; color: {TEXT_PRIMARY}; "
+            f"border: 1px solid {ACCENT}; border-radius: {RADIUS_SM}px; "
+            f"padding: 0 8px; font-size: {FONT_SM}px; }}"
+        )
+        edit.returnPressed.connect(self._commit)
+        edit.installEventFilter(self)
+        edit.hide()
+        return edit
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 — Qt 오버라이드
+        edit = getattr(self, "_edit", None)  # _setup_edit 중에도 불릴 수 있음
+        if edit is not None and obj is edit and not edit.isHidden():
+            if (
+                event.type() == QEvent.Type.KeyPress
+                and event.key() == Qt.Key.Key_Escape
+            ):
+                self._cancel()
+                return True
+            if event.type() == QEvent.Type.FocusOut:
+                self._cancel()
+        return False
+
+
+class _SectionInsertZone(_SectionEditMixin, QWidget):
+    """카드 사이 hover 삽입 핸들 — 클릭하면 인라인 입력으로 구간을 꽂는다."""
+
+    section_committed = Signal(int, str)  # (곡 인덱스, 구간 이름)
+
+    _IDLE_H = 10
+    _EDIT_H = 32
+
+    def __init__(
+        self, index: int, existing_names: list[str], parent=None
+    ) -> None:
+        super().__init__(parent)
+        self._index = index
+        self._hovered = False
+        self.setFixedHeight(self._IDLE_H)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(SP_SM, 2, SP_SM, 2)
+        row.setSpacing(SP_XS)
+        self._edit = self._setup_edit(existing_names)
+        row.addWidget(self._edit, 1)
+
+        # 기존/프리셋 이름 칩 — 클릭 한 번으로 확정 (자동완성 대체).
+        # NoFocus라 클릭해도 에딧의 포커스를 안 뺏는다 (FocusOut 취소 방지).
+        self._chips: list[QPushButton] = []
+        for name in existing_names[:3]:
+            chip = QPushButton(name)
+            chip.setFixedHeight(22)
+            chip.setCursor(Qt.CursorShape.PointingHandCursor)
+            chip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            chip.setStyleSheet(
+                f"QPushButton {{ background: {BG_ELEVATED}; "
+                f"color: {TEXT_SECONDARY}; border: 1px solid {BORDER}; "
+                f"border-radius: 11px; font-size: {FONT_SM}px; "
+                f"padding: 0 10px; }}"
+                f"QPushButton:hover {{ color: {ACCENT}; "
+                f"border-color: {ACCENT}; }}"
+            )
+            chip.clicked.connect(
+                lambda _c=False, n=name: self._commit_name(n)
+            )
+            chip.hide()
+            self._chips.append(chip)
+            row.addWidget(chip)
+
+    def begin_edit(self) -> None:
+        self.setFixedHeight(self._EDIT_H)
+        self._edit.show()
+        for chip in self._chips:
+            chip.show()
+        self._edit.setFocus()
+
+    def _cancel(self) -> None:
+        self._edit.hide()
+        self._edit.clear()
+        for chip in self._chips:
+            chip.hide()
+        self.setFixedHeight(self._IDLE_H)
+        self.update()
+
+    def _commit_name(self, name: str) -> None:
+        self._cancel()
+        self.section_committed.emit(self._index, name)
+
+    def _commit(self) -> None:
+        name = self._edit.text().strip()
+        self._cancel()
+        if name:
+            self.section_committed.emit(self._index, name)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._edit.isHidden()
+        ):
+            self.begin_edit()
+        super().mousePressEvent(event)
+
+    def enterEvent(self, event) -> None:  # noqa: N802
+        self._hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self._hovered = False
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        if not self._hovered or not self._edit.isHidden():
+            return
+        from PySide6.QtGui import QPainter, QPen
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        color = QColor(ACCENT)
+        text = "＋ 구간 나누기"
+        font = painter.font()
+        font.setPixelSize(10)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        tw = metrics.horizontalAdvance(text)
+        cx = self.width() // 2
+        cy = self.height() // 2
+        painter.setPen(QPen(color, 1))
+        gap = 8
+        painter.drawLine(SP_SM, cy, cx - tw // 2 - gap, cy)
+        painter.drawLine(cx + tw // 2 + gap, cy, self.width() - SP_SM, cy)
+        painter.setPen(color)
+        painter.drawText(
+            cx - tw // 2, cy + metrics.ascent() // 2 - 1, text
+        )
+
+
+class _SectionHeader(_SectionEditMixin, QFrame):
     """셋리스트 안의 구간 머리글 (예: 오전 / 오후).
 
     구간은 표시만 나눈다 — 라이브 방향키 탐색은 구간을 가로질러 전체
-    셋리스트를 순서대로 훑는다.
+    셋리스트를 순서대로 훑는다. 더블클릭으로 이름 변경, hover 시 ×로
+    경계 해제.
     """
 
-    def __init__(self, title: str, count: int, parent=None) -> None:
+    rename_committed = Signal(int, str)  # (그룹 첫 곡 인덱스, 새 이름)
+    remove_requested = Signal(int)       # 그룹 첫 곡 인덱스
+
+    def __init__(
+        self,
+        title: str,
+        count: int,
+        first_index: int = 0,
+        existing_names: list[str] | None = None,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("SectionHeader")
         self._title = title
+        self._first_index = first_index
         self.setStyleSheet(
             f"QFrame#SectionHeader {{ background: transparent; "
             f"border: none; border-bottom: 1px solid {BORDER_SUBTLE_RGBA}; }}"
@@ -821,14 +985,61 @@ class _SectionHeader(QFrame):
         _f = label.font()
         _f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.8)
         label.setFont(_f)
+        self._label = label
         row.addWidget(label)
 
         count_lbl = QLabel(f"{count}곡")
         count_lbl.setStyleSheet(
             f"font-size: {FONT_SM}px; color: {TEXT_TERTIARY}; background: transparent;"
         )
+        self._count_lbl = count_lbl
         row.addWidget(count_lbl)
+
+        self._edit = self._setup_edit(existing_names or [])
+        row.addWidget(self._edit, 1)
         row.addStretch()
+
+        self._btn_remove = QPushButton("✕")
+        self._btn_remove.setFixedSize(20, 20)
+        self._btn_remove.setToolTip("구간 해제 (위 구간에 합쳐짐)")
+        self._btn_remove.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_remove.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # padding: 0 필수 — 전역 시트의 QPushButton padding(8px 16px)이
+        # 상속되면 20px 버튼의 콘텐츠 영역이 음수가 되어 ✕가 안 그려진다
+        self._btn_remove.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {TEXT_TERTIARY}; "
+            f"border: none; font-size: {FONT_SM}px; padding: 0; }}"
+            f"QPushButton:hover {{ color: {RED}; }}"
+        )
+        self._btn_remove.clicked.connect(
+            lambda: self.remove_requested.emit(self._first_index)
+        )
+        # hover에서만 보이면 존재를 모른다 — 흐리게 상시 노출
+        row.addWidget(self._btn_remove)
+
+    def begin_edit(self) -> None:
+        self._label.hide()
+        self._count_lbl.hide()
+        self._edit.setText(self._title if self._title != "구간 없음" else "")
+        self._edit.show()
+        self._edit.setFocus()
+        self._edit.selectAll()
+
+    def _cancel(self) -> None:
+        self._edit.hide()
+        self._label.show()
+        self._count_lbl.show()
+
+    def _commit(self) -> None:
+        name = self._edit.text().strip()
+        self._cancel()
+        if name and name != self._title:
+            self.rename_committed.emit(self._first_index, name)
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        if self._edit.isHidden():
+            self.begin_edit()
+        super().mouseDoubleClickEvent(event)
 
 
 class _SongCard(QFrame):
@@ -988,10 +1199,17 @@ class _SongCard(QFrame):
         if st["has_ppt"]:
             self._fmt_tag.setText("PPT")
         elif st["has_md"]:
-            self._fmt_tag.setText("마크다운")
+            self._fmt_tag.setText(".md")
         else:
             self._fmt_tag.setText("")
         self._fmt_tag.setVisible(self._is_selected and bool(self._fmt_tag.text()))
+
+    def set_position(self, position: int) -> None:
+        """순서 변경 시 배지 숫자만 갱신 (카드 재사용 경로)."""
+        if position == self._position:
+            return
+        self._position = position
+        self._badge.setText(str(position))
 
     def set_selected(self, selected: bool, current_sheet_id: str | None = None) -> None:
         self._is_selected = selected
@@ -1020,6 +1238,9 @@ class _SongCard(QFrame):
 
     def _refresh_tabs(self, current_sheet_id: str | None) -> None:
         valid_sheets = [s for s in self._song.score_sheets if s.image_path]
+        if len(valid_sheets) <= 1:
+            # 시트가 하나면 전환할 대상이 없다 — P1 탭 표시 안 함
+            valid_sheets = []
 
         # 시트 구성이 같으면 탭을 재사용하고 활성 상태만 갱신 — 시트가
         # 많은 곡은 탭 재생성(setStyleSheet ~40ms)이 방향키 전환을 끊는다.
@@ -1564,6 +1785,15 @@ class _StandalonePanel(QWidget):
 
         layout.addLayout(name_row)
 
+        # 시트 목록 제목 — 아래 카드들이 무엇인지 알려주는 라벨
+        self._sheets_title = QLabel("시트")
+        self._sheets_title.setStyleSheet(
+            f"font-size: {FONT_SM}px; font-weight: {FW_SEMI}; "
+            f"color: {TEXT_TERTIARY}; background: transparent; "
+            f"padding-top: 4px;"
+        )
+        layout.addWidget(self._sheets_title)
+
         # 페이지 카드 컨테이너
         self._pages_layout = QVBoxLayout()
         self._pages_layout.setSpacing(4)
@@ -1731,6 +1961,11 @@ class _PageCard(QFrame):
         self._setup_ui(page_num, active)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
+    def _open_menu(self) -> None:
+        self._build_context_menu().exec(
+            self._btn_menu.mapToGlobal(self._btn_menu.rect().bottomLeft())
+        )
+
     def _setup_ui(self, page_num: int, active: bool) -> None:
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
@@ -1756,6 +1991,20 @@ class _PageCard(QFrame):
             f"font-size: {FONT_MD}px; color: {TEXT_SECONDARY};"
         )
         layout.addWidget(name_lbl, 1)
+
+        # 우클릭 메뉴는 발견성이 없다 — 상시 노출 ⋯ 버튼으로 같은 메뉴 열기
+        self._btn_menu = QPushButton("⋯")
+        self._btn_menu.setFixedSize(22, 22)
+        self._btn_menu.setToolTip("시트 메뉴 (이름 변경·이동·삭제)")
+        self._btn_menu.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_menu.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_menu.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {TEXT_TERTIARY}; "
+            f"border: none; font-size: {FONT_MD}px; padding: 0; }}"
+            f"QPushButton:hover {{ color: {TEXT_PRIMARY}; }}"
+        )
+        self._btn_menu.clicked.connect(self._open_menu)
+        layout.addWidget(self._btn_menu)
 
         # active 상태: 좌측 액센트 바 + 미묘한 white-overlay (Linear 패턴)
         if active:
@@ -1855,7 +2104,11 @@ class SongListWidget(QWidget):
         self._editable = True
         self._is_standalone = False
         self._cards: list[_SongCard] = []
+        # 곡 → 카드 재사용 풀 (순서 변경 시 전체 재생성 방지)
+        self._song_cards: dict[int, _SongCard] = {}
         self._section_headers: list[_SectionHeader] = []
+        self._section_zones: list[_SectionInsertZone] = []
+        self._section_edit_mode = False  # 구간 나누기 모드 (토글)
         self._standalone_panel: _StandalonePanel | None = None
         # 위치 이동 모드: {"kind": "sheet"|"song", "obj": ..., "start": int}
         self._move_mode: dict | None = None
@@ -1898,6 +2151,26 @@ class SongListWidget(QWidget):
         header_layout.addWidget(self._count_label)
         header_layout.addStretch()
 
+        # 구간 나누기 모드 토글 — 켜면 카드 사이가 벌어지며 삽입 존 표시
+        self._btn_section_mode = QPushButton("구간 나누기")
+        self._btn_section_mode.setCheckable(True)
+        self._btn_section_mode.setFixedHeight(24)
+        self._btn_section_mode.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_section_mode.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_section_mode.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {TEXT_TERTIARY};
+                border: 1px solid {BORDER}; border-radius: {RADIUS_SM}px;
+                font-size: {FONT_SM}px; padding: 0 8px;
+            }}
+            QPushButton:hover {{ color: {TEXT_SECONDARY}; }}
+            QPushButton:checked {{
+                color: {ACCENT}; border-color: {ACCENT};
+            }}
+        """)
+        self._btn_section_mode.toggled.connect(self._on_section_mode_toggled)
+        header_layout.addWidget(self._btn_section_mode)
+
         root.addWidget(header_frame)
 
         # ── 스크롤 영역 (카드 목록)
@@ -1920,7 +2193,7 @@ class SongListWidget(QWidget):
         self._cards_widget.setStyleSheet("background: transparent;")
         self._cards_layout = QVBoxLayout(self._cards_widget)
         self._cards_layout.setContentsMargins(SP_XS, SP_XS, SP_XS, SP_XS)
-        self._cards_layout.setSpacing(4)
+        self._cards_layout.setSpacing(8)
         self._cards_layout.addStretch()
 
         self._scroll.setWidget(self._cards_widget)
@@ -2143,13 +2416,21 @@ class SongListWidget(QWidget):
         return super().eventFilter(watched, event)
 
     def _apply_move_mode_visuals(self) -> None:
-        """이동 중인 카드는 강조, 나머지는 비활성+흐림."""
-        if not self._move_mode:
-            return
+        """이동 중인 카드는 강조, 나머지는 비활성+흐림.
+
+        카드는 풀에서 재사용되므로 모드 밖에서는 강조/흐림을 반드시
+        원복해야 한다 (안 하면 Esc 후에도 테두리·비활성이 남는다).
+        """
         from PySide6.QtWidgets import QGraphicsOpacityEffect
 
         def mark(card, is_moving: bool) -> None:
             if is_moving:
+                # _refresh_frame_style로 먼저 초기화 — 이동 중 매 갱신마다
+                # 스타일이 누적되는 것 방지
+                card.setEnabled(True)
+                card.setGraphicsEffect(None)
+                if hasattr(card, "_refresh_frame_style"):
+                    card._refresh_frame_style()
                 card.setStyleSheet(
                     card.styleSheet()
                     + f"QFrame#SongCard, QFrame#PageCard {{"
@@ -2160,6 +2441,14 @@ class SongListWidget(QWidget):
                 eff = QGraphicsOpacityEffect(card)
                 eff.setOpacity(0.35)
                 card.setGraphicsEffect(eff)
+
+        if not self._move_mode:
+            # 모드 종료 — 재사용 카드의 시각 상태 원복
+            for card in self._cards:
+                card.setEnabled(True)
+                card.setGraphicsEffect(None)
+                card._refresh_frame_style()
+            return
 
         obj = self._move_mode["obj"]
         if self._move_mode["kind"] == "song":
@@ -2174,16 +2463,22 @@ class SongListWidget(QWidget):
 
     def refresh_list(self) -> None:
         """카드 목록 전체 갱신."""
-        # 기존 카드 제거
+        # 기존 카드는 레이아웃에서 떼기만 한다 — 같은 곡의 카드는 풀에서
+        # 재사용 (순서 변경마다 카드 15장 재생성하면 이동이 버벅인다).
+        # 삭제 여부는 _refresh_project의 풀 정리가 판단.
         for card in self._cards:
             self._cards_layout.removeWidget(card)
-            card.deleteLater()
         self._cards.clear()
 
         for header in self._section_headers:
             self._cards_layout.removeWidget(header)
             header.deleteLater()
         self._section_headers.clear()
+
+        for zone in self._section_zones:
+            self._cards_layout.removeWidget(zone)
+            zone.deleteLater()
+        self._section_zones.clear()
 
         if self._standalone_panel:
             self._cards_layout.removeWidget(self._standalone_panel)
@@ -2196,9 +2491,15 @@ class SongListWidget(QWidget):
         if not self._project:
             self._count_label.setText("")
             self._drop_switcher()
+            self._drop_song_cards()
             return
 
+        self._btn_section_mode.setVisible(not self._is_standalone)
+        self._btn_section_mode.setEnabled(
+            not getattr(self._main_window, "_is_live", False)
+        )
         if self._is_standalone:
+            self._drop_song_cards()
             self._refresh_standalone()
         else:
             self._drop_switcher()
@@ -2306,9 +2607,19 @@ class SongListWidget(QWidget):
         self._cards_layout.insertWidget(self._cards_layout.count() - 1, panel)
         self._count_label.setText("")
 
+    def _drop_song_cards(self) -> None:
+        for card in self._song_cards.values():
+            card.deleteLater()
+        self._song_cards.clear()
+
     def _refresh_project(self) -> None:
         """프로젝트 모드: 셋리스트 카드 목록."""
         songs = self._project.selected_songs
+
+        # 셋리스트에서 빠진 곡의 카드는 폐기
+        alive = {id(s) for s in songs}
+        for key in [k for k in self._song_cards if k not in alive]:
+            self._song_cards.pop(key).deleteLater()
         current_sheet = self._project.get_current_score_sheet()
         current_id = current_sheet.id if current_sheet else None
 
@@ -2330,18 +2641,41 @@ class SongListWidget(QWidget):
         last_section: str | None = None
         active_occurrence = self._occurrence_of_current_sheet()
 
+        is_live = getattr(self._main_window, "_is_live", False)
+        section_mode = self._section_edit_mode and not is_live
+        # 칩 제안은 이미 쓰는 구간 이름만 — 프리셋은 넣지 않는다
+        section_names: list[str] = []
+        for s in songs:
+            if s.section and s.section not in section_names:
+                section_names.append(s.section)
+
         for i, song in enumerate(songs):
+            # 카드 사이 구간 삽입 핸들 — 구간 나누기 모드에서만
+            if section_mode:
+                zone = _SectionInsertZone(i, section_names)
+                zone.section_committed.connect(self._apply_section_from)
+                self._section_zones.append(zone)
+                self._cards_layout.insertWidget(
+                    self._cards_layout.count() - 1, zone
+                )
+
             if use_sections and (song.section or "") != last_section:
                 last_section = song.section or ""
                 header = _SectionHeader(
-                    last_section or "구간 없음", run_lengths[i]
+                    last_section or "구간 없음",
+                    run_lengths[i],
+                    first_index=i,
+                    existing_names=section_names,
                 )
+                header.rename_committed.connect(self._apply_section_from)
+                header.remove_requested.connect(self._remove_section_at)
+                if not last_section:
+                    # '구간 없음'은 해제할 경계가 아니다 — × 숨김
+                    header._btn_remove.hide()
                 self._section_headers.append(header)
                 self._cards_layout.insertWidget(
                     self._cards_layout.count() - 1, header
                 )
-
-            card = _SongCard(song, i + 1)
 
             # 현재 선택된 시트가 이 곡에 속하면 선택 상태.
             # 같은 곡이 두 번 들어 있으면 시트 ID로는 둘 다 맞으므로
@@ -2351,22 +2685,43 @@ class SongListWidget(QWidget):
             if is_selected and active_occurrence is not None:
                 is_selected = i == active_occurrence
 
-            card.set_selected(is_selected, current_id if is_selected else None)
-            # 카드가 자기 자리(등장 인덱스)를 함께 넘긴다 — 같은 곡이 두 번
-            # 들어 있을 때 어느 쪽을 눌렀는지 시트 ID로는 구분되지 않는다.
-            card.sheet_selected.connect(
-                lambda sheet, occ=i: self._on_sheet_selected_direct(sheet, occ)
-            )
-            card.edit_requested.connect(self.song_edit_requested.emit)
-            card.remove_requested.connect(self._remove_song)
-            card.reload_requested.connect(self.song_reload_requested.emit)
-            card.import_ppt_requested.connect(self._import_ppt_to_song)
-            card.move_requested.connect(self._move_song)
-            card.move_mode_requested.connect(
-                lambda song: self._enter_move_mode("song", song)
-            )
-            card.toggle_sheet_names_requested.connect(self._toggle_sheet_names)
-            card.set_section_requested.connect(self._set_song_section)
+            card = self._song_cards.get(id(song))
+            fresh = card is None
+            if fresh:
+                card = _SongCard(song, i + 1)
+                # 카드가 자기 자리(등장 인덱스)를 함께 넘긴다 — 같은 곡이 두
+                # 번 들어 있으면 시트 ID로는 어느 쪽을 눌렀는지 모른다.
+                # 위치는 카드 재사용 시 set_position이 갱신하므로, 연결은
+                # 한 번만 하고 클릭 시점의 _position을 읽는다.
+                card.sheet_selected.connect(
+                    lambda sheet, c=card: self._on_sheet_selected_direct(
+                        sheet, c._position - 1
+                    )
+                )
+                card.edit_requested.connect(self.song_edit_requested.emit)
+                card.remove_requested.connect(self._remove_song)
+                card.reload_requested.connect(self.song_reload_requested.emit)
+                card.import_ppt_requested.connect(self._import_ppt_to_song)
+                card.move_requested.connect(self._move_song)
+                card.move_mode_requested.connect(
+                    lambda song: self._enter_move_mode("song", song)
+                )
+                card.toggle_sheet_names_requested.connect(
+                    self._toggle_sheet_names
+                )
+                card.set_section_requested.connect(self._set_song_section)
+                self._song_cards[id(song)] = card
+            else:
+                card.set_position(i + 1)
+                card.refresh_status()
+
+            # 재사용 카드는 상태가 실제로 바뀐 경우에만 재스타일
+            if fresh or is_selected != card._is_selected or (
+                is_selected and card._current_sheet_id != current_id
+            ):
+                card.set_selected(
+                    is_selected, current_id if is_selected else None
+                )
 
             self._cards.append(card)
             self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
@@ -2947,6 +3302,64 @@ class SongListWidget(QWidget):
                 f"{affected}곡을 '{new_section or '구간 없음'}'으로 묶었습니다.",
                 3000,
             )
+
+    # ── 구간 삽입 핸들 / 헤더 편집 ──────────────────────────────────────
+
+    def _on_section_mode_toggled(self, checked: bool) -> None:
+        if getattr(self._main_window, "_is_live", False):
+            self._btn_section_mode.setChecked(False)
+            return
+        self._section_edit_mode = checked
+        self.refresh_list()
+
+    def _apply_section_from(self, index: int, name: str) -> None:
+        """index 곡부터 같은 구간이 이어지는 데까지 name을 채운다.
+
+        '구분선을 꽂는' 동작 — 다음 경계(다른 구간)가 나오면 멈추므로
+        뒤에 이미 있는 구간은 건드리지 않는다. 경계가 없으면 끝까지.
+        """
+        if not self._project or getattr(self._main_window, "_is_live", False):
+            return
+        songs = self._project.selected_songs
+        if not (0 <= index < len(songs)):
+            return
+        old = songs[index].section or ""
+        if name == old:
+            return
+        j = index
+        while j < len(songs) and (songs[j].section or "") == old:
+            songs[j].section = name
+            j += 1
+
+        if self._section_edit_mode:
+            # 구분선을 꽂았으면 모드 종료 — 간격이 원래대로 돌아온다.
+            # 시그널을 막고 끄는 이유: 토글 핸들러의 refresh와 아래
+            # refresh가 겹쳐 두 번 재구성되는 것 방지.
+            self._section_edit_mode = False
+            self._btn_section_mode.blockSignals(True)
+            self._btn_section_mode.setChecked(False)
+            self._btn_section_mode.blockSignals(False)
+
+        self.refresh_list()
+        if self._main_window:
+            self._main_window._mark_dirty()
+            self._main_window.statusBar().showMessage(
+                f"{j - index}곡을 '{name or '구간 없음'}'으로 묶었습니다.", 3000
+            )
+
+    def _rename_section_at(self, first_index: int, name: str) -> None:
+        """구간 머리글 이름 변경 — 연속 그룹 전체에 적용."""
+        self._apply_section_from(first_index, name)
+
+    def _remove_section_at(self, first_index: int) -> None:
+        """구간 경계 해제 — 위 구간에 흡수 (첫 구간이면 구간 없음)."""
+        if not self._project or getattr(self._main_window, "_is_live", False):
+            return
+        songs = self._project.selected_songs
+        if not (0 <= first_index < len(songs)):
+            return
+        prev = songs[first_index - 1].section or "" if first_index > 0 else ""
+        self._apply_section_from(first_index, prev)
 
     # ── 시트(페이지) 관리 ────────────────────────────────────────────────
 

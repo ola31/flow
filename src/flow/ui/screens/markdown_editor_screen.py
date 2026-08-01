@@ -106,6 +106,10 @@ class MarkdownEditorScreen(QWidget):
     def is_dirty(self) -> bool:
         return self._editor is not None and self._editor.is_dirty()
 
+    def content_changed(self) -> bool:
+        """이 편집 세션에서 저장했든 안 했든 내용이 바뀐 적 있는가."""
+        return self._editor is not None and self._editor.content_changed()
+
     def save_if_dirty(self) -> None:
         if self.is_dirty() and self._editor is not None:
             self._editor.save()

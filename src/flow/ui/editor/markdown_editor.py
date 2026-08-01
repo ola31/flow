@@ -40,6 +40,7 @@ class MarkdownEditor(QWidget):
         self._original_text = (
             md_path.read_text(encoding="utf-8") if md_path.exists() else ""
         )
+        self._saved_changes = False  # 이 세션에서 변경 내용을 저장했는가
         # Per-instance content-hash cache so re-renders (after save / nav)
         # only repaint slides whose content actually changed.
         self._slide_render_cache: dict[str, "QImage"] = {}
@@ -176,8 +177,18 @@ class MarkdownEditor(QWidget):
     def is_dirty(self) -> bool:
         return self.text() != self._original_text
 
+    def content_changed(self) -> bool:
+        """이 에디터 세션에서 내용이 실제로 바뀌었는가.
+
+        save()가 dirty 기준을 리셋하므로, '저장 후 나가기'를 감지하려면
+        저장 이력을 따로 기억해야 한다 (복귀 시 슬라이드 재로딩 판단용).
+        """
+        return self._saved_changes or self.is_dirty()
+
     def save(self) -> None:
         text = self.text()
+        if text != self._original_text:
+            self._saved_changes = True
         self._md_path.write_text(text, encoding="utf-8")
         self._original_text = text
         self._render_preview()
@@ -188,6 +199,7 @@ class MarkdownEditor(QWidget):
         self._original_text = (
             md_path.read_text(encoding="utf-8") if md_path.exists() else ""
         )
+        self._saved_changes = False
         self._text_edit.setPlainText(self._original_text)
         self._refresh_patches_bar(md_path)
 

@@ -136,17 +136,25 @@ class LibraryScreen(QWidget):
         곡 추가/삭제(폴더 목록), 저장(song.json mtime), 파일 추가/제거
         (폴더 mtime)를 감지한다. 검색어·정렬 변경도 재구성 대상.
         """
+        def _mt(path) -> float:
+            try:
+                return path.stat().st_mtime
+            except OSError:
+                return 0.0
+
         entries = []
         for p in paths:
-            try:
-                sj = p / "song.json"
-                entries.append((
-                    p.name,
-                    p.stat().st_mtime,
-                    sj.stat().st_mtime if sj.exists() else 0.0,
-                ))
-            except OSError:
-                entries.append((p.name, 0.0, 0.0))
+            entries.append((
+                p.name,
+                _mt(p),
+                _mt(p / "song.json"),
+                # 곡 폴더 mtime은 하위 변경을 못 본다 — slides.md 내용
+                # 수정과 sheets/ 안 이미지 추가도 지문에 포함해야
+                # 편집 후 돌아왔을 때 수동 새로고침 없이 반영된다
+                _mt(p / "slides.md"),
+                _mt(p / "sheets"),
+                _mt(p / "sheet"),
+            ))
         return (self._search_text, self._sort_mode, tuple(entries))
 
     def refresh(self) -> None:
@@ -244,7 +252,7 @@ class LibraryScreen(QWidget):
         if info["has_ppt"]:
             slide_part = "PPT"
         elif info["has_md"]:
-            slide_part = "마크다운"
+            slide_part = ".md"
         else:
             slide_part = _amber("슬라이드 없음")
 

@@ -102,7 +102,7 @@ class TestFormatTagOnSelection:
         song = _song(tmp_path, slides=False, md=True, hotspots=[_hotspot(True)])
         card = make_card(song)
         card.set_selected(True, song.score_sheets[0].id)
-        assert card._fmt_tag.text() == "마크다운"
+        assert card._fmt_tag.text() == ".md"
 
     def test_tag_hides_again_on_deselect(self, make_card, tmp_path):
         song = _song(tmp_path, hotspots=[_hotspot(True)])
