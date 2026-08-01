@@ -334,3 +334,96 @@ class TestIndexShiftWithSharedSheets:
             mw._slide_manager.shutdown()
             mw._clear_dirty()
             mw.close()
+
+
+class TestIndexShiftIsIdempotent:
+    """전역화/로컬화는 상태를 추적해 두 번 적용되지 않아야 한다.
+
+    실제 손상 사례: 곡을 추가하면 _on_songs_changed가 저장(내부에서
+    localize→save→globalize) 뒤 다시 localize한다. 3단계의 globalize는
+    _on_songs_metadata_finished가 담당하는데 화면 전환 중이면 조용히
+    빠져나간다 — 그러면 로컬인 값을 다시 로컬화해 매핑이 음수가 되고,
+    그대로 song.json에 저장돼 곡 전체의 매핑이 사라진다.
+    """
+
+    def _mw(self, qtbot, offset):
+        from flow.ui.main_window import MainWindow
+
+        mw = MainWindow()
+        qtbot.addWidget(mw)
+        mw._slide_manager.get_song_offset = lambda name: offset
+        return mw
+
+    def _project_with_mapping(self, mw, index=2):
+        p = Project(name="p")
+        song = _song()
+        h = Hotspot(x=1, y=1)
+        h.set_slide_index(index, verse_index=0)
+        song.score_sheets[0].hotspots.append(h)
+        p.add_song_occurrence(song)
+        mw._project = p
+        return h
+
+    def test_double_localize_does_not_go_negative(self, qtbot):
+        mw = self._mw(qtbot, 80)
+        try:
+            h = self._project_with_mapping(mw)
+            mw._globalize_project_indices()
+            assert h.get_slide_index(0) == 82
+
+            mw._localize_project_indices()
+            mw._localize_project_indices()  # 두 번째는 무시돼야 한다
+
+            assert h.get_slide_index(0) == 2
+        finally:
+            mw._slide_manager.shutdown()
+            mw._clear_dirty()
+            mw.close()
+
+    def test_double_globalize_does_not_double_shift(self, qtbot):
+        mw = self._mw(qtbot, 80)
+        try:
+            h = self._project_with_mapping(mw)
+
+            mw._globalize_project_indices()
+            mw._globalize_project_indices()
+
+            assert h.get_slide_index(0) == 82
+        finally:
+            mw._slide_manager.shutdown()
+            mw._clear_dirty()
+            mw.close()
+
+    def test_new_project_starts_local(self, qtbot):
+        mw = self._mw(qtbot, 80)
+        try:
+            self._project_with_mapping(mw)
+            mw._globalize_project_indices()
+            assert mw._indices_globalized is True
+
+            # 프로젝트를 새로 물리면 디스크에서 온 로컬 인덱스다
+            h = self._project_with_mapping(mw)
+            assert mw._indices_globalized is False
+
+            mw._localize_project_indices()  # 로컬을 또 로컬화하지 않는다
+
+            assert h.get_slide_index(0) == 2
+        finally:
+            mw._slide_manager.shutdown()
+            mw._clear_dirty()
+            mw.close()
+
+    def test_shift_refuses_to_produce_negative(self, qtbot):
+        """상태 추적이 어긋나도 매핑이 음수로 저장되지는 않게 하는 안전망."""
+        mw = self._mw(qtbot, 80)
+        try:
+            h = self._project_with_mapping(mw)
+            mw._indices_globalized = True  # 어긋난 상태를 강제
+
+            mw._localize_project_indices()
+
+            assert h.get_slide_index(0) == 2  # 건드리지 않는다
+        finally:
+            mw._slide_manager.shutdown()
+            mw._clear_dirty()
+            mw.close()

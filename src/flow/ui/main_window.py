@@ -92,6 +92,19 @@ class MainWindow(QMainWindow):
     # 핫스팟 프리웜 지연(ms) — 시작 직후 부하를 피해 살짝 미룸
     _HOTSPOT_PREWARM_DELAY_MS = 1500
 
+    # 핫스팟 슬라이드 인덱스가 현재 전역 좌표인지. 프로젝트를 새로 물릴
+    # 때마다 False로 돌아간다 — 디스크에서 온 인덱스는 언제나 로컬이다.
+    _indices_globalized: bool = False
+
+    @property
+    def _project(self) -> "Project | None":
+        return self.__project
+
+    @_project.setter
+    def _project(self, value: "Project | None") -> None:
+        self.__project = value
+        self._indices_globalized = False
+
     def __init__(self, workspace=None) -> None:
         super().__init__()
 
@@ -4037,12 +4050,36 @@ class MainWindow(QMainWindow):
                     continue
                 seen.add(id(sheet))
                 for hotspot in sheet.hotspots:
+                    if sign < 0 and self._would_go_negative(hotspot, offset):
+                        # 매핑 인덱스는 음수가 될 수 없다 — 여기 걸린다는 건
+                        # 이미 로컬인 값을 또 로컬화하려 한다는 뜻이다.
+                        # 그대로 빼면 매핑이 통째로 망가지므로 건너뛴다.
+                        continue
                     hotspot.shift_indices(sign * offset)
 
+    @staticmethod
+    def _would_go_negative(hotspot, offset: int) -> bool:
+        for value in list(hotspot.slide_mappings.values()) + [hotspot.slide_index]:
+            if isinstance(value, int) and 0 <= value < offset:
+                return True
+        return False
+
     def _globalize_project_indices(self):
-        """프로젝트의 모든 핫스팟 인덱스를 로컬에서 전역으로 변환"""
+        """프로젝트의 모든 핫스팟 인덱스를 로컬에서 전역으로 변환.
+
+        이미 전역이면 아무것도 하지 않는다. 전역화는 곡 메타데이터 로딩이
+        끝나야 실행되는데 그 핸들러는 화면 전환 중(_in_transition)이면 조용히
+        빠져나간다 — 그때 상태를 추적하지 않으면 로컬인 인덱스를 전역이라고
+        믿고 다음 저장에서 오프셋을 한 번 더 빼 음수 매핑이 디스크에 굳는다.
+        """
+        if self._indices_globalized:
+            return
         self._shift_project_indices(1)
+        self._indices_globalized = True
 
     def _localize_project_indices(self):
-        """프로젝트의 모든 핫스팟 인덱스를 전역에서 로컬로 변환"""
+        """프로젝트의 모든 핫스팟 인덱스를 전역에서 로컬로 변환 (이미 로컬이면 무시)"""
+        if not self._indices_globalized:
+            return
         self._shift_project_indices(-1)
+        self._indices_globalized = False
