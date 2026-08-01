@@ -393,13 +393,17 @@ class _LibrarySongCard(QFrame):
         self._snippet_lbl.setVisible(bool(snippet))
 
     def set_added(self, added: bool) -> None:
-        """이미 추가됨 상태를 토글한다."""
+        """이미 추가됨 상태를 토글한다.
+
+        배지로 알려주기만 하고 버튼은 계속 열어 둔다 — 같은 곡을 오전·오후에
+        각각 부르는 경우가 있어서 다시 넣을 수 있어야 한다.
+        """
         self._added = added
-        for btn in self._add_buttons:
-            btn.setEnabled(not added)
         self._added_badge.setVisible(added)
-        cursor = Qt.CursorShape.ArrowCursor if added else Qt.CursorShape.PointingHandCursor
-        self.setCursor(cursor)
+        self._added_badge.setToolTip(
+            "이미 셋리스트에 있습니다 (다시 넣으면 한 번 더 부르는 것으로 추가됩니다)"
+            if added else ""
+        )
 
 
 class SongLibraryBrowser(QWidget):
@@ -2317,6 +2321,7 @@ class SongListWidget(QWidget):
                 key = s.section or ""
                 section_counts[key] = section_counts.get(key, 0) + 1
         last_section: str | None = None
+        active_occurrence = self._occurrence_of_current_sheet()
 
         for i, song in enumerate(songs):
             if use_sections and (song.section or "") != last_section:
@@ -2331,12 +2336,20 @@ class SongListWidget(QWidget):
 
             card = _SongCard(song, i + 1)
 
-            # 현재 선택된 시트가 이 곡에 속하면 선택 상태
+            # 현재 선택된 시트가 이 곡에 속하면 선택 상태.
+            # 같은 곡이 두 번 들어 있으면 시트 ID로는 둘 다 맞으므로
+            # 실제 자리(등장 인덱스)까지 봐야 한 장만 켜진다.
             song_sheet_ids = {s.id for s in song.score_sheets}
             is_selected = current_id in song_sheet_ids
+            if is_selected and active_occurrence is not None:
+                is_selected = i == active_occurrence
 
             card.set_selected(is_selected, current_id if is_selected else None)
-            card.sheet_selected.connect(self._on_sheet_selected_direct)
+            # 카드가 자기 자리(등장 인덱스)를 함께 넘긴다 — 같은 곡이 두 번
+            # 들어 있을 때 어느 쪽을 눌렀는지 시트 ID로는 구분되지 않는다.
+            card.sheet_selected.connect(
+                lambda sheet, occ=i: self._on_sheet_selected_direct(sheet, occ)
+            )
             card.edit_requested.connect(self.song_edit_requested.emit)
             card.remove_requested.connect(self._remove_song)
             card.reload_requested.connect(self.song_reload_requested.emit)
@@ -2354,18 +2367,67 @@ class SongListWidget(QWidget):
         count = len(songs)
         self._count_label.setText(f"{count}곡" if count else "")
 
-    def _on_sheet_selected_direct(self, sheet: ScoreSheet) -> None:
+    def _on_sheet_selected_direct(
+        self, sheet: ScoreSheet, occurrence: int | None = None
+    ) -> None:
+        """시트 선택. occurrence는 셋리스트에서 몇 번째 자리인지.
+
+        같은 곡이 두 번 들어 있으면 시트 ID만으로는 어느 자리인지 모른다 —
+        ID로 찾으면 항상 첫 등장으로 튄다. 카드가 자기 위치를 함께 넘긴다.
+        """
         if not self._project:
             return
-        all_sheets = self._project.all_score_sheets
-        for i, s in enumerate(all_sheets):
-            if s.id == sheet.id:
-                self._project.current_sheet_index = i
-                break
+        self._project.current_sheet_index = self._global_sheet_index(
+            sheet, occurrence
+        )
         self._update_card_selection(sheet.id)
         self.song_selected.emit(sheet)
         if self._main_window:
             self._main_window._canvas.setFocus()
+
+    def _global_sheet_index(
+        self, sheet: ScoreSheet, occurrence: int | None
+    ) -> int:
+        """전역(all_score_sheets 기준) 시트 인덱스.
+
+        occurrence가 주어지면 그 자리 앞의 시트 수를 더해 계산한다.
+        없으면 예전처럼 ID로 첫 매칭을 쓴다.
+        """
+        songs = self._project.selected_songs
+        if occurrence is not None and 0 <= occurrence < len(songs):
+            base = sum(
+                len([s for s in sg.score_sheets if s.image_path])
+                for sg in songs[:occurrence]
+            )
+            local = next(
+                (
+                    i
+                    for i, s in enumerate(
+                        [x for x in songs[occurrence].score_sheets if x.image_path]
+                    )
+                    if s.id == sheet.id
+                ),
+                0,
+            )
+            return base + local
+
+        for i, s in enumerate(self._project.all_score_sheets):
+            if s.id == sheet.id:
+                return i
+        return self._project.current_sheet_index
+
+    def _occurrence_of_current_sheet(self) -> int | None:
+        """current_sheet_index가 셋리스트의 몇 번째 자리인지 (모르면 None)."""
+        if not self._project:
+            return None
+        target = self._project.current_sheet_index
+        seen = 0
+        for i, song in enumerate(self._project.selected_songs):
+            count = len([s for s in song.score_sheets if s.image_path])
+            if seen <= target < seen + count:
+                return i
+            seen += count
+        return None
 
     def _update_card_selection(self, sheet_id: str) -> None:
         if self._is_standalone:
@@ -2373,10 +2435,16 @@ class SongListWidget(QWidget):
                 self._standalone_panel.set_current_sheet(sheet_id)
             return
 
+        # 같은 곡이 두 번 들어 있으면 시트 ID만으로는 두 카드가 모두
+        # 맞는다 — current_sheet_index로 실제 자리를 가려낸다.
+        active_occurrence = self._occurrence_of_current_sheet()
+
         selected_card = None
-        for card in self._cards:
+        for idx, card in enumerate(self._cards):
             song_sheet_ids = {s.id for s in card._song.score_sheets}
             is_selected = sheet_id in song_sheet_ids
+            if is_selected and active_occurrence is not None:
+                is_selected = idx == active_occurrence
             if is_selected:
                 selected_card = card
             # 상태가 실제로 바뀐 카드만 재스타일 — 방향키마다 전 카드
@@ -2522,15 +2590,9 @@ class SongListWidget(QWidget):
             QMessageBox.warning(self, "오류", f"'{name}' 곡을 불러올 수 없습니다.")
             return
 
-        # 중복 가드 — 같은 곡이 두 번 들어가면 오프셋/매핑이 전부 꼬인다
-        if any(s.name == song.name for s in self._project.selected_songs):
-            self.refresh_list()
-            return
-
-        self._project.selected_songs.append(song)
-        # song_order는 실제 Song.name과 일치해야 한다 (요청 폴더명이 아니라)
-        if song.name not in self._project.song_order:
-            self._project.song_order.append(song.name)
+        # 같은 곡을 두 번 넣을 수 있다 (오전·오후 등). 두 번째부터는 등장
+        # 사본이 붙어 악보·핫스팟은 공유하고 구간만 따로 갖는다.
+        self._project.add_song_occurrence(song)
         self.refresh_list()
         if not self._main_window:
             return
@@ -2628,20 +2690,35 @@ class SongListWidget(QWidget):
             QMessageBox.warning(self, "오류", f"곡 생성 실패: {e}")
 
     def _remove_song(self, song: Song) -> None:
+        """이 자리(등장) 하나만 셋리스트에서 뺀다.
+
+        같은 곡이 오전·오후에 각각 들어 있으면 누른 쪽만 빠져야 한다 —
+        이름으로 지우면 둘 다 사라진다.
+        """
         if not self._project:
             return
+        index = next(
+            (i for i, s in enumerate(self._project.selected_songs) if s is song),
+            -1,
+        )
+        if index < 0:
+            return
+
+        occurrences = len(self._project.occurrences_of(song.name))
+        extra = (
+            f"\n(셋리스트에 {occurrences}번 들어 있고, 이 자리 하나만 빠집니다)"
+            if occurrences > 1 else ""
+        )
         reply = QMessageBox.question(
             self,
             "곡 제거",
-            f"'{song.name}'을(를) 셋리스트에서 제거하시겠습니까?\n(파일은 삭제되지 않습니다)",
+            f"'{song.name}'을(를) 셋리스트에서 제거하시겠습니까?"
+            f"\n(파일은 삭제되지 않습니다){extra}",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        if song in self._project.selected_songs:
-            self._project.selected_songs.remove(song)
-        if song.name in self._project.song_order:
-            self._project.song_order.remove(song.name)
+        self._project.remove_occurrence(index)
         self.refresh_list()
         self.song_removed.emit("ALL_OF_SONG")
         if self._main_window:

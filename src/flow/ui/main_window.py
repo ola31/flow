@@ -4017,22 +4017,32 @@ class MainWindow(QMainWindow):
 
         return self._project_path.parent
 
-    def _globalize_project_indices(self):
-        """프로젝트의 모든 핫스팟 인덱스를 로컬에서 전역으로 변환"""
+    def _shift_project_indices(self, sign: int) -> None:
+        """모든 핫스팟의 슬라이드 인덱스를 곡 오프셋만큼 이동.
+
+        시트 객체 기준으로 한 번씩만 이동한다 — 같은 곡이 셋리스트에 두 번
+        들어가면(오전·오후) 두 등장이 같은 시트 객체를 공유하므로, 곡 단위로
+        돌리면 같은 핫스팟에 오프셋이 두 번 더해져 매핑이 통째로 어긋난다.
+        """
         if not self._project or not self._project.selected_songs:
             return
 
+        seen: set[int] = set()
         for song in self._project.selected_songs:
             offset = self._slide_manager.get_song_offset(song.name)
-            if offset > 0:
-                song.shift_indices(offset)
+            if offset <= 0:
+                continue
+            for sheet in song.score_sheets:
+                if id(sheet) in seen:
+                    continue
+                seen.add(id(sheet))
+                for hotspot in sheet.hotspots:
+                    hotspot.shift_indices(sign * offset)
+
+    def _globalize_project_indices(self):
+        """프로젝트의 모든 핫스팟 인덱스를 로컬에서 전역으로 변환"""
+        self._shift_project_indices(1)
 
     def _localize_project_indices(self):
         """프로젝트의 모든 핫스팟 인덱스를 전역에서 로컬로 변환"""
-        if not self._project or not self._project.selected_songs:
-            return
-
-        for song in self._project.selected_songs:
-            offset = self._slide_manager.get_song_offset(song.name)
-            if offset > 0:
-                song.shift_indices(-offset)
+        self._shift_project_indices(-1)

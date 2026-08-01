@@ -110,7 +110,16 @@ class ProjectRepository:
 
         # 1. 각 곡 로드
         selected_songs = []
+        # 중복 등장(오전·오후 등)은 등장 사본으로 — 악보/핫스팟 공유
+        first_of: dict[str, Song] = {}
         for song_info in data.get("selected_songs", []):
+            base = first_of.get(song_info["name"])
+            if base is not None:
+                dup = base.duplicate_reference(song_info.get("section", ""))
+                dup.order = song_info.get("order", 0)
+                selected_songs.append(dup)
+                continue
+
             song_folder = project_dir / song_info["folder"]
             song_json_path = song_folder / "song.json"
 
@@ -140,6 +149,7 @@ class ProjectRepository:
                 show_sheet_names=song_data.get("show_sheet_names", False),
                 section=song_info.get("section", ""),
             )
+            first_of[song.name] = song
             selected_songs.append(song)
 
         # 2. Project 객체 생성
@@ -242,18 +252,31 @@ class ProjectRepository:
             )
 
         selected_songs = []
+        # 같은 곡이 셋리스트에 두 번 들어갈 수 있다 (오전·오후 등).
+        # 두 번째 등장은 등장 사본으로 만든다 — 악보/핫스팟은 원본과 공유해
+        # 매핑이 하나로 유지되고, 구간만 자리마다 따로 갖는다. 매번 새로
+        # 로드하면 같은 song.json에서 온 ID가 겹치는 객체가 두 벌 생겨
+        # 저장할 때 서로 덮어쓴다.
+        first_of: dict[str, Song] = {}
         for song_info in data.get("selected_songs", []):
             song_name = song_info["name"]
             order = song_info.get("order", 0)
-
-            song = Song.load_from_workspace(
-                workspace, project_name, song_name, order=order
-            )
-            if song is None:
-                print(f"⚠️  곡을 찾을 수 없음: {song_name}")
-                continue
             # 구간은 프로젝트 소유 — song.json이 아니라 project.json에서 온다
-            song.section = song_info.get("section", "")
+            section = song_info.get("section", "")
+
+            base = first_of.get(song_name)
+            if base is None:
+                song = Song.load_from_workspace(
+                    workspace, project_name, song_name, order=order
+                )
+                if song is None:
+                    print(f"⚠️  곡을 찾을 수 없음: {song_name}")
+                    continue
+                song.section = section
+                first_of[song_name] = song
+            else:
+                song = base.duplicate_reference(section)
+                song.order = order
             selected_songs.append(song)
 
         return Project(

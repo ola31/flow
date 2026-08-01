@@ -857,8 +857,19 @@ class SlideManager(QObject):
         return self._slide_offsets.get(song_name, 0)
 
     def _recalculate_offsets(self) -> None:
+        """곡별 전역 슬라이드 오프셋 재계산.
+
+        셋리스트에 같은 곡이 두 번 들어갈 수 있다 (오전·오후 등). 슬라이드
+        자체는 하나이므로 오프셋도 하나만 잡는다 — 등장할 때마다 더하면
+        전체 장수가 부풀고 뒤 곡들의 인덱스가 전부 밀린다.
+        """
         offset = 0
+        # 매번 처음부터 다시 만든다 — 남겨두면 두 번째 호출에서 전부
+        # "이미 있음"으로 걸러져 총 장수가 0이 된다.
+        self._slide_offsets = {}
         for song in self._songs:
+            if song.name in self._slide_offsets:
+                continue  # 같은 곡의 두 번째 등장 — 슬라이드는 공유한다
             source = getattr(song, "slide_source", None)
             has_source = (
                 source in ("markdown", "pptx")
