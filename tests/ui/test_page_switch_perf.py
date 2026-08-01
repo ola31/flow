@@ -267,3 +267,81 @@ class TestEditReflectsWithoutManualRefresh:
         assert screen._last_fingerprint != fp_before, (
             "md 내용 수정이 지문에 반영 안 됨 — 수동 새로고침 필요해짐"
         )
+
+
+class TestNoTopLevelFlash:
+    """카드 안 라벨이 최상위 창으로 뜨면 안 된다.
+
+    부모 없는 QWidget을 보이게 하면 Qt는 그것을 독립 창으로 띄운다.
+    레이아웃에 넣기 전에 setVisible을 부르면 카드 수만큼(라이브러리
+    150곡이면 150개) 작은 창이 우르르 떴다 사라져 페이지 전환이
+    번쩍인다 — 반드시 addWidget 뒤에 보이게 해야 한다.
+    """
+
+    def _shown_parentless(self, fn):
+        from PySide6.QtWidgets import QWidget
+
+        seen = []
+        orig_show, orig_setvis = QWidget.show, QWidget.setVisible
+
+        def record(w):
+            if w.parent() is None:
+                seen.append(type(w).__name__)
+
+        def show(self):
+            record(self)
+            return orig_show(self)
+
+        def set_visible(self, v):  # noqa: ANN001
+            if v:
+                record(self)
+            return orig_setvis(self, v)
+
+        QWidget.show, QWidget.setVisible = show, set_visible
+        try:
+            fn()
+        finally:
+            QWidget.show, QWidget.setVisible = orig_show, orig_setvis
+        return seen
+
+    def test_item_card_shows_nothing_parentless(self, qtbot):
+        from flow.ui.screens._browser_widgets import ItemCard
+
+        cards = []
+
+        def build():
+            cards.append(
+                ItemCard(path="/p", title="t", subtitle="PPT · 악보 2장",
+                         match_snippet="가사 한 줄")
+            )
+
+        seen = self._shown_parentless(build)
+        qtbot.addWidget(cards[0])
+
+        assert seen == []
+
+    def test_library_song_card_shows_nothing_parentless(self, qtbot):
+        from flow.ui.editor.song_list_widget import _LibrarySongCard
+
+        info = {
+            "name": "곡A", "sheet_count": 1, "has_ppt": True, "has_md": False,
+            "total_hotspots": 1, "mapped_hotspots": 1,
+        }
+        cards = []
+
+        def build():
+            cards.append(_LibrarySongCard(info, match_snippet="가사"))
+
+        seen = self._shown_parentless(build)
+        qtbot.addWidget(cards[0])
+
+        assert seen == []
+
+    def test_library_refresh_shows_nothing_parentless(self, screen, tmp_path):
+        (tmp_path / "library" / "song_one" / "slides.md").write_text(
+            "---\n---\n\n# song_one\n", encoding="utf-8"
+        )
+
+        seen = self._shown_parentless(screen.force_refresh)
+
+        assert seen == []

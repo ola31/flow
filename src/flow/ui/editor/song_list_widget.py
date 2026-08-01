@@ -328,10 +328,14 @@ class _LibrarySongCard(QFrame):
             f"font-size: {FONT_SM}px; color: {TEXT_SECONDARY};"
             f" background: transparent;"
         )
-        self._snippet_lbl.setVisible(bool(self._match_snippet))
         left.addWidget(self._snippet_lbl)
 
+        # [주의] 위젯이 실제로 부모를 갖는 시점은 layout이 위젯에 붙을 때다.
+        # left는 아직 떠 있는 레이아웃이라 addWidget만으로는 부모가 없고,
+        # 그 상태에서 보이게 하면 Qt가 최상위 창으로 띄운다 — 카드 수만큼
+        # 작은 창이 번쩍인다. 그래서 addLayout 뒤에 표시 여부를 정한다.
         root.addLayout(left, 1)
+        self._snippet_lbl.setVisible(bool(self._match_snippet))
 
         # 오른쪽: 추가 버튼(들)
         primary_css = f"""

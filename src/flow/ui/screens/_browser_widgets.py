@@ -215,13 +215,16 @@ class ItemCard(QFrame):
 
         # 부제·스니펫 라벨은 항상 만들어 두고 내용이 없으면 숨긴다 — 검색
         # 필터마다 카드를 새로 만들지 않고 텍스트만 바꿔 끼우기 위해서다.
+        # [주의] setVisible은 반드시 addWidget 뒤에. 부모 없는 위젯을 보이게
+        # 하면 Qt는 그것을 최상위 창으로 띄운다 — 카드 수백 개면 작은 창이
+        # 우르르 떴다 사라지며 페이지 전환이 번쩍인다.
         self._sub_lbl = QLabel(subtitle)
         self._sub_lbl.setStyleSheet(
             f"background: transparent; color: {TEXT_SECONDARY}; "
             f"font-size: {FONT_SM}px;"
         )
-        self._sub_lbl.setVisible(bool(subtitle))
         layout.addWidget(self._sub_lbl)
+        self._sub_lbl.setVisible(bool(subtitle))
 
         # 가사 검색 매칭 줄 — 가사로 검색되어 매칭 줄이 있을 때만 표시
         self._snippet_lbl = QLabel(f"“{match_snippet}”" if match_snippet else "")
@@ -229,8 +232,8 @@ class ItemCard(QFrame):
             f"background: transparent; color: {TEXT_SECONDARY}; "
             f"font-size: {FONT_SM}px;"
         )
-        self._snippet_lbl.setVisible(bool(match_snippet))
         layout.addWidget(self._snippet_lbl)
+        self._snippet_lbl.setVisible(bool(match_snippet))
 
         # path hint (사용자에게 보여줄 경로는 path_display로 별도 지정 가능)
         self._path_lbl = QLabel(path_display if path_display is not None else path)
