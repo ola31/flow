@@ -11,10 +11,7 @@
 
 from __future__ import annotations
 
-import sys
-import threading
 import time
-import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -116,26 +113,3 @@ def install(window, log_path: Path | None = None) -> None:
     timer.timeout.connect(heartbeat)
     timer.start()
 
-    # 워치독 스레드 — 스톨이 진행 중일 때 메인 스레드가 "지금 뭘 하고
-    # 있는지" 스택을 채집한다. 하트비트만으로는 멈춘 시간은 알아도
-    # 원인은 알 수 없다.
-    main_thread_id = threading.get_ident()
-
-    def watchdog() -> None:
-        in_stall = False
-        while True:
-            time.sleep(0.05)
-            gap = time.time() - state["last"]
-            if gap > 0.25 and not in_stall:
-                in_stall = True
-                frame = sys._current_frames().get(main_thread_id)
-                if frame is not None:
-                    stack = "".join(traceback.format_stack(frame))
-                    log(
-                        f"스톨 진행 중(하트비트 {gap * 1000:.0f}ms 지연)"
-                        f" — 메인 스레드 스택:\n{stack}"
-                    )
-            elif gap < 0.15:
-                in_stall = False
-
-    threading.Thread(target=watchdog, daemon=True, name="perf-watchdog").start()

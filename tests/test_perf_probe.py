@@ -44,20 +44,6 @@ class TestPerfProbe:
         text = log.read_text(encoding="utf-8")
         assert "이벤트 루프 정지" in text
 
-    def test_watchdog_captures_main_thread_stack(self, qtbot, tmp_path):
-        w = _FakeWindow()
-        qtbot.addWidget(w)
-        log = tmp_path / "perf.log"
-
-        install(w, log_path=log)
-        qtbot.wait(150)  # 하트비트 기준점 확보
-        time.sleep(0.45)  # 메인 스레드 블로킹 — 워치독이 이 스택을 채집
-        qtbot.wait(150)
-
-        text = log.read_text(encoding="utf-8")
-        assert "메인 스레드 스택" in text
-        assert "time.sleep" in text or "test_perf_probe" in text
-
     def test_missing_methods_ignored(self, qtbot, tmp_path):
         w = QWidget()
         qtbot.addWidget(w)
