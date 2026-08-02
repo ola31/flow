@@ -965,17 +965,18 @@ class MainWindow(QMainWindow):
         ]:
             sep.hide()
 
-        # 해당 모드 그룹만 레이아웃에 추가
+        # 해당 모드 그룹만 레이아웃에 추가.
+        # [주의] addWidget 먼저, show()는 그다음. 순서를 바꾸면 아직 부모가
+        # 없는 위젯을 보이게 하는 셈이라 Qt가 독립 창으로 띄운다 — Windows
+        # 에서는 잠깐 번쩍이고 말지만 macOS에서는 새 창이 뜰 때마다 그
+        # Space(데스크탑)로 화면이 전환된다.
         group = self._toolbar_groups[mode]
         for item in group:
             if item == "stretch":
                 layout.addStretch()
-            elif isinstance(item, QFrame):  # separator
-                item.show()
+            else:  # 버튼 또는 구분선
                 layout.addWidget(item)
-            else:  # button
                 item.show()
-                layout.addWidget(item)
 
         # 툴� 스타일 업데이트
         self._update_toolbar_style(mode)

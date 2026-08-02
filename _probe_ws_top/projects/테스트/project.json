@@ -1,0 +1,53 @@
+﻿{
+  "id": "7f8f71e9-48e8-4467-a70d-7ed547cd2b18",
+  "name": "테스트",
+  "selected_songs": [
+    {
+      "name": "곡0",
+      "order": 0,
+      "source": "library",
+      "section": "오전"
+    },
+    {
+      "name": "곡1",
+      "order": 1,
+      "source": "library",
+      "section": "오전"
+    },
+    {
+      "name": "곡2",
+      "order": 2,
+      "source": "library",
+      "section": "오전"
+    },
+    {
+      "name": "곡3",
+      "order": 3,
+      "source": "library",
+      "section": "오후"
+    },
+    {
+      "name": "곡4",
+      "order": 4,
+      "source": "library",
+      "section": "오후"
+    },
+    {
+      "name": "곡5",
+      "order": 5,
+      "source": "library",
+      "section": "오후"
+    }
+  ],
+  "song_order": [
+    "곡0",
+    "곡1",
+    "곡2",
+    "곡3",
+    "곡4",
+    "곡5"
+  ],
+  "current_sheet_index": 0,
+  "current_verse_index": 0,
+  "workspace_version": 1
+}

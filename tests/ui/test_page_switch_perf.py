@@ -345,3 +345,76 @@ class TestNoTopLevelFlash:
         seen = self._shown_parentless(screen.force_refresh)
 
         assert seen == []
+
+
+class TestToolbarShowsNothingParentless:
+    """툴바 버튼을 레이아웃에 넣기 전에 show()하면 독립 창이 된다.
+
+    Windows에서는 잠깐 번쩍이고 말지만, macOS는 새 창이 뜰 때마다 그
+    Space(데스크탑)로 화면을 전환한다 — 페이지를 옮길 때마다 데스크탑이
+    넘어가던 원인.
+    """
+
+    def _shown_parentless(self, fn):
+        from PySide6.QtWidgets import QWidget
+
+        seen = []
+        orig_show, orig_setvis = QWidget.show, QWidget.setVisible
+
+        def record(w):
+            if w.parent() is None:
+                seen.append(type(w).__name__)
+
+        def show(self):
+            record(self)
+            return orig_show(self)
+
+        def set_visible(self, v):  # noqa: ANN001
+            if v:
+                record(self)
+            return orig_setvis(self, v)
+
+        QWidget.show, QWidget.setVisible = show, set_visible
+        try:
+            fn()
+        finally:
+            QWidget.show, QWidget.setVisible = orig_show, orig_setvis
+        return seen
+
+    def test_every_toolbar_mode_stays_parented(self, qtbot):
+        from flow.ui.main_window import MainWindow
+
+        mw = MainWindow()
+        qtbot.addWidget(mw)
+        try:
+            def switch_all():
+                for mode in ("default", "song_edit", "live", "default"):
+                    mw._update_toolbar_for_mode(mode)
+
+            assert self._shown_parentless(switch_all) == []
+        finally:
+            mw._slide_manager.shutdown()
+            mw._clear_dirty()
+            mw.close()
+
+    def test_toolbar_buttons_are_visible_after_switching(self, qtbot):
+        """부모를 먼저 붙이더라도 버튼은 실제로 보여야 한다."""
+        from flow.ui.main_window import MainWindow
+
+        mw = MainWindow()
+        qtbot.addWidget(mw)
+        try:
+            mw._update_toolbar_for_mode("default")
+            layout = mw._toolbar.layout()
+            widgets = [
+                layout.itemAt(i).widget()
+                for i in range(layout.count())
+                if layout.itemAt(i).widget() is not None
+            ]
+
+            assert widgets, "기본 모드에 툴바 위젯이 있어야 함"
+            assert all(w.isVisibleTo(mw._toolbar) for w in widgets)
+        finally:
+            mw._slide_manager.shutdown()
+            mw._clear_dirty()
+            mw.close()

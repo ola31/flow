@@ -1,0 +1,47 @@
+﻿{
+  "name": "곡3",
+  "sheets": [
+    {
+      "id": "9f1ab811-ff40-422b-b74d-82d17801918c",
+      "name": "곡3",
+      "image_path": "sheets/p1.png",
+      "pptx_path": "",
+      "hotspots": [
+        {
+          "id": "ec1460c5-ee58-43f2-b474-3e39f72c6d1b",
+          "x": 0,
+          "y": 30,
+          "order": 0,
+          "lyric": "",
+          "slide_index": 0,
+          "slide_mappings": {
+            "0": 0
+          }
+        },
+        {
+          "id": "1bf5369d-a3e5-4045-b7ae-b39e64baef12",
+          "x": 20,
+          "y": 30,
+          "order": 0,
+          "lyric": "",
+          "slide_index": 1,
+          "slide_mappings": {
+            "0": 1
+          }
+        },
+        {
+          "id": "081cb599-f938-4583-89ae-2627382ddfb4",
+          "x": 40,
+          "y": 30,
+          "order": 0,
+          "lyric": "",
+          "slide_index": 2,
+          "slide_mappings": {
+            "0": 2
+          }
+        }
+      ]
+    }
+  ],
+  "show_sheet_names": false
+}
