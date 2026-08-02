@@ -32,8 +32,15 @@ def _mark_window_as_overlay(win_id: int) -> bool:
 
     pyobjc 의존성 없이 libobjc의 objc_msgSend를 ctypes로 직접 호출한다.
     실패하면 조용히 False (다른 플랫폼·구조에서도 앱이 죽지 않게).
+
+    반드시 실제 cocoa 플랫폼에서만 실행한다. offscreen(테스트/CI)에서는
+    winId()가 NSView 포인터가 아니라, 거기에 objc_msgSend를 던지면
+    세그폴트가 난다 (try/except로도 못 막는다).
     """
-    if sys.platform != "darwin" or not win_id:
+    if not win_id:
+        return False
+    app = QApplication.instance()
+    if app is None or app.platformName() != "cocoa":
         return False
     try:
         libobjc = ctypes.cdll.LoadLibrary("/usr/lib/libobjc.dylib")

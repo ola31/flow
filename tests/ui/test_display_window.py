@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import pytest
 from PySide6.QtCore import Qt
 
 from flow.ui.display.display_window import DisplayWindow
+
+# macOS는 네이티브 전체화면(showFullScreen)을 쓰지 않고 대상 모니터를 덮는
+# 테두리 없는 창으로 송출한다 (_use_native_fullscreen 참고). 그래서
+# isFullScreen()·showFullScreen 순서 같은 단언은 플랫폼에 따라 달라진다.
+NATIVE_FS = DisplayWindow._use_native_fullscreen()
 
 
 def test_show_on_screen_windowed_clears_fullscreen_state(qtbot) -> None:
@@ -49,7 +55,8 @@ def test_fullscreen_matches_target_screen_geometry(qtbot) -> None:
 
     window.show_on_screen(screen)
 
-    assert window.isFullScreen()
+    if NATIVE_FS:
+        assert window.isFullScreen()
     assert window.geometry().topLeft() == screen.geometry().topLeft()
 
 
@@ -80,7 +87,8 @@ def test_windowed_then_fullscreen_restores_frameless(qtbot) -> None:
     window.show_on_screen(_screen(qtbot), windowed=True)
     window.show_on_screen(_screen(qtbot))
 
-    assert window.isFullScreen()
+    if NATIVE_FS:
+        assert window.isFullScreen()
     assert window.windowFlags() & Qt.WindowType.FramelessWindowHint
 
 
@@ -90,7 +98,8 @@ def test_none_screen_falls_back_to_primary(qtbot) -> None:
 
     window.show_on_screen(None)
 
-    assert window.isFullScreen()
+    if NATIVE_FS:
+        assert window.isFullScreen()
     assert window.windowHandle() is not None
 
 
@@ -102,6 +111,8 @@ def test_screen_is_attached_before_going_fullscreen(qtbot, monkeypatch) -> None:
     건너뛴 채 showFullScreen을 불렀다 — 외부 모니터를 골라도 엉뚱한
     화면에서 펼쳐지거나 작은 창으로 뜨던 원인.
     """
+    if not NATIVE_FS:
+        pytest.skip("macOS: 네이티브 전체화면을 쓰지 않아 showFullScreen을 부르지 않음")
     window = DisplayWindow()
     qtbot.addWidget(window)
     target = _screen(qtbot)
@@ -157,7 +168,11 @@ def test_window_is_realized_before_being_moved(qtbot, monkeypatch) -> None:
 
     window.show_on_screen(_screen(qtbot))
 
-    assert order == ["showNormal", "move", "showFullScreen"]
+    # macOS는 showFullScreen을 건너뛴다 — 순서 마지막 단계가 없다.
+    expected = ["showNormal", "move"]
+    if NATIVE_FS:
+        expected.append("showFullScreen")
+    assert order == expected
 
 
 def test_attach_sets_geometry_to_the_target_screen(qtbot) -> None:
@@ -213,7 +228,8 @@ def test_windowed_leaves_fullscreen_first(qtbot) -> None:
     qtbot.addWidget(window)
     screen = _screen(qtbot)
     window.show_on_screen(screen)
-    assert window.isFullScreen()
+    if NATIVE_FS:
+        assert window.isFullScreen()
 
     window.show_on_screen(screen, windowed=True)
 
