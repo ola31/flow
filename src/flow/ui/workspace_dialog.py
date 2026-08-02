@@ -47,24 +47,21 @@ def _looks_like_project_folder(path: Path) -> bool:
 def classify_workspace_choice(root: Path) -> tuple[str, Path | None]:
     """사용자가 고른 폴더를 어떻게 다룰지 판정한다.
 
-    워크스페이스 루트 대신 그 안의 library/나 projects/를 고르기 쉬운데,
+    워크스페이스 루트 대신 그 안의 library/나 곡 폴더를 고르기 쉬운데,
     그대로 초기화해 버리면 곡 폴더 안에 library/·projects/가 또 생긴다.
-    한 단계 위가 워크스페이스면 그쪽을 제안하고, 곡·프로젝트 모음처럼
+    마커를 따라 위로 올라가 루트를 찾고, 못 찾았는데 곡·프로젝트 모음처럼
     보이면 초기화를 막는다.
 
     Returns:
         ("open", 경로)    그대로 워크스페이스
-        ("parent", 상위)  상위가 워크스페이스 — 그쪽을 열어야 함
+        ("parent", 루트)  상위가 워크스페이스 — 그쪽을 열어야 함
         ("inside", None)  워크스페이스 내부 폴더로 보임 — 초기화하면 안 됨
         ("init", 경로)    비어 있거나 무관한 폴더 — 초기화 후보
     """
     root = root.resolve()
-    if Workspace(root=root).is_valid():
-        return "open", root
-
-    parent = root.parent
-    if parent != root and Workspace(root=parent).is_valid():
-        return "parent", parent
+    found = Workspace.find_root(root)
+    if found is not None:
+        return ("open", found) if found == root else ("parent", found)
 
     if _looks_like_song_folder(root) or _looks_like_project_folder(root):
         return "inside", None

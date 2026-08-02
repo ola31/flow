@@ -5,7 +5,7 @@ import json
 import pytest
 from pathlib import Path
 
-from flow.domain.workspace import Workspace
+from flow.domain.workspace import MARKER_NAME, Workspace
 
 
 @pytest.fixture
@@ -135,3 +135,53 @@ class TestSongResolution:
 
     def test_returns_none_when_nowhere(self, workspace: Workspace):
         assert workspace.resolve_song_folder("행사A", "없는곡") is None
+
+
+class TestWorkspaceMarker:
+    """루트 표시 마커 — .git·.idea처럼 어느 하위에서든 루트를 찾게 해준다."""
+
+    def test_create_writes_the_marker(self, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+
+        assert ws.marker_path.exists()
+        assert json.loads(ws.marker_path.read_text(encoding="utf-8"))["version"] == 1
+
+    def test_open_backfills_the_marker(self, tmp_path):
+        """마커 도입 전에 만든 워크스페이스도 열면서 표시를 남긴다."""
+        root = tmp_path / "old"
+        (root / "library").mkdir(parents=True)
+        (root / "projects").mkdir()
+        assert not (root / MARKER_NAME).exists()
+
+        ws = Workspace.open(root)
+
+        assert ws.marker_path.exists()
+
+    def test_marker_is_not_required_for_validity(self, tmp_path):
+        root = tmp_path / "old"
+        (root / "library").mkdir(parents=True)
+        (root / "projects").mkdir()
+
+        assert Workspace(root=root).is_valid()
+
+    def test_find_root_from_a_nested_path(self, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        deep = ws.library_dir / "곡A" / "sheets"
+        deep.mkdir(parents=True)
+
+        assert Workspace.find_root(deep) == ws.root.resolve()
+
+    def test_find_root_returns_none_outside(self, tmp_path):
+        Workspace.create(tmp_path / "ws")
+        outside = tmp_path / "다른곳"
+        outside.mkdir()
+
+        assert Workspace.find_root(outside) is None
+
+    def test_write_marker_is_idempotent(self, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        ws.marker_path.write_text('{"version": 1, "note": "손댐"}', encoding="utf-8")
+
+        ws.write_marker()
+
+        assert "손댐" in ws.marker_path.read_text(encoding="utf-8")

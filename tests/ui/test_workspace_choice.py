@@ -70,3 +70,31 @@ class TestClassifyWorkspaceChoice:
         (other / "메모.txt").write_text("x", encoding="utf-8")
 
         assert classify_workspace_choice(other)[0] == "init"
+
+
+class TestMarkerFindsRootFromAnyDepth:
+    """마커가 있으면 곡 폴더 안에서 골라도 루트를 찾아 올라간다."""
+
+    def test_song_folder_resolves_to_the_workspace(self, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        _song(ws, "곡A")
+
+        kind, target = classify_workspace_choice(ws.library_song_dir("곡A"))
+
+        assert kind == "parent"
+        assert target == ws.root.resolve()
+
+    def test_deep_subfolder_resolves(self, tmp_path):
+        ws = Workspace.create(tmp_path / "ws")
+        _song(ws, "곡A")
+        sheets = ws.library_song_dir("곡A") / "sheets"
+        sheets.mkdir()
+
+        assert classify_workspace_choice(sheets) == ("parent", ws.root.resolve())
+
+    def test_unrelated_deep_folder_is_not_captured(self, tmp_path):
+        Workspace.create(tmp_path / "ws")
+        other = tmp_path / "무관" / "안쪽"
+        other.mkdir(parents=True)
+
+        assert classify_workspace_choice(other)[0] == "init"
