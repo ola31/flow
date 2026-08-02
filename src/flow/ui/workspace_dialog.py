@@ -22,6 +22,54 @@ from PySide6.QtWidgets import (
 )
 
 from flow.domain.workspace import Workspace
+
+
+def _looks_like_song_folder(path: Path) -> bool:
+    """곡 폴더들이 담긴 폴더인가 (= 워크스페이스의 library/로 보이는가)."""
+    try:
+        return any(
+            d.is_dir() and (d / "song.json").exists() for d in path.iterdir()
+        )
+    except OSError:
+        return False
+
+
+def _looks_like_project_folder(path: Path) -> bool:
+    """프로젝트 폴더들이 담긴 폴더인가 (= projects/로 보이는가)."""
+    try:
+        return any(
+            d.is_dir() and (d / "project.json").exists() for d in path.iterdir()
+        )
+    except OSError:
+        return False
+
+
+def classify_workspace_choice(root: Path) -> tuple[str, Path | None]:
+    """사용자가 고른 폴더를 어떻게 다룰지 판정한다.
+
+    워크스페이스 루트 대신 그 안의 library/나 projects/를 고르기 쉬운데,
+    그대로 초기화해 버리면 곡 폴더 안에 library/·projects/가 또 생긴다.
+    한 단계 위가 워크스페이스면 그쪽을 제안하고, 곡·프로젝트 모음처럼
+    보이면 초기화를 막는다.
+
+    Returns:
+        ("open", 경로)    그대로 워크스페이스
+        ("parent", 상위)  상위가 워크스페이스 — 그쪽을 열어야 함
+        ("inside", None)  워크스페이스 내부 폴더로 보임 — 초기화하면 안 됨
+        ("init", 경로)    비어 있거나 무관한 폴더 — 초기화 후보
+    """
+    root = root.resolve()
+    if Workspace(root=root).is_valid():
+        return "open", root
+
+    parent = root.parent
+    if parent != root and Workspace(root=parent).is_valid():
+        return "parent", parent
+
+    if _looks_like_song_folder(root) or _looks_like_project_folder(root):
+        return "inside", None
+
+    return "init", root
 from flow.ui.styles import (
     ACCENT,
     ACCENT_HOVER,
@@ -272,19 +320,45 @@ class WorkspaceDialog(QDialog):
         if not folder:
             return
 
-        # 유효성 검사 + 자동 초기화 옵션
-        root = Path(folder)
-        ws = Workspace(root=root.resolve())
-        if not ws.is_valid():
+        kind, target = classify_workspace_choice(Path(folder))
+
+        if kind == "open":
+            ws = Workspace(root=target)
+
+        elif kind == "parent":
+            # library/ 나 projects/ 를 고른 흔한 실수 — 상위를 제안한다
+            reply = QMessageBox.question(
+                self,
+                "상위 폴더가 워크스페이스입니다",
+                f"'{Path(folder).name}' 은(는) 워크스페이스 안의 폴더입니다.\n"
+                f"워크스페이스는 그 상위인 아래 폴더입니다. 이걸 열까요?\n\n{target}",
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            ws = Workspace(root=target)
+
+        elif kind == "inside":
+            # 곡/프로젝트 모음으로 보이는데 상위도 워크스페이스가 아님.
+            # 여기서 초기화하면 곡 폴더 안에 library/·projects/가 생긴다.
+            QMessageBox.warning(
+                self,
+                "워크스페이스가 아닙니다",
+                "이 폴더는 곡(또는 프로젝트) 폴더들이 담긴 폴더로 보입니다.\n"
+                "워크스페이스는 library/ 와 projects/ 를 함께 담는 상위 "
+                "폴더입니다.\n\n한 단계 위 폴더를 선택해 주세요.",
+            )
+            return
+
+        else:  # init
             reply = QMessageBox.question(
                 self,
                 "워크스페이스 아님",
                 f"선택한 폴더는 워크스페이스가 아닙니다.\n"
-                f"library/ 와 projects/ 폴더를 새로 만들어 초기화할까요?\n\n{root}",
+                f"library/ 와 projects/ 폴더를 새로 만들어 초기화할까요?\n\n{target}",
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
-            ws = Workspace.create(root)
+            ws = Workspace.create(target)
 
         self.selected_workspace = ws
         self.accept()
