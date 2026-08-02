@@ -259,8 +259,19 @@ class DisplayWindow(QWidget):
         확정할 수 없다 — 외부 화면을 골라도 Mac 화면에 새 데스크탑이
         만들어지곤 했다. 대신 대상 모니터 크기의 테두리 없는 창을 그대로
         덮어 씌운다. Space가 생기지 않으니 데스크탑이 튀지도 않는다.
+
+        offscreen 플랫폼(테스트/CI)에서도 쓰지 않는다. 진짜 화면이 없어
+        전체화면이 의미도 없고, Linux offscreen QPA 플러그인에서 프레임리스
+        네이티브 창 + showFullScreen() 조합이 워커를 세그폴트시켜(node down)
+        같은 워커의 무관한 테스트까지 연쇄로 죽인다. 실제 데스크톱
+        (xcb/wayland/windows)에서는 그대로 네이티브 전체화면을 쓴다.
         """
-        return sys.platform != "darwin"
+        if sys.platform == "darwin":
+            return False
+        app = QApplication.instance()
+        if app is not None and app.platformName() == "offscreen":
+            return False
+        return True
 
     def _apply_window_flags(self, *, frameless: bool) -> None:
         """창 테두리 유무를 모드에 맞춘다.
