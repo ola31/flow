@@ -263,3 +263,88 @@ def test_settle_ignores_a_hidden_window(qtbot) -> None:
     window._settle_on_screen(_screen(qtbot))  # 띄운 적 없음
 
     assert not window.isVisible()
+
+
+def _slide(w=1920, h=1080):
+    from PySide6.QtGui import QColor, QImage
+
+    img = QImage(w, h, QImage.Format.Format_RGB32)
+    img.fill(QColor("#204060"))
+    return img
+
+
+def test_slide_never_exceeds_the_label(qtbot) -> None:
+    """픽스맵이 라벨보다 크면 QLabel이 축소 없이 잘라낸다 —
+    송출 화면에서 슬라이드 가장자리가 잘려 보이던 원인."""
+    window = DisplayWindow()
+    qtbot.addWidget(window)
+    window.resize(1000, 700)
+    window.show()
+    qtbot.waitExposed(window)
+
+    window.show_image(_slide())
+
+    pm = window._lyric_label.pixmap()
+    ratio = pm.devicePixelRatio() or 1.0
+    logical_w = pm.width() / ratio
+    logical_h = pm.height() / ratio
+    assert logical_w <= window._lyric_label.width() + 1
+    assert logical_h <= window._lyric_label.height() + 1
+
+
+def test_slide_keeps_aspect_ratio(qtbot) -> None:
+    """16:9 슬라이드를 4:3 화면에 넣으면 잘리지 않고 여백이 남아야 한다."""
+    window = DisplayWindow()
+    qtbot.addWidget(window)
+    window.resize(800, 600)  # 4:3
+    window.show()
+    qtbot.waitExposed(window)
+
+    window.show_image(_slide(1920, 1080))
+
+    pm = window._lyric_label.pixmap()
+    assert abs(pm.width() / pm.height() - 16 / 9) < 0.02
+
+
+def test_resize_rescales_the_slide(qtbot) -> None:
+    window = DisplayWindow()
+    qtbot.addWidget(window)
+    window.resize(400, 300)
+    window.show()
+    qtbot.waitExposed(window)
+    window.show_image(_slide())
+    small = window._lyric_label.pixmap().width()
+
+    window.resize(1200, 900)
+    qtbot.waitUntil(
+        lambda: window._lyric_label.pixmap().width() != small, timeout=2000
+    )
+
+    pm = window._lyric_label.pixmap()
+    ratio = pm.devicePixelRatio() or 1.0
+    assert pm.width() / ratio <= window._lyric_label.width() + 1
+
+
+def test_label_growth_alone_rescales_the_slide(qtbot) -> None:
+    """라벨만 커지는 경우에도 다시 맞춰야 한다.
+
+    전체화면 진입 때 창은 즉시 커져 resizeEvent가 한 번 뜨지만, 그 시점의
+    라벨은 아직 옛 크기다. 이후 레이아웃이 라벨을 키울 때 창에는 아무
+    신호도 오지 않으므로, 창 resizeEvent만 보면 큰(혹은 작은) 픽스맵이
+    그대로 남아 가장자리가 잘린다.
+    """
+    window = DisplayWindow()
+    qtbot.addWidget(window)
+    window.resize(400, 300)
+    window.show()
+    qtbot.waitExposed(window)
+    window.show_image(_slide())
+    before = window._lyric_label.pixmap().width()
+
+    # 창은 그대로 두고 라벨만 키운다 (레이아웃이 뒤늦게 반영되는 상황)
+    window._lyric_label.resize(1200, 900)
+
+    after = window._lyric_label.pixmap().width()
+    assert after != before, "라벨이 커졌는데 픽스맵이 그대로 — 잘리거나 여백이 남는다"
+    ratio = window._lyric_label.pixmap().devicePixelRatio() or 1.0
+    assert window._lyric_label.pixmap().width() / ratio <= 1200 + 1

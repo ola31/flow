@@ -9,6 +9,22 @@ from PySide6 import QtGui
 from PySide6.QtCore import Qt, QTimer, Signal
 
 
+class _SlideLabel(QLabel):
+    """슬라이드를 그리는 라벨 — 크기가 바뀌면 알린다.
+
+    창이 아니라 이 라벨이 실제로 그림을 담는 면이다. 전체화면 진입 때
+    창은 즉시 커져 resizeEvent가 한 번 뜨지만 그 시점에 라벨은 아직 옛
+    크기이고, 이후 레이아웃이 라벨만 키울 때는 창 쪽에 아무 신호도 오지
+    않는다. 그러면 큰 픽스맵이 작은 라벨에 남아 가장자리가 잘린다.
+    """
+
+    resized = Signal()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self.resized.emit()
+
+
 class DisplayWindow(QWidget):
     """송출창
     
@@ -44,10 +60,13 @@ class DisplayWindow(QWidget):
         self._main_layout = QVBoxLayout(self)
         self._main_layout.setContentsMargins(0, 0, 0, 0) # 기본 마진 제거
         
-        self._lyric_label = QLabel()
+        self._lyric_label = _SlideLabel()
         self._lyric_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._lyric_label.setWordWrap(True)
         self._main_layout.addWidget(self._lyric_label)
+        # 그리는 면의 크기가 바뀌면 다시 맞춘다 — 창 resizeEvent만 보면
+        # 레이아웃이 라벨만 키우는 경우를 놓쳐 그림이 잘린 채 남는다.
+        self._lyric_label.resized.connect(self._rerender_current)
         
         # 슬라이드 보관용 (리사이즈 시 필요)
         self._current_image = None
@@ -118,12 +137,15 @@ class DisplayWindow(QWidget):
             from PySide6.QtGui import QPixmap
             # QImage -> QPixmap 변환
             pixmap = QPixmap.fromImage(image)
-            
-            # [화질 개선] High-DPI 디스플레이 대응
+
+            # [화질 개선] High-DPI 디스플레이 대응.
+            # 기준은 창이 아니라 실제로 그리는 라벨의 크기다. 창 크기로
+            # 맞추면 레이아웃이 아직 반영되지 않았을 때 라벨보다 큰
+            # 픽스맵이 들어가고, QLabel은 축소하지 않고 잘라낸다
+            # (송출 화면에서 슬라이드 가장자리가 잘려 보이던 원인).
             ratio = self.devicePixelRatioF()
-            # 윈도우의 실제 픽셀 크기에 맞춰 스케일링
-            target_size = self.size() * ratio
-            
+            target_size = self._lyric_label.size() * ratio
+
             scaled_pixmap = pixmap.scaled(
                 target_size,
                 Qt.AspectRatioMode.KeepAspectRatio,
@@ -131,12 +153,16 @@ class DisplayWindow(QWidget):
             )
             # 배율 정보 주입하여 QLabel이 올바른 크기로 그리게 함
             scaled_pixmap.setDevicePixelRatio(ratio)
-            
+
             self._lyric_label.setPixmap(scaled_pixmap)
             # setScaledContents(True)는 화질을 떨어뜨릴 수 있으므로 False로 유지 (이미 수동 스케일링함)
             self._lyric_label.setScaledContents(False)
         else:
             self._lyric_label.setPixmap(QtGui.QPixmap())
+
+    def _rerender_current(self) -> None:
+        if self._current_image:
+            self.show_image(self._current_image)
 
     def resizeEvent(self, event) -> None:
         """창 크기가 바뀔 때 내용물 재조정 (모니터 크기 대응)"""
