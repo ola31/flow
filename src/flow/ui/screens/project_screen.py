@@ -244,6 +244,9 @@ class ProjectScreen(QWidget):
     live_toggle_requested = Signal()
     live_verse_changed = Signal(int)
 
+    # 라이브 진입 시 PIP 패널의 기본 폭
+    PIP_DEFAULT_WIDTH = 336
+
     def __init__(
         self,
         slide_manager: SlideManager,
@@ -338,7 +341,9 @@ class ProjectScreen(QWidget):
         )
         if live:
             self._mapping_panel.hide()
-            self._h_splitter.setSizes([240, 800, 420, 0])
+            # PIP 기본 폭 336 (기존 420에서 20% 축소) — 악보 캔버스에
+            # 세로 공간을 더 준다. 사용자가 스플리터로 조절 가능.
+            self._h_splitter.setSizes([240, 800, self.PIP_DEFAULT_WIDTH, 0])
         else:
             self._pip.hide()
             # mapping panel visibility managed by MainWindow

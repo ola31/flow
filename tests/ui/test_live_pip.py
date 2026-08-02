@@ -188,3 +188,35 @@ class TestPipPanesPackedTop:
         )
 
         assert abs(pane._image.height() - expected) <= 1
+
+
+class TestPipDefaultWidth:
+    def test_live_mode_uses_the_default_pip_width(self, qtbot):
+        from flow.services.config_service import ConfigService
+        from flow.services.slide_manager import SlideManager
+        from flow.ui.screens.project_screen import ProjectScreen
+
+        mgr = SlideManager(converter=None)
+        screen = ProjectScreen(mgr, ConfigService())
+        qtbot.addWidget(screen)
+        try:
+            # 스플리터는 요청 합계가 폭을 넘으면 비례 축소한다 —
+            # 요청값이 그대로 반영되도록 넉넉한 폭을 준다
+            screen.resize(1600, 900)
+            screen.show()
+            qtbot.waitExposed(screen)
+
+            screen.set_live_mode(True)
+
+            sizes = screen.h_splitter.sizes()
+            assert sizes[2] == ProjectScreen.PIP_DEFAULT_WIDTH
+        finally:
+            mgr.shutdown()
+
+    def test_default_width_stays_above_the_minimum(self, qtbot):
+        from flow.ui.screens.project_screen import LivePIP, ProjectScreen
+
+        pip = LivePIP()
+        qtbot.addWidget(pip)
+
+        assert ProjectScreen.PIP_DEFAULT_WIDTH >= pip.minimumWidth()
