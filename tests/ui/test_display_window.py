@@ -121,3 +121,51 @@ def test_screen_is_attached_before_going_fullscreen(qtbot, monkeypatch) -> None:
 
     assert seen["handle"] is not None, "전체화면 전에 네이티브 창이 있어야 함"
     assert seen["screen"] is target, "전체화면 전에 대상 모니터가 지정돼야 함"
+
+
+def test_window_is_realized_before_being_moved(qtbot, monkeypatch) -> None:
+    """숨겨진 창은 옮길 수 없다 (Windows).
+
+    setGeometry/setScreen은 네이티브 창이 아직 어느 모니터에도 매핑되지
+    않았으면 무시된다. 그래서 showNormal로 먼저 띄운 뒤 옮겨야 하고,
+    그 순서를 지키지 않으면 첫 송출이 주 모니터에 뜬다 — 껐다 켜야
+    외부 모니터로 가던 증상.
+    """
+    window = DisplayWindow()
+    qtbot.addWidget(window)
+    order: list[str] = []
+
+    orig_normal = DisplayWindow.showNormal
+    orig_attach = DisplayWindow._attach_to_screen
+    orig_full = DisplayWindow.showFullScreen
+
+    def normal(self):
+        order.append("showNormal")
+        return orig_normal(self)
+
+    def attach(self, screen):
+        order.append("move")
+        return orig_attach(self, screen)
+
+    def full(self):
+        order.append("showFullScreen")
+        return orig_full(self)
+
+    monkeypatch.setattr(DisplayWindow, "showNormal", normal)
+    monkeypatch.setattr(DisplayWindow, "_attach_to_screen", attach)
+    monkeypatch.setattr(DisplayWindow, "showFullScreen", full)
+
+    window.show_on_screen(_screen(qtbot))
+
+    assert order == ["showNormal", "move", "showFullScreen"]
+
+
+def test_attach_sets_geometry_to_the_target_screen(qtbot) -> None:
+    window = DisplayWindow()
+    qtbot.addWidget(window)
+    screen = _screen(qtbot)
+    window.showNormal()
+
+    window._attach_to_screen(screen)
+
+    assert window.geometry() == screen.geometry()

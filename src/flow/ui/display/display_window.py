@@ -169,22 +169,22 @@ class DisplayWindow(QWidget):
             self.setWindowFlags(flags)
 
     def _attach_to_screen(self, screen) -> None:
-        """대상 모니터로 창을 옮긴다.
+        """대상 모니터로 창을 옮긴다 (창이 이미 떠 있는 상태여야 한다).
 
-        windowHandle()은 네이티브 창이 만들어진 뒤에야 생긴다. 한 번도 띄운
-        적 없는 창에서는 None이라 setScreen이 조용히 건너뛰어졌고, 그 결과
-        첫 송출이 대상 모니터가 아닌 곳에서 전체화면이 되거나 작은 창으로
-        떴다. winId()로 네이티브 창을 먼저 만들어 둔다.
+        Windows에서는 숨겨진 창에 대한 setGeometry/QWindow.setScreen이
+        먹지 않는다 — 네이티브 창이 아직 어느 모니터에도 매핑되지 않았기
+        때문이다. 그래서 showNormal로 먼저 띄운 뒤 좌표를 옮겨야 하고,
+        그다음에야 showFullScreen이 그 모니터에서 펼쳐진다.
+
+        (실측: 숨김 상태에서 옮기면 첫 송출이 노트북 화면에 뜨고, 껐다
+        다시 켜야 외부 모니터로 갔다.)
         """
         if screen is None:
             return
-        self.winId()  # 네이티브 창 강제 생성 → windowHandle() 확보
         handle = self.windowHandle()
         if handle is not None:
             handle.setScreen(screen)
-        # showFullScreen은 창이 놓인 모니터를 기준으로 펼쳐진다 —
-        # 좌표를 먼저 대상 모니터로 옮겨야 그 모니터에서 전체화면이 된다.
-        self.move(screen.geometry().topLeft())
+        self.setGeometry(screen.geometry())
 
     @staticmethod
     def _resolve_screen(screen):
@@ -207,8 +207,9 @@ class DisplayWindow(QWidget):
 
         if windowed:
             self._apply_window_flags(frameless=False)
-            self._attach_to_screen(target_screen)
             self.setWindowState(Qt.WindowState.WindowNoState)
+            self.showNormal()  # 옮기기 전에 실체화 — 숨김 상태 이동은 무시된다
+            self._attach_to_screen(target_screen)
             self.resize(960, 540)
             if target_screen is not None:
                 geo = target_screen.availableGeometry()
@@ -216,17 +217,19 @@ class DisplayWindow(QWidget):
                     geo.x() + geo.width() - self.width() - 20,
                     geo.y() + geo.height() - self.height() - 20,
                 )
-            self.showNormal()
             self.raise_()
             return
 
-        # 전체화면 모드 — 플래그를 먼저 맞춘 뒤 화면에 붙인다.
-        # setWindowFlags가 네이티브 창을 다시 만들어 windowHandle을
-        # 무효화하므로 순서를 바꾸면 안 된다.
+        # 전체화면 모드. 순서가 전부다:
+        #   1) 플래그 — setWindowFlags는 네이티브 창을 다시 만든다
+        #   2) showNormal — 창을 실제로 띄워야 이동이 먹는다
+        #   3) 대상 모니터로 이동
+        #   4) showFullScreen — 창이 놓인 모니터에서 펼쳐진다
+        # 2를 건너뛰고 숨김 상태에서 옮기면 Windows가 무시해서 첫 송출이
+        # 주 모니터에 뜬다 (껐다 켜면 그제야 외부 모니터로 가던 증상).
         self._apply_window_flags(frameless=True)
+        self.showNormal()
         self._attach_to_screen(target_screen)
-        if target_screen is not None:
-            self.setGeometry(target_screen.geometry())
         self.showFullScreen()
         self.raise_()
 
