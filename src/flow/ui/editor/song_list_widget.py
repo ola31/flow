@@ -948,6 +948,9 @@ class _SectionInsertZone(_SectionEditMixin, QWidget):
         painter.drawText(
             cx - tw // 2, cy + metrics.ascent() // 2 - 1, text
         )
+        # 소멸자에 맡기면 파괴가 endPaint보다 늦어 "active painter" 경고가
+        # 페인트마다 찍힌다 — paintEvent 안에서 명시적으로 끝낸다
+        painter.end()
 
 
 class _SectionHeader(_SectionEditMixin, QFrame):
