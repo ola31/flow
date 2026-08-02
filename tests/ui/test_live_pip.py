@@ -140,3 +140,51 @@ class TestPipSharpness:
         w, _h = pip.preview_source_size()
 
         assert w <= 1920
+
+
+class TestPipPanesPackedTop:
+    """PREVIEW와 LIVE는 위쪽에 붙어야 한다.
+
+    두 판에 stretch를 주면 세로 공간을 반씩 나눠 가져 사이가 크게
+    벌어진다 — 남는 공간은 아래로 몰아준다.
+    """
+
+    def _pip(self, qtbot, height=900):
+        from flow.ui.screens.project_screen import LivePIP
+
+        pip = LivePIP()
+        qtbot.addWidget(pip)
+        pip.resize(420, height)
+        pip.show()
+        qtbot.waitExposed(pip)
+        return pip
+
+    def test_panes_are_adjacent_not_spread(self, qtbot):
+        pip = self._pip(qtbot)
+
+        gap = (
+            pip._live_pane.geometry().top()
+            - pip._preview_pane.geometry().bottom()
+        )
+
+        # 구분선 + 여백 정도만 — 세로를 나눠 가지면 수백 px가 뜬다
+        assert 0 < gap < 40, f"두 판 사이가 {gap}px 벌어짐"
+
+    def test_panes_do_not_consume_all_height(self, qtbot):
+        pip = self._pip(qtbot, height=900)
+
+        used = pip._live_pane.geometry().bottom()
+
+        assert used < 700, f"판이 세로를 {used}px까지 차지 — 위로 붙지 않음"
+
+    def test_image_keeps_16_9(self, qtbot):
+        pip = self._pip(qtbot)
+        pane = pip._preview_pane
+
+        expected = int(
+            (pane.width()
+             - pane.layout().contentsMargins().left()
+             - pane.layout().contentsMargins().right()) * 9 / 16
+        )
+
+        assert abs(pane._image.height() - expected) <= 1

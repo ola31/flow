@@ -64,7 +64,10 @@ class _PIPPane(QFrame):
             f"background: #000; border: 1px solid {color}; border-radius: 3px;"
         )
         self._image.setMinimumSize(160, 90)
-        layout.addWidget(self._image, 1)
+        # 늘어나지 않고 폭에 맞춘 16:9 높이를 갖는다 — 판이 세로 공간을
+        # 나눠 가지면 PREVIEW와 LIVE 사이가 벌어진다. 두 판은 위쪽에
+        # 붙고 남는 공간은 아래에 몰아둔다 (LivePIP의 끝 stretch).
+        layout.addWidget(self._image)
 
         self._text = QLabel()
         self._text.setFixedHeight(16)
@@ -104,8 +107,23 @@ class _PIPPane(QFrame):
         quantized = min(1920, max(step, ((width + step - 1) // step) * step))
         return quantized, int(quantized * 9 / 16)
 
+    def _sync_image_height(self) -> None:
+        """이미지 영역 높이를 폭 기준 16:9로 맞춘다.
+
+        높이를 고정해야 판의 sizeHint가 내용에 맞고, 부모가 두 판을 위로
+        붙여 배치할 수 있다.
+        """
+        margins = self.layout().contentsMargins()
+        width = self.width() - margins.left() - margins.right()
+        if width <= 0:
+            return
+        height = max(90, int(width * 9 / 16))
+        if self._image.height() != height:
+            self._image.setFixedHeight(height)
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        self._sync_image_height()
         self._rescale()
 
     def set_image(self, pixmap: QPixmap | None) -> None:
@@ -153,7 +171,10 @@ class LivePIP(QFrame):
         self._preview_pane = _PIPPane("PREVIEW", ACCENT_INTER)
         self._live_pane = _PIPPane("LIVE", RED)
 
-        root.addWidget(self._preview_pane, 1)
+        # 두 판은 내용 높이(폭 기준 16:9)만 차지하고 위쪽에 붙는다.
+        # stretch를 주면 세로 공간을 반씩 나눠 가져 PREVIEW와 LIVE 사이가
+        # 크게 벌어진다 — 남는 공간은 끝의 stretch가 아래로 몰아준다.
+        root.addWidget(self._preview_pane)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
@@ -162,7 +183,8 @@ class LivePIP(QFrame):
         )
         root.addWidget(sep)
 
-        root.addWidget(self._live_pane, 1)
+        root.addWidget(self._live_pane)
+        root.addStretch(1)
         self.hide()
 
     def set_live(self, live: bool) -> None:
