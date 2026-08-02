@@ -3,12 +3,66 @@
 두 번째 모니터에 전체화면으로 표시되는 슬라이드 전용 창
 """
 
+import ctypes
 import sys
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QApplication
 from PySide6.QtGui import QFont, QColor, QPalette, QScreen, QPixmap
 from PySide6 import QtGui
 from PySide6.QtCore import Qt, QTimer, Signal
+
+
+# macOS: NSWindow.collectionBehavior 비트값
+# 창이 "어느 Space에나 뜨는 풀스크린 보조 오버레이"가 되게 한다.
+_NS_CAN_JOIN_ALL_SPACES = 1 << 0
+_NS_FULLSCREEN_AUXILIARY = 1 << 8
+
+
+def _mark_window_as_overlay(win_id: int) -> bool:
+    """macOS NSWindow를 풀스크린 보조 오버레이로 표시.
+
+    Qt의 winId()는 NSView 포인터다. 그 view의 window(NSWindow)에
+    collectionBehavior = CanJoinAllSpaces | FullScreenAuxiliary 를 준다.
+
+    이유: 메인 창이 네이티브 풀스크린(자체 Space)일 때, 그 위에서
+    테두리 없는 송출 창을 처음 realize하면 macOS가 그 창을 주화면에
+    '새 풀스크린 Space'로 밀어넣어 가둔다(좌표는 외부 모니터인데 실제로는
+    주화면 새 데스크탑에 뜬다). 이 collectionBehavior는 그 가둠을 막고,
+    송출 창이 자신이 놓인(외부) 화면의 현재 Space에 그대로 뜨게 한다.
+
+    pyobjc 의존성 없이 libobjc의 objc_msgSend를 ctypes로 직접 호출한다.
+    실패하면 조용히 False (다른 플랫폼·구조에서도 앱이 죽지 않게).
+    """
+    if sys.platform != "darwin" or not win_id:
+        return False
+    try:
+        libobjc = ctypes.cdll.LoadLibrary("/usr/lib/libobjc.dylib")
+        libobjc.sel_registerName.restype = ctypes.c_void_p
+        libobjc.sel_registerName.argtypes = [ctypes.c_char_p]
+
+        def send(recv, selector, *args, argtypes=None, restype=ctypes.c_void_p):
+            libobjc.objc_msgSend.restype = restype
+            libobjc.objc_msgSend.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+            ] + (argtypes or [])
+            sel = libobjc.sel_registerName(selector)
+            return libobjc.objc_msgSend(ctypes.c_void_p(recv), sel, *args)
+
+        nswindow = send(int(win_id), b"window")
+        if not nswindow:
+            return False
+        behavior = _NS_CAN_JOIN_ALL_SPACES | _NS_FULLSCREEN_AUXILIARY
+        send(
+            nswindow,
+            b"setCollectionBehavior:",
+            ctypes.c_ulong(behavior),
+            argtypes=[ctypes.c_ulong],
+            restype=None,
+        )
+        return True
+    except Exception:
+        return False
 
 
 class _SlideLabel(QLabel):
@@ -43,11 +97,18 @@ class DisplayWindow(QWidget):
     BG_BLACK = "black"
     BG_CHROMA_GREEN = "chroma"
     
+    # 전체화면 진입 뒤 배치를 다시 확인할 시각들(ms). 첫 배치 직후 macOS가
+    # 프레임리스 창을 활성(주) 화면으로 되끌어당기는 레이스가 있어, 한 번이
+    # 아니라 여러 박자에 걸쳐 대상 모니터로 재적용해야 확실히 눌러앉는다.
+    _SETTLE_DELAYS = (0, 60, 150, 300, 500, 800, 1200)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._current_lyric = ""
         self._background_mode = self.BG_BLACK
-        
+        self._settle_screen = None
+        self._settle_index = 0
+
         self._setup_ui()
         self._apply_style()
     
@@ -260,6 +321,9 @@ class DisplayWindow(QWidget):
             windowed: True면 작은 창 모드(960×540, 우측 하단), False면 전체화면.
         """
         target_screen = self._resolve_screen(screen)
+        # 이전 전체화면 송출이 예약해 둔 재확인 루프가 남아 새 배치를
+        # 되돌리지 않도록 멈춘다.
+        self._settle_screen = None
 
         if windowed:
             # macOS는 전체화면 창을 별도 Space에 둔다 — 플래그를 바꾸기
@@ -290,28 +354,55 @@ class DisplayWindow(QWidget):
         # 2를 건너뛰고 숨김 상태에서 옮기면 Windows가 무시해서 첫 송출이
         # 주 모니터에 뜬다 (껐다 켜면 그제야 외부 모니터로 가던 증상).
         self._apply_window_flags(frameless=True)
+        # macOS: showNormal 전에 오버레이 동작을 걸어야 한다. 가둠은
+        # showNormal(창 매핑) '도중'에 일어나므로, winId()로 네이티브 창을
+        # 먼저 만들고(매핑 없이) collectionBehavior를 세팅한 뒤 매핑한다.
+        # 이게 없으면 메인 창이 네이티브 풀스크린일 때 첫 송출이 주화면
+        # 새 데스크탑(풀스크린 Space)에 갇힌다.
+        _mark_window_as_overlay(int(self.winId()))
         self.showNormal()
         self._fill_screen(target_screen)
         if self._use_native_fullscreen():
             self.showFullScreen()
         self.raise_()
-        # 창 이동이 늦게 반영되는 경우가 있어 한 박자 뒤에 다시 맞춘다.
-        QTimer.singleShot(0, self, lambda: self._settle_on_screen(target_screen))
+        # 창 이동/화면 연결이 한 번에 안 먹는 경우가 있어 여러 박자에 걸쳐
+        # 대상 모니터로 다시 맞춘다 (레이스 방지). 아래 _resettle 참고.
+        self._begin_settle(target_screen)
 
-    def _settle_on_screen(self, screen) -> None:
+    def _begin_settle(self, screen) -> None:
+        """전체화면 배치 재확인 루프 시작."""
+        self._settle_screen = screen
+        self._settle_index = 0
+        self._resettle()
+
+    def _resettle(self) -> None:
         """대상 모니터를 제대로 덮고 있는지 확인하고, 아니면 다시 맞춘다.
+
+        한 번으로는 부족하다: 전체화면 진입 직후 macOS는 프레임리스 창을
+        활성(주) 화면으로 되끌어당기며, 음수 좌표의 외부/Sidecar 화면으로
+        보낸 창을 주화면 경계 안으로 클램프해 버린다(그 결과 주화면을 꽉
+        채운 검은 창 = "새 데스크탑처럼 보임"). 그래서 _SETTLE_DELAYS의 여러
+        시각마다 좌표·화면 연결을 다시 적용해, 되끌린 창을 매번 대상
+        모니터로 되돌린다.
 
         좌표만 다시 잡는다. 예전에는 여기서 전체화면을 껐다 켰는데,
         QScreen 래퍼는 같은 모니터라도 다른 객체로 올 수 있어 `is` 비교가
         늘 어긋났고, 그때마다 macOS가 (이동이 반영되기 전에) 현재 화면에
         새 Space를 만들어 송출이 매번 Mac 화면으로 갔다.
         """
+        screen = self._settle_screen
         if screen is None or not self.isVisible():
             return
-        if self.geometry() == screen.geometry():
-            return
-        self._fill_screen(screen)
-        self.raise_()
+        if self.geometry() != screen.geometry():
+            self._fill_screen(screen)
+            self.raise_()
+        # 이미 맞았어도 계속 확인한다 — 처음엔 맞았다가 뒤늦게 되끌리는
+        # 경우가 있어, 정해진 시각을 끝까지 훑어야 안정적으로 눌러앉는다.
+        self._settle_index += 1
+        if self._settle_index < len(self._SETTLE_DELAYS):
+            QTimer.singleShot(
+                self._SETTLE_DELAYS[self._settle_index], self, self._resettle
+            )
 
     def show_fullscreen_on_secondary(self) -> None:
         """레거시 호환 — 두 번째 모니터(없으면 윈도우)에 표시."""
@@ -329,5 +420,6 @@ class DisplayWindow(QWidget):
     
     def closeEvent(self, event) -> None:
         """창 닫기"""
+        self._settle_screen = None  # 예약된 재확인 루프 중단
         self.closed.emit()
         super().closeEvent(event)

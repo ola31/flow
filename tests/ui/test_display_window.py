@@ -225,7 +225,8 @@ def test_settle_ignores_a_hidden_window(qtbot) -> None:
     window = DisplayWindow()
     qtbot.addWidget(window)
 
-    window._settle_on_screen(_screen(qtbot))  # 띄운 적 없음
+    window._settle_screen = _screen(qtbot)
+    window._resettle()  # 띄운 적 없음
 
     assert not window.isVisible()
 
@@ -330,7 +331,8 @@ def test_settle_only_fixes_geometry(qtbot) -> None:
     orig = DisplayWindow.showNormal
     DisplayWindow.showNormal = lambda self: calls.append(1) or orig(self)
     try:
-        window._settle_on_screen(screen)
+        window._settle_screen = screen
+        window._resettle()
     finally:
         DisplayWindow.showNormal = orig
 
@@ -344,9 +346,37 @@ def test_settle_restores_geometry_when_moved(qtbot) -> None:
     window.show_on_screen(screen)
     window.setGeometry(10, 10, 300, 200)  # 다른 화면에 놓인 상황을 흉내
 
-    window._settle_on_screen(screen)
+    window._settle_screen = screen
+    window._resettle()
 
     assert window.geometry() == screen.geometry()
+
+
+def test_settle_retries_until_geometry_sticks(qtbot) -> None:
+    """보정은 한 번이 아니라 여러 박자에 걸쳐 재적용돼야 한다.
+
+    전체화면 진입 직후 macOS가 프레임리스 창을 활성(주) 화면으로
+    되끌어당기는 레이스가 있어, singleShot 한 번으론 첫 배치가 주화면에
+    눌러앉는다. _resettle이 정해진 시각들을 끝까지 훑으며 되끌린 창을
+    매번 대상 모니터로 되돌려야 한다.
+    """
+    window = DisplayWindow()
+    qtbot.addWidget(window)
+    screen = _screen(qtbot)
+    window.show_on_screen(screen)
+
+    # 첫 배치 뒤에도 남은 재확인 시각이 있어야 한다 (한 번으로 끝나지 않음).
+    assert len(DisplayWindow._SETTLE_DELAYS) > 1
+    assert window._settle_screen is screen
+
+    # 창이 뒤늦게 되끌린 상황을 흉내 → 다음 보정 한 번이 되돌려야 한다.
+    window.setGeometry(10, 10, 300, 200)
+    window._resettle()
+    assert window.geometry() == screen.geometry()
+
+    # 윈도우 모드로 전환하면 재확인 루프가 멈춰 배치를 되돌리지 않는다.
+    window.show_on_screen(screen, windowed=True)
+    assert window._settle_screen is None
 
 
 def test_macos_covers_the_screen_without_native_fullscreen(qtbot, monkeypatch) -> None:
