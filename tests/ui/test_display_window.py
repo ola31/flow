@@ -219,3 +219,47 @@ def test_windowed_leaves_fullscreen_first(qtbot) -> None:
 
     assert not window.isFullScreen()
     assert window.size().width() == 960
+
+
+def test_settle_is_a_noop_when_already_correct(qtbot) -> None:
+    """이미 대상 모니터에 전체화면이면 다시 잡지 않는다 (재진입 애니메이션 방지)."""
+    window = DisplayWindow()
+    qtbot.addWidget(window)
+    screen = _screen(qtbot)
+    window.show_on_screen(screen)
+    assert window.isFullScreen()
+
+    calls = []
+    orig = DisplayWindow.showNormal
+    DisplayWindow.showNormal = lambda self: calls.append(1) or orig(self)
+    try:
+        window._settle_on_screen(screen)
+    finally:
+        DisplayWindow.showNormal = orig
+
+    assert calls == []
+    assert window.isFullScreen()
+
+
+def test_settle_reapplies_when_not_fullscreen(qtbot) -> None:
+    """이동이 늦게 반영돼 전체화면이 풀린 상태면 다시 잡는다."""
+    window = DisplayWindow()
+    qtbot.addWidget(window)
+    screen = _screen(qtbot)
+    window.show_on_screen(screen)
+    window.showNormal()  # macOS에서 배치가 어긋난 상황을 흉내
+    assert not window.isFullScreen()
+
+    window._settle_on_screen(screen)
+
+    assert window.isFullScreen()
+    assert window.geometry().topLeft() == screen.geometry().topLeft()
+
+
+def test_settle_ignores_a_hidden_window(qtbot) -> None:
+    window = DisplayWindow()
+    qtbot.addWidget(window)
+
+    window._settle_on_screen(_screen(qtbot))  # 띄운 적 없음
+
+    assert not window.isVisible()

@@ -6,7 +6,7 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QApplication
 from PySide6.QtGui import QFont, QColor, QPalette, QScreen, QPixmap
 from PySide6 import QtGui
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 
 
 class DisplayWindow(QWidget):
@@ -248,6 +248,29 @@ class DisplayWindow(QWidget):
         self._apply_window_flags(frameless=True)
         self.showNormal()
         self._fill_screen(target_screen)
+        self.showFullScreen()
+        self.raise_()
+        # macOS는 창 이동을 다음 이벤트 루프 turn에서 반영한다. 이동이 아직
+        # 적용되지 않은 상태로 전체화면이 확정되면 엉뚱한 디스플레이에
+        # 전용 Space가 만들어진다 (첫 송출만 Mac 화면에 뜨고, 껐다 켜면
+        # 그제야 외부 화면으로 가던 증상). 한 박자 뒤에 확인해 바로잡는다.
+        QTimer.singleShot(0, self, lambda: self._settle_on_screen(target_screen))
+
+    def _settle_on_screen(self, screen) -> None:
+        """전체화면이 대상 모니터에 잡혔는지 확인하고, 아니면 다시 잡는다.
+
+        이미 제대로 놓여 있으면 아무것도 하지 않는다 — 옮길 필요가 없는
+        플랫폼(Windows)에서는 그대로 통과한다.
+        """
+        if screen is None or not self.isVisible():
+            return
+        handle = self.windowHandle()
+        on_target = handle is not None and handle.screen() is screen
+        if on_target and self.isFullScreen():
+            return
+        # 전체화면을 풀어야 창을 다른 디스플레이로 옮길 수 있다
+        self.showNormal()
+        self._fill_screen(screen)
         self.showFullScreen()
         self.raise_()
 
