@@ -18,7 +18,7 @@ _NS_CAN_JOIN_ALL_SPACES = 1 << 0
 _NS_FULLSCREEN_AUXILIARY = 1 << 8
 
 
-def _mark_window_as_overlay(win_id: int) -> bool:
+def _mark_window_as_overlay(widget: QWidget) -> bool:
     """macOS NSWindow를 풀스크린 보조 오버레이로 표시.
 
     Qt의 winId()는 NSView 포인터다. 그 view의 window(NSWindow)에
@@ -33,14 +33,16 @@ def _mark_window_as_overlay(win_id: int) -> bool:
     pyobjc 의존성 없이 libobjc의 objc_msgSend를 ctypes로 직접 호출한다.
     실패하면 조용히 False (다른 플랫폼·구조에서도 앱이 죽지 않게).
 
-    반드시 실제 cocoa 플랫폼에서만 실행한다. offscreen(테스트/CI)에서는
-    winId()가 NSView 포인터가 아니라, 거기에 objc_msgSend를 던지면
-    세그폴트가 난다 (try/except로도 못 막는다).
+    반드시 실제 cocoa 플랫폼에서만 무언가 한다. cocoa가 아니면 winId()도
+    건드리지 않고 즉시 반환하므로 Windows·Linux 동작에는 영향이 없다.
+    (offscreen 테스트/CI에서는 winId()가 NSView 포인터가 아니라, 거기에
+    objc_msgSend를 던지면 try/except로도 못 막는 세그폴트가 난다.)
     """
-    if not win_id:
-        return False
     app = QApplication.instance()
     if app is None or app.platformName() != "cocoa":
+        return False
+    win_id = int(widget.winId())
+    if not win_id:
         return False
     try:
         libobjc = ctypes.cdll.LoadLibrary("/usr/lib/libobjc.dylib")
@@ -365,8 +367,9 @@ class DisplayWindow(QWidget):
         # showNormal(창 매핑) '도중'에 일어나므로, winId()로 네이티브 창을
         # 먼저 만들고(매핑 없이) collectionBehavior를 세팅한 뒤 매핑한다.
         # 이게 없으면 메인 창이 네이티브 풀스크린일 때 첫 송출이 주화면
-        # 새 데스크탑(풀스크린 Space)에 갇힌다.
-        _mark_window_as_overlay(int(self.winId()))
+        # 새 데스크탑(풀스크린 Space)에 갇힌다. cocoa가 아니면 이 함수는
+        # winId()도 건드리지 않고 즉시 반환한다 (Windows·Linux 영향 없음).
+        _mark_window_as_overlay(self)
         self.showNormal()
         self._fill_screen(target_screen)
         if self._use_native_fullscreen():
