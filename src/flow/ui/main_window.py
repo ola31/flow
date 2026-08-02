@@ -3311,7 +3311,10 @@ class MainWindow(QMainWindow):
 
         if slide_idx >= 0:
             try:
-                qimg = self._slide_manager.peek_thumbnail(slide_idx)
+                # 판 크기(물리 픽셀)에 맞춰 요청 — 기본 480×270은 HiDPI에서
+                # 확대돼 흐려진다
+                w, h = self._pip.preview_source_size()
+                qimg = self._slide_manager.peek_thumbnail(slide_idx, w, h)
                 if qimg is not None and not qimg.isNull():
                     self._pip.set_preview_image(QtGui.QPixmap.fromImage(qimg))
                 else:
@@ -3713,7 +3716,8 @@ class MainWindow(QMainWindow):
     def _update_preview_with_index(self, index: int) -> None:
         self._last_preview_index = index
         try:
-            qimg = self._slide_manager.peek_thumbnail(index)
+            w, h = self._pip.preview_source_size()
+            qimg = self._slide_manager.peek_thumbnail(index, w, h)
             self._pip.set_preview_image(QtGui.QPixmap.fromImage(qimg))
             self._pip.set_preview_text(f"#{index + 1}")
         except Exception:

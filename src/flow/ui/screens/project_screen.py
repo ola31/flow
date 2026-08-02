@@ -75,15 +75,34 @@ class _PIPPane(QFrame):
         layout.addWidget(self._text)
 
     def _rescale(self) -> None:
+        """원본을 판 크기에 맞춘다 (HiDPI 대응).
+
+        논리 크기로 스케일하면 배율 1.5인 화면에서 실제 픽셀의 2/3만 그려
+        Qt가 다시 확대한다 — 프리뷰/라이브 썸네일이 흐릿해지던 원인.
+        물리 픽셀로 스케일한 뒤 배율을 심어 QLabel이 제 크기로 그리게 한다.
+        """
         if not self._source_pixmap:
             return
-        self._image.setPixmap(
-            self._source_pixmap.scaled(
-                self._image.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
+        ratio = self.devicePixelRatioF() or 1.0
+        target = self._image.size() * ratio
+        scaled = self._source_pixmap.scaled(
+            target,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
         )
+        scaled.setDevicePixelRatio(ratio)
+        self._image.setPixmap(scaled)
+
+    def source_size_hint(self) -> tuple[int, int]:
+        """이 판을 채우는 데 필요한 원본 크기(물리 픽셀).
+
+        캐시 키가 크기별로 갈리므로 240px 단위로 올려 종류를 제한한다.
+        """
+        ratio = self.devicePixelRatioF() or 1.0
+        width = max(1, int(self._image.width() * ratio))
+        step = 240
+        quantized = min(1920, max(step, ((width + step - 1) // step) * step))
+        return quantized, int(quantized * 9 / 16)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -148,6 +167,10 @@ class LivePIP(QFrame):
 
     def set_live(self, live: bool) -> None:
         self.setStyleSheet(self._live_style if live else self._idle_style)
+
+    def preview_source_size(self) -> tuple[int, int]:
+        """프리뷰 판을 선명하게 채우는 데 필요한 원본 크기."""
+        return self._preview_pane.source_size_hint()
 
     def set_preview_image(self, pixmap: QPixmap | None) -> None:
         self._preview_pane.set_image(pixmap)

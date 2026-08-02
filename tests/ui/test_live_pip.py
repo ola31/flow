@@ -94,3 +94,49 @@ class TestLivePIPSignals:
         pip.show()
         QTest.mouseClick(pip, Qt.MouseButton.LeftButton)
         assert spy.called
+
+
+class TestPipSharpness:
+    """PIP 썸네일이 흐릿하던 문제 — 논리 크기로 스케일하면 배율 1.5인
+    화면에서 실제 픽셀의 2/3만 그려 Qt가 다시 확대한다."""
+
+    def _pane(self, qtbot):
+        from flow.ui.screens.project_screen import LivePIP
+
+        pip = LivePIP()
+        qtbot.addWidget(pip)
+        pip.resize(420, 600)
+        pip.show()
+        return pip
+
+    def test_scaled_pixmap_carries_device_pixel_ratio(self, qtbot):
+        from PySide6.QtGui import QColor, QImage, QPixmap
+
+        pip = self._pane(qtbot)
+        img = QImage(1920, 1080, QImage.Format.Format_RGB32)
+        img.fill(QColor("#204060"))
+
+        pip.set_preview_image(QPixmap.fromImage(img))
+
+        shown = pip._preview_pane._image.pixmap()
+        assert not shown.isNull()
+        assert shown.devicePixelRatio() == pip._preview_pane.devicePixelRatioF()
+
+    def test_source_size_hint_covers_the_pane(self, qtbot):
+        pip = self._pane(qtbot)
+        pane = pip._preview_pane
+
+        w, h = pip.preview_source_size()
+
+        ratio = pane.devicePixelRatioF() or 1.0
+        assert w >= pane._image.width() * ratio
+        assert w % 240 == 0  # 캐시 키 종류 제한
+        assert h == int(w * 9 / 16)
+
+    def test_source_size_hint_is_capped(self, qtbot):
+        pip = self._pane(qtbot)
+        pip.resize(4000, 3000)
+
+        w, _h = pip.preview_source_size()
+
+        assert w <= 1920
