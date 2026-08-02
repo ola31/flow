@@ -136,7 +136,7 @@ def test_window_is_realized_before_being_moved(qtbot, monkeypatch) -> None:
     order: list[str] = []
 
     orig_normal = DisplayWindow.showNormal
-    orig_attach = DisplayWindow._attach_to_screen
+    orig_attach = DisplayWindow._fill_screen
     orig_full = DisplayWindow.showFullScreen
 
     def normal(self):
@@ -152,7 +152,7 @@ def test_window_is_realized_before_being_moved(qtbot, monkeypatch) -> None:
         return orig_full(self)
 
     monkeypatch.setattr(DisplayWindow, "showNormal", normal)
-    monkeypatch.setattr(DisplayWindow, "_attach_to_screen", attach)
+    monkeypatch.setattr(DisplayWindow, "_fill_screen", attach)
     monkeypatch.setattr(DisplayWindow, "showFullScreen", full)
 
     window.show_on_screen(_screen(qtbot))
@@ -166,6 +166,56 @@ def test_attach_sets_geometry_to_the_target_screen(qtbot) -> None:
     screen = _screen(qtbot)
     window.showNormal()
 
-    window._attach_to_screen(screen)
+    window._fill_screen(screen)
 
     assert window.geometry() == screen.geometry()
+
+
+def test_windowed_never_covers_the_screen(qtbot) -> None:
+    """윈도우 모드는 화면 전체 크기를 한 순간도 거치면 안 된다.
+
+    전체화면 경로용 헬퍼를 윈도우 경로에서도 부르는 바람에 창이 먼저
+    모니터를 덮었다. macOS에서는 그 상태가 별도 Space로 넘어가는 것처럼
+    보여, 작은 창을 골랐는데 새 데스크탑에 전체화면으로 떴다.
+    """
+    window = DisplayWindow()
+    qtbot.addWidget(window)
+    screen = _screen(qtbot)
+    seen: list[tuple[int, int]] = []
+
+    orig_resize = DisplayWindow.resize
+    orig_setgeom = DisplayWindow.setGeometry
+
+    def resize(self, *a):
+        r = orig_resize(self, *a)
+        seen.append((self.width(), self.height()))
+        return r
+
+    def set_geometry(self, *a):
+        r = orig_setgeom(self, *a)
+        seen.append((self.width(), self.height()))
+        return r
+
+    DisplayWindow.resize, DisplayWindow.setGeometry = resize, set_geometry
+    try:
+        window.show_on_screen(screen, windowed=True)
+    finally:
+        DisplayWindow.resize, DisplayWindow.setGeometry = orig_resize, orig_setgeom
+
+    full = (screen.geometry().width(), screen.geometry().height())
+    assert full not in seen, f"윈도우 모드인데 화면 전체 크기를 거쳤다: {seen}"
+    assert window.size().width() == 960
+
+
+def test_windowed_leaves_fullscreen_first(qtbot) -> None:
+    """전체화면 송출 중 윈도우 모드로 바꾸면 전체화면에서 빠져나와야 한다."""
+    window = DisplayWindow()
+    qtbot.addWidget(window)
+    screen = _screen(qtbot)
+    window.show_on_screen(screen)
+    assert window.isFullScreen()
+
+    window.show_on_screen(screen, windowed=True)
+
+    assert not window.isFullScreen()
+    assert window.size().width() == 960

@@ -168,16 +168,28 @@ class DisplayWindow(QWidget):
             # 호출한 쪽에서 반드시 다시 show해야 한다.
             self.setWindowFlags(flags)
 
-    def _attach_to_screen(self, screen) -> None:
-        """대상 모니터로 창을 옮긴다 (창이 이미 떠 있는 상태여야 한다).
+    def _bind_screen(self, screen) -> None:
+        """창을 대상 모니터에 붙인다 (크기는 건드리지 않는다)."""
+        if screen is None:
+            return
+        handle = self.windowHandle()
+        if handle is not None:
+            handle.setScreen(screen)
+        self.move(screen.geometry().topLeft())
+
+    def _fill_screen(self, screen) -> None:
+        """대상 모니터를 덮도록 좌표·크기를 맞춘다 (전체화면 진입 직전용).
 
         Windows에서는 숨겨진 창에 대한 setGeometry/QWindow.setScreen이
         먹지 않는다 — 네이티브 창이 아직 어느 모니터에도 매핑되지 않았기
-        때문이다. 그래서 showNormal로 먼저 띄운 뒤 좌표를 옮겨야 하고,
-        그다음에야 showFullScreen이 그 모니터에서 펼쳐진다.
+        때문이다. 그래서 showNormal로 먼저 띄운 뒤 옮겨야 하고, 그다음에야
+        showFullScreen이 그 모니터에서 펼쳐진다.
 
         (실측: 숨김 상태에서 옮기면 첫 송출이 노트북 화면에 뜨고, 껐다
         다시 켜야 외부 모니터로 갔다.)
+
+        윈도우 모드에서는 절대 부르지 말 것 — 작은 창으로 띄워야 하는데
+        화면 전체 크기를 먼저 먹이면 그 순간 창이 화면을 덮는다.
         """
         if screen is None:
             return
@@ -206,11 +218,17 @@ class DisplayWindow(QWidget):
         target_screen = self._resolve_screen(screen)
 
         if windowed:
+            # macOS는 전체화면 창을 별도 Space에 둔다 — 플래그를 바꾸기
+            # 전에 먼저 빠져나와야 그 데스크탑에 창이 남지 않는다.
+            if self.isFullScreen():
+                self.showNormal()
             self._apply_window_flags(frameless=False)
             self.setWindowState(Qt.WindowState.WindowNoState)
             self.showNormal()  # 옮기기 전에 실체화 — 숨김 상태 이동은 무시된다
-            self._attach_to_screen(target_screen)
+            # 크기를 먼저 줄이고 옮긴다. 화면 전체 크기를 거치면 그 순간
+            # 창이 모니터를 덮어, 작은 창을 골랐는데 전체화면처럼 보인다.
             self.resize(960, 540)
+            self._bind_screen(target_screen)
             if target_screen is not None:
                 geo = target_screen.availableGeometry()
                 self.move(
@@ -229,7 +247,7 @@ class DisplayWindow(QWidget):
         # 주 모니터에 뜬다 (껐다 켜면 그제야 외부 모니터로 가던 증상).
         self._apply_window_flags(frameless=True)
         self.showNormal()
-        self._attach_to_screen(target_screen)
+        self._fill_screen(target_screen)
         self.showFullScreen()
         self.raise_()
 
