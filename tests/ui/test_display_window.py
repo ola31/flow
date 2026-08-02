@@ -221,41 +221,6 @@ def test_windowed_leaves_fullscreen_first(qtbot) -> None:
     assert window.size().width() == 960
 
 
-def test_settle_is_a_noop_when_already_correct(qtbot) -> None:
-    """이미 대상 모니터에 전체화면이면 다시 잡지 않는다 (재진입 애니메이션 방지)."""
-    window = DisplayWindow()
-    qtbot.addWidget(window)
-    screen = _screen(qtbot)
-    window.show_on_screen(screen)
-    assert window.isFullScreen()
-
-    calls = []
-    orig = DisplayWindow.showNormal
-    DisplayWindow.showNormal = lambda self: calls.append(1) or orig(self)
-    try:
-        window._settle_on_screen(screen)
-    finally:
-        DisplayWindow.showNormal = orig
-
-    assert calls == []
-    assert window.isFullScreen()
-
-
-def test_settle_reapplies_when_not_fullscreen(qtbot) -> None:
-    """이동이 늦게 반영돼 전체화면이 풀린 상태면 다시 잡는다."""
-    window = DisplayWindow()
-    qtbot.addWidget(window)
-    screen = _screen(qtbot)
-    window.show_on_screen(screen)
-    window.showNormal()  # macOS에서 배치가 어긋난 상황을 흉내
-    assert not window.isFullScreen()
-
-    window._settle_on_screen(screen)
-
-    assert window.isFullScreen()
-    assert window.geometry().topLeft() == screen.geometry().topLeft()
-
-
 def test_settle_ignores_a_hidden_window(qtbot) -> None:
     window = DisplayWindow()
     qtbot.addWidget(window)
@@ -348,3 +313,59 @@ def test_label_growth_alone_rescales_the_slide(qtbot) -> None:
     assert after != before, "라벨이 커졌는데 픽스맵이 그대로 — 잘리거나 여백이 남는다"
     ratio = window._lyric_label.pixmap().devicePixelRatio() or 1.0
     assert window._lyric_label.pixmap().width() / ratio <= 1200 + 1
+
+
+def test_settle_only_fixes_geometry(qtbot) -> None:
+    """배치 보정은 좌표만 다시 잡는다.
+
+    예전에는 여기서 전체화면을 껐다 켰는데, QScreen 비교가 어긋나 매번
+    실행됐고 macOS가 그때마다 현재 화면에 새 Space를 만들었다.
+    """
+    window = DisplayWindow()
+    qtbot.addWidget(window)
+    screen = _screen(qtbot)
+    window.show_on_screen(screen)
+
+    calls = []
+    orig = DisplayWindow.showNormal
+    DisplayWindow.showNormal = lambda self: calls.append(1) or orig(self)
+    try:
+        window._settle_on_screen(screen)
+    finally:
+        DisplayWindow.showNormal = orig
+
+    assert calls == [], "보정이 전체화면을 껐다 켜면 안 된다"
+
+
+def test_settle_restores_geometry_when_moved(qtbot) -> None:
+    window = DisplayWindow()
+    qtbot.addWidget(window)
+    screen = _screen(qtbot)
+    window.show_on_screen(screen)
+    window.setGeometry(10, 10, 300, 200)  # 다른 화면에 놓인 상황을 흉내
+
+    window._settle_on_screen(screen)
+
+    assert window.geometry() == screen.geometry()
+
+
+def test_macos_covers_the_screen_without_native_fullscreen(qtbot, monkeypatch) -> None:
+    """macOS에서는 네이티브 전체화면을 쓰지 않는다.
+
+    전용 Space 전환이 비동기라 어느 디스플레이에 생길지 확정할 수 없어,
+    외부 화면을 골라도 Mac 화면에 새 데스크탑이 만들어졌다. 대신 대상
+    모니터 크기의 테두리 없는 창으로 덮는다.
+    """
+    monkeypatch.setattr(
+        DisplayWindow, "_use_native_fullscreen", staticmethod(lambda: False)
+    )
+    window = DisplayWindow()
+    qtbot.addWidget(window)
+    screen = _screen(qtbot)
+
+    window.show_on_screen(screen)
+
+    assert not window.isFullScreen()
+    assert window.geometry() == screen.geometry()
+    assert window.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint

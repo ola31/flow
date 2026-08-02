@@ -3,6 +3,8 @@
 두 번째 모니터에 전체화면으로 표시되는 슬라이드 전용 창
 """
 
+import sys
+
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QApplication
 from PySide6.QtGui import QFont, QColor, QPalette, QScreen, QPixmap
 from PySide6 import QtGui
@@ -178,6 +180,18 @@ class DisplayWindow(QWidget):
         self._lyric_label.clear()
         self._lyric_label.setPixmap(QPixmap())
     
+    @staticmethod
+    def _use_native_fullscreen() -> bool:
+        """showFullScreen()으로 전체화면에 들어갈지.
+
+        macOS에서는 쓰지 않는다. 네이티브 전체화면은 창을 전용 Space로
+        옮기는데, 그 전환이 비동기라 어느 디스플레이에 Space가 생길지
+        확정할 수 없다 — 외부 화면을 골라도 Mac 화면에 새 데스크탑이
+        만들어지곤 했다. 대신 대상 모니터 크기의 테두리 없는 창을 그대로
+        덮어 씌운다. Space가 생기지 않으니 데스크탑이 튀지도 않는다.
+        """
+        return sys.platform != "darwin"
+
     def _apply_window_flags(self, *, frameless: bool) -> None:
         """창 테두리 유무를 모드에 맞춘다.
 
@@ -189,6 +203,10 @@ class DisplayWindow(QWidget):
         flags = Qt.WindowType.Window
         if frameless:
             flags |= Qt.WindowType.FramelessWindowHint
+            if not self._use_native_fullscreen():
+                # 네이티브 전체화면을 안 쓰는 플랫폼에서는 이 창이 메뉴
+                # 막대·Dock 위에 와야 화면을 온전히 덮는다.
+                flags |= Qt.WindowType.WindowStaysOnTopHint
         if self.windowFlags() != flags:
             # setWindowFlags는 네이티브 창을 다시 만들며 창을 숨긴다 —
             # 호출한 쪽에서 반드시 다시 show해야 한다.
@@ -268,36 +286,31 @@ class DisplayWindow(QWidget):
         #   1) 플래그 — setWindowFlags는 네이티브 창을 다시 만든다
         #   2) showNormal — 창을 실제로 띄워야 이동이 먹는다
         #   3) 대상 모니터로 이동
-        #   4) showFullScreen — 창이 놓인 모니터에서 펼쳐진다
+        #   4) 전체화면 진입
         # 2를 건너뛰고 숨김 상태에서 옮기면 Windows가 무시해서 첫 송출이
         # 주 모니터에 뜬다 (껐다 켜면 그제야 외부 모니터로 가던 증상).
         self._apply_window_flags(frameless=True)
         self.showNormal()
         self._fill_screen(target_screen)
-        self.showFullScreen()
+        if self._use_native_fullscreen():
+            self.showFullScreen()
         self.raise_()
-        # macOS는 창 이동을 다음 이벤트 루프 turn에서 반영한다. 이동이 아직
-        # 적용되지 않은 상태로 전체화면이 확정되면 엉뚱한 디스플레이에
-        # 전용 Space가 만들어진다 (첫 송출만 Mac 화면에 뜨고, 껐다 켜면
-        # 그제야 외부 화면으로 가던 증상). 한 박자 뒤에 확인해 바로잡는다.
+        # 창 이동이 늦게 반영되는 경우가 있어 한 박자 뒤에 다시 맞춘다.
         QTimer.singleShot(0, self, lambda: self._settle_on_screen(target_screen))
 
     def _settle_on_screen(self, screen) -> None:
-        """전체화면이 대상 모니터에 잡혔는지 확인하고, 아니면 다시 잡는다.
+        """대상 모니터를 제대로 덮고 있는지 확인하고, 아니면 다시 맞춘다.
 
-        이미 제대로 놓여 있으면 아무것도 하지 않는다 — 옮길 필요가 없는
-        플랫폼(Windows)에서는 그대로 통과한다.
+        좌표만 다시 잡는다. 예전에는 여기서 전체화면을 껐다 켰는데,
+        QScreen 래퍼는 같은 모니터라도 다른 객체로 올 수 있어 `is` 비교가
+        늘 어긋났고, 그때마다 macOS가 (이동이 반영되기 전에) 현재 화면에
+        새 Space를 만들어 송출이 매번 Mac 화면으로 갔다.
         """
         if screen is None or not self.isVisible():
             return
-        handle = self.windowHandle()
-        on_target = handle is not None and handle.screen() is screen
-        if on_target and self.isFullScreen():
+        if self.geometry() == screen.geometry():
             return
-        # 전체화면을 풀어야 창을 다른 디스플레이로 옮길 수 있다
-        self.showNormal()
         self._fill_screen(screen)
-        self.showFullScreen()
         self.raise_()
 
     def show_fullscreen_on_secondary(self) -> None:
