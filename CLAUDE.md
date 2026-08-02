@@ -26,7 +26,7 @@ mypy src/
 pyinstaller Flow.spec --noconfirm     # build
 ```
 
-Qt tests run headless via `--platform offscreen` (see `tests/conftest.py`'s `qapp_args` fixture); tests must consume this fixture rather than instantiating QApplication directly.
+Qt tests run headless: `tests/conftest.py` forces `QT_QPA_PLATFORM=offscreen` at import time (the old `qapp_args` fixture did NOT actually apply — local runs silently used wayland and diverged from CI). Tests must use the `qapp`/`qtbot` fixtures rather than instantiating QApplication directly. To run against a real display: `QT_QPA_PLATFORM=wayland pytest ...`.
 
 ## Architecture
 

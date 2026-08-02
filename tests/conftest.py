@@ -1,12 +1,15 @@
-import weakref
+import os
 
-import pytest
+# 테스트는 반드시 offscreen으로 돈다 — qapp_args로 넘기던 "--platform
+# offscreen"은 실제로는 적용되지 않아 로컬 스위트가 세션 플랫폼(wayland)
+# 으로 돌았고, offscreen인 CI와 코드 경로가 갈라져 "로컬만 통과"가
+# 반복됐다. 환경변수는 QApplication 생성 전에 확실히 먹는다.
+# (실화면으로 돌리고 싶으면 QT_QPA_PLATFORM=wayland pytest ...)
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import weakref  # noqa: E402
 
-@pytest.fixture(scope="session")
-def qapp_args():
-    return ["--platform", "offscreen"]
-
+import pytest  # noqa: E402
 
 # 셧다운 없이 만들어진 MainWindow/SlideManager 추적용 — 실행 중인
 # QThread(슬라이드 워커)를 가진 객체가 뒤늦은 GC로 파괴되면 크래시가

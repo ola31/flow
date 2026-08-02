@@ -5,10 +5,15 @@ from PySide6.QtCore import Qt
 
 from flow.ui.display.display_window import DisplayWindow
 
+
 # macOS는 네이티브 전체화면(showFullScreen)을 쓰지 않고 대상 모니터를 덮는
 # 테두리 없는 창으로 송출한다 (_use_native_fullscreen 참고). 그래서
 # isFullScreen()·showFullScreen 순서 같은 단언은 플랫폼에 따라 달라진다.
-NATIVE_FS = DisplayWindow._use_native_fullscreen()
+def _native_fs() -> bool:
+    """반드시 qapp 생성 후(테스트 본문)에서 호출할 것 — 임포트 시점엔
+    QApplication이 없어 _use_native_fullscreen이 True로 새서, offscreen
+    CI에서 가드가 안 걸린 채 전체화면 단언이 실행돼 6개가 깨졌었다."""
+    return DisplayWindow._use_native_fullscreen()
 
 
 def test_show_on_screen_windowed_clears_fullscreen_state(qtbot) -> None:
@@ -55,7 +60,7 @@ def test_fullscreen_matches_target_screen_geometry(qtbot) -> None:
 
     window.show_on_screen(screen)
 
-    if NATIVE_FS:
+    if _native_fs():
         assert window.isFullScreen()
     assert window.geometry().topLeft() == screen.geometry().topLeft()
 
@@ -87,7 +92,7 @@ def test_windowed_then_fullscreen_restores_frameless(qtbot) -> None:
     window.show_on_screen(_screen(qtbot), windowed=True)
     window.show_on_screen(_screen(qtbot))
 
-    if NATIVE_FS:
+    if _native_fs():
         assert window.isFullScreen()
     assert window.windowFlags() & Qt.WindowType.FramelessWindowHint
 
@@ -98,7 +103,7 @@ def test_none_screen_falls_back_to_primary(qtbot) -> None:
 
     window.show_on_screen(None)
 
-    if NATIVE_FS:
+    if _native_fs():
         assert window.isFullScreen()
     assert window.windowHandle() is not None
 
@@ -111,7 +116,7 @@ def test_screen_is_attached_before_going_fullscreen(qtbot, monkeypatch) -> None:
     건너뛴 채 showFullScreen을 불렀다 — 외부 모니터를 골라도 엉뚱한
     화면에서 펼쳐지거나 작은 창으로 뜨던 원인.
     """
-    if not NATIVE_FS:
+    if not _native_fs():
         pytest.skip("macOS: 네이티브 전체화면을 쓰지 않아 showFullScreen을 부르지 않음")
     window = DisplayWindow()
     qtbot.addWidget(window)
@@ -170,7 +175,7 @@ def test_window_is_realized_before_being_moved(qtbot, monkeypatch) -> None:
 
     # macOS는 showFullScreen을 건너뛴다 — 순서 마지막 단계가 없다.
     expected = ["showNormal", "move"]
-    if NATIVE_FS:
+    if _native_fs():
         expected.append("showFullScreen")
     assert order == expected
 
@@ -228,7 +233,7 @@ def test_windowed_leaves_fullscreen_first(qtbot) -> None:
     qtbot.addWidget(window)
     screen = _screen(qtbot)
     window.show_on_screen(screen)
-    if NATIVE_FS:
+    if _native_fs():
         assert window.isFullScreen()
 
     window.show_on_screen(screen, windowed=True)
