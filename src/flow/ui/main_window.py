@@ -1289,9 +1289,12 @@ class MainWindow(QMainWindow):
                 self._song_list.refresh_list()
 
                 if new_song.score_sheets:
-                    target_sheet = new_song.score_sheets[0]
-                    self._on_song_selected(target_sheet)
-                    self._song_list.select_sheet_by_id(target_sheet.id)
+                    # select_sheet_by_id가 선택을 알린다 — 직접 부르던
+                    # _on_song_selected는 이제 중복(인덱스 갱신 전 호출이라
+                    # 순서도 어긋났다)
+                    self._song_list.select_sheet_by_id(
+                        new_song.score_sheets[0].id
+                    )
 
                 self._mark_dirty()
                 self._statusbar.showMessage(

@@ -2834,14 +2834,22 @@ class SongListWidget(QWidget):
     # ── 탐색 (MainWindow에서 호출) ────────────────────────────────────────
 
     def select_sheet_by_id(self, sheet_id: str) -> None:
+        """시트를 현재 선택으로 만들고 그 사실을 알린다.
+
+        예전에는 인덱스와 카드 강조만 바꾸고 song_selected를 쏘지 않아,
+        악보를 추가해도 캔버스가 이전 악보를 계속 보여줬다.
+        """
         if not self._project:
             return
-        all_sheets = self._project.all_score_sheets
-        for i, s in enumerate(all_sheets):
+        target = None
+        for i, s in enumerate(self._project.all_score_sheets):
             if s.id == sheet_id:
                 self._project.current_sheet_index = i
+                target = s
                 break
         self._update_card_selection(sheet_id)
+        if target is not None:
+            self.song_selected.emit(target)
 
     def set_current_index(self, index: int) -> None:
         if not self._project:
