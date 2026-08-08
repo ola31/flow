@@ -146,6 +146,11 @@ class MarkdownEditor(QWidget):
         self._text_edit.cursorPositionChanged.connect(self._on_cursor_moved)
         self._thumbs.currentRowChanged.connect(self._on_thumb_selected)
 
+        self._pending_preview_idx: int | None = None
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.timeout.connect(self._flush_preview)
+
         # Ctrl+S shortcut
         save_sc = QShortcut(QKeySequence(Qt.Modifier.CTRL | Qt.Key.Key_S), self)
         save_sc.activated.connect(self.save)
@@ -261,9 +266,24 @@ class MarkdownEditor(QWidget):
             # which handles the preview render.
             self._thumbs.setCurrentRow(idx)
 
+    # 커서가 멈춘 것으로 보는 시간. 방향키를 누르고 있는 동안에는 렌더를
+    # 미루고, 손을 뗀 뒤 한 번만 그린다.
+    _PREVIEW_DEBOUNCE_MS = 90
+
     def _on_thumb_selected(self, idx: int) -> None:
-        if 0 <= idx < self._thumbs.count():
+        """프리뷰 렌더 예약 — 슬라이드 렌더는 회당 ~50ms라 커서 이동마다
+        즉시 그리면 방향키가 끊긴다. 중간에 스쳐 지나간 슬라이드의
+        프리뷰는 어차피 보이지도 않는다."""
+        if not (0 <= idx < self._thumbs.count()):
+            return
+        self._pending_preview_idx = idx
+        self._preview_timer.start(self._PREVIEW_DEBOUNCE_MS)
+
+    def _flush_preview(self) -> None:
+        idx = self._pending_preview_idx
+        if idx is not None and 0 <= idx < self._thumbs.count():
             self._render_main_preview(idx)
+        self._pending_preview_idx = None
 
     def _slide_index_at_line(self, line: int) -> int:
         """Map cursor line to slide index by counting blank-line blocks above.
