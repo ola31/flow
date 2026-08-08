@@ -2220,6 +2220,7 @@ class MainWindow(QMainWindow):
                 self._project_screen.set_nav_song_name(
                     song.name if song else sheet.name
                 )
+            self._update_nav_verse_state()
         self._project_screen.set_live_mode(True)
         self._update_toolbar_for_mode("live")
         self._canvas.setFocus()
@@ -3649,6 +3650,25 @@ class MainWindow(QMainWindow):
         for i in range(6):
             flags[i] = any(h.get_slide_index(i) >= 0 for h in sheet.hotspots)
         self._verse_selector.update_mapping_state(flags)
+        self._update_nav_verse_state()
+
+    def _update_nav_verse_state(self) -> None:
+        """라이브 상단 절 버튼에 '이 곡이 실제로 쓰는 절'을 반영.
+
+        편집 화면의 절 버튼과 달리 판단 단위가 시트가 아니라 곡이다 —
+        라이브 중에는 한 곡의 여러 악보를 넘나들므로, 지금 보고 있는
+        시트에 4절 매핑이 없다고 그 곡이 3절까지인 것은 아니다.
+        """
+        sheets = self._get_relevant_sheets()
+        if not sheets:
+            return
+        # 절 인덱스는 설정된 최대 절 수를 넘을 수 있다(5=후렴이라 6절부터
+        # id가 하나씩 밀린다). 넉넉히 훑고 버튼 쪽에서 골라 쓰게 둔다.
+        mapped = {
+            i: any(h.get_slide_index(i) >= 0 for sh in sheets for h in sh.hotspots)
+            for i in range(11)
+        }
+        self._project_screen.update_nav_verse_mapping(mapped)
 
     def _on_popover_mapping(self, hotspot: Hotspot, slide_index: int) -> None:
         if self._is_live or not self._project:

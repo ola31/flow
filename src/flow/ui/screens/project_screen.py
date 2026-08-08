@@ -358,6 +358,22 @@ class ProjectScreen(QWidget):
     def set_nav_song_name(self, name: str) -> None:
         self._nav_song_name.setText(name)
 
+    def update_nav_verse_mapping(self, mapped: dict[int, bool]) -> None:
+        """매핑이 있는 절과 없는 절을 시각적으로 구분.
+
+        키는 절 인덱스(0~4=1~5절, 5=후렴)이며 버튼 목록의 위치가 아니다 —
+        후렴 버튼이 목록 끝에 있고 6절 이상은 id가 하나씩 밀려 있어서,
+        반드시 버튼 그룹의 id로 찾아야 한다.
+        """
+        for btn in self._nav_verse_btns:
+            has_mapping = mapped.get(self._nav_verse_group.id(btn), False)
+            if btn.property("mapped") == has_mapping:
+                continue
+            btn.setProperty("mapped", has_mapping)
+            # 동적 프로퍼티는 다시 polish 해야 스타일시트에 반영된다.
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
     def _setup_ui(self) -> None:
         main_layout = QVBoxLayout(self)
         # Reserve 4px on every side so the focus-active border (drawn via
@@ -407,6 +423,18 @@ class ProjectScreen(QWidget):
                 background: #1a2a40; color: #64b5f6;
                 border: 1px solid #42a5f5; font-weight: {FW_MEDIUM};
             }}
+            /* 매핑이 하나도 없는 절 — 그 곡이 몇 절까지 쓰는지 한눈에
+               보이도록 죽인다. 후렴 폴백으로 재생은 되므로 누르는 것 자체는
+               막지 않는다. */
+            QPushButton[mapped="false"] {{
+                background: #232323; color: #4d4d4d; border: 1px solid #2e2e2e;
+            }}
+            QPushButton[mapped="false"]:hover {{
+                background: #2e2e2e; color: #777;
+            }}
+            QPushButton[mapped="false"]:checked {{
+                background: #1a2333; color: #5b7fa5; border: 1px solid #35506e;
+            }}
         """
 
         from PySide6.QtWidgets import QButtonGroup
@@ -421,6 +449,7 @@ class ProjectScreen(QWidget):
             btn.setCheckable(True)
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setProperty("mapped", True)
             btn.setStyleSheet(_verse_btn_style)
             btn.setFixedHeight(26)
             if i == 0:
@@ -433,6 +462,7 @@ class ProjectScreen(QWidget):
         btn_chorus.setCheckable(True)
         btn_chorus.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn_chorus.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_chorus.setProperty("mapped", True)
         btn_chorus.setStyleSheet(_verse_btn_style)
         btn_chorus.setFixedHeight(26)
         btn_chorus.setToolTip("후렴")
