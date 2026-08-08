@@ -107,6 +107,26 @@ class ScoreCanvas(QWidget):
         # 드래그(이동)가 없었을 때만 표시 (드래그 화면 가림 방지).
         self._pending_popover_hotspot_id: str | None = None
 
+    @staticmethod
+    def _cache_key(path_str: str) -> tuple:
+        """픽스맵 캐시 키 — 경로 + mtime.
+
+        경로만 키로 쓰면 파일이 교체돼도(악보 다시 스캔, 같은 이름으로
+        추가) 세션 내내 옛 이미지가 그대로 표시된다.
+        """
+        import os
+
+        try:
+            return (path_str, os.path.getmtime(path_str))
+        except OSError:
+            return (path_str, 0.0)
+
+    def _cache_store(self, path_str: str, pixmap) -> None:
+        """캐시에 담고, 같은 경로의 옛 항목은 버린다(무한 증식 방지)."""
+        for key in [k for k in self._pixmap_cache if k[0] == path_str]:
+            del self._pixmap_cache[key]
+        self._pixmap_cache[self._cache_key(path_str)] = pixmap
+
     def prefetch_images(self, paths: list[str]) -> None:
         """이웃 시트 악보를 미리 디코드해 캐시에 넣는다 (방향키 전환 대비).
 
@@ -115,7 +135,9 @@ class ScoreCanvas(QWidget):
         """
         todo = [
             p for p in paths
-            if p and p not in self._pixmap_cache and p not in self._prefetching
+            if p
+            and self._cache_key(p) not in self._pixmap_cache
+            and p not in self._prefetching
         ]
         if not todo:
             return
@@ -135,8 +157,8 @@ class ScoreCanvas(QWidget):
 
     def _on_prefetch_ready(self, path_key: str, image) -> None:
         self._prefetching.discard(path_key)
-        if path_key not in self._pixmap_cache:
-            self._pixmap_cache[path_key] = QPixmap.fromImage(image)
+        if self._cache_key(path_key) not in self._pixmap_cache:
+            self._cache_store(path_key, QPixmap.fromImage(image))
 
     def is_hotspot_editable(self, hotspot: Hotspot, verse_index: int) -> bool:
         """현재 레이어에서 이 핫스팟이 편집 가능한지 판별"""
@@ -180,9 +202,10 @@ class ScoreCanvas(QWidget):
 
             path_key = str(img_path)
 
-            # 1. 캐시 확인
-            if path_key in self._pixmap_cache:
-                self._pixmap = self._pixmap_cache[path_key]
+            # 1. 캐시 확인 (경로+mtime — 파일이 바뀌면 자동 무효화)
+            cache_key = self._cache_key(path_key)
+            if cache_key in self._pixmap_cache:
+                self._pixmap = self._pixmap_cache[cache_key]
             else:
                 # 2. 신규 로딩
                 self._pixmap = QPixmap(path_key)
@@ -214,7 +237,7 @@ class ScoreCanvas(QWidget):
 
                 # 최종 성공 시 캐시에 저장
                 if not self._pixmap.isNull():
-                    self._pixmap_cache[path_key] = self._pixmap
+                    self._cache_store(path_key, self._pixmap)
                 else:
                     self._pixmap = None
         else:

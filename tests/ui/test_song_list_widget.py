@@ -215,12 +215,16 @@ class TestSheetPrefetch:
         canvas = ScoreCanvas()
         qtbot.addWidget(canvas)
         key = str(img_path)
-        assert key not in canvas._pixmap_cache
+        # 캐시 키는 (경로, mtime) — 파일이 바뀌면 자동 무효화된다
+        cache_key = canvas._cache_key(key)
+        assert cache_key not in canvas._pixmap_cache
 
         canvas.prefetch_images([key])
 
-        qtbot.waitUntil(lambda: key in canvas._pixmap_cache, timeout=3000)
-        assert not canvas._pixmap_cache[key].isNull()
+        qtbot.waitUntil(
+            lambda: canvas._cache_key(key) in canvas._pixmap_cache, timeout=3000
+        )
+        assert not canvas._pixmap_cache[canvas._cache_key(key)].isNull()
 
     def test_prefetch_skips_cached_and_invalid(self, qtbot, tmp_path):
         from flow.ui.editor.score_canvas import ScoreCanvas

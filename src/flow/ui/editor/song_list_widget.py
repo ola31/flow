@@ -82,6 +82,37 @@ def _song_status(song: Song) -> dict:
     }
 
 
+def _unique_sheet_dest(sheets_dir: Path, src: Path) -> Path:
+    """악보를 복사해 넣을, 기존 파일을 파괴하지 않는 대상 경로.
+
+    같은 이름이 이미 있으면 예전에는 말없이 덮어썼다 — 원래 악보가
+    사라지고 두 시트가 같은 파일을 가리켰다. 내용이 같으면 그 파일을
+    재사용하고(사본 방지), 다르면 `-2`, `-3`… 을 붙인다.
+    """
+    import filecmp
+
+    dest = sheets_dir / src.name
+    if not dest.exists():
+        return dest
+    try:
+        if filecmp.cmp(src, dest, shallow=False):
+            return dest
+    except OSError:
+        pass
+    for i in range(2, 1000):
+        cand = sheets_dir / f"{src.stem}-{i}{src.suffix}"
+        if not cand.exists():
+            return cand
+        try:
+            if filecmp.cmp(src, cand, shallow=False):
+                return cand
+        except OSError:
+            continue
+    import uuid
+
+    return sheets_dir / f"{src.stem}-{uuid.uuid4().hex[:8]}{src.suffix}"
+
+
 def _completeness_warnings(
     sheet_count: int, has_slides: bool, mapped: int
 ) -> list[str]:
@@ -3613,8 +3644,11 @@ class SongListWidget(QWidget):
             p_path = Path(image_path).resolve()
             dest_path = abs_sheets_dir / p_path.name
             if p_path.parent != abs_sheets_dir:
+                # 같은 이름이 있으면 덮어쓰지 않고 새 이름을 찾는다
+                dest_path = _unique_sheet_dest(abs_sheets_dir, p_path)
                 try:
-                    shutil.copy2(image_path, dest_path)
+                    if not dest_path.exists():
+                        shutil.copy2(image_path, dest_path)
                 except shutil.SameFileError:
                     pass
                 except OSError as e:
@@ -3623,7 +3657,7 @@ class SongListWidget(QWidget):
 
             new_sheet = ScoreSheet(
                 name=sheet_name,
-                image_path=(rel_sheets / p_path.name).as_posix(),
+                image_path=(rel_sheets / dest_path.name).as_posix(),
             )
             song.score_sheets.append(new_sheet)
             added.append(new_sheet)
