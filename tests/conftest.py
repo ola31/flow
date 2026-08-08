@@ -48,3 +48,16 @@ def _stop_leaked_workers(_track_slide_managers):
             sm.shutdown()
         except Exception:
             pass
+
+    # 이 테스트가 남긴 posted 이벤트·deferred delete를 지금(소유 객체가
+    # 아직 살아있을 때) 소화한다. 미루면 다음 테스트의 이벤트 처리에서
+    # 파괴된 객체를 향해 터진다 — CI 워커 segfault가 "다음 테스트 시작
+    # 순간"에 몰리던 이유.
+    from PySide6.QtCore import QEvent
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is not None:
+        app.sendPostedEvents()
+        app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        app.processEvents()
