@@ -1055,7 +1055,29 @@ class MainWindow(QMainWindow):
                 "핫스팟 또는 공유기 연결을 확인해 주세요.",
             )
             return
-        dialogs.flow_show_qr(self, urls[0])
+        url = urls[0]
+        # 송출창이 떠 있을 때만 겹쳐 표시 버튼을 노출한다 — 눌러도 아무 일도
+        # 없는 버튼을 두느니 아예 보이지 않는 편이 낫다.
+        toggle = None
+        if self._display_window is not None and self._display_window.isVisible():
+            toggle = self._toggle_qr_on_display
+        dialogs.flow_show_qr(self, url, on_live_toggle=toggle)
+
+    def _toggle_qr_on_display(self, on: bool) -> None:
+        """송출 화면 우측 상단의 QR 오버레이를 켜고 끈다."""
+        window = self._display_window
+        if window is None:
+            return
+        if not on:
+            window.hide_qr()
+            return
+        server = self._web_broadcast
+        urls = server.local_urls() if server is not None else []
+        if not urls:
+            return
+        from flow.ui.qr import build_qr_pixmap
+
+        window.show_qr(build_qr_pixmap(urls[0]))
 
     def _update_web_status_label(self, count: int | None = None) -> None:
         """웹 송출 상태 라벨 갱신 (실행 중이면 URL·접속 수 표시)."""

@@ -6,7 +6,7 @@
 import ctypes
 import sys
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QApplication
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QApplication, QFrame
 from PySide6.QtGui import QFont, QColor, QPalette, QScreen, QPixmap
 from PySide6 import QtGui
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -111,12 +111,19 @@ class DisplayWindow(QWidget):
     # 아니라 여러 박자에 걸쳐 대상 모니터로 재적용해야 확실히 눌러앉는다.
     _SETTLE_DELAYS = (0, 60, 150, 300, 500, 800, 1200)
 
+    # QR 한 변의 길이 — 화면 짧은 변 대비 비율. 객석 뒤에서도 폰 카메라가
+    # 잡을 만큼 크게, 그러면서 가사를 가리지 않는 선.
+    _QR_SIZE_PCT = 0.24
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._current_lyric = ""
         self._background_mode = self.BG_BLACK
         self._settle_screen = None
         self._settle_index = 0
+        self._qr_frame: QFrame | None = None
+        self._qr_label: QLabel | None = None
+        self._qr_layout: QVBoxLayout | None = None
 
         self._setup_ui()
         self._apply_style()
@@ -243,13 +250,73 @@ class DisplayWindow(QWidget):
             self.show_image(self._current_image)
         elif self._current_lyric:
             self._apply_scaled_font(72) # 기본 크기 72pt 기준 재계산
+        self._layout_qr()
     
     def clear(self) -> None:
         """텍스트 및 이미지 지우기"""
         self._current_lyric = ""
         self._lyric_label.clear()
         self._lyric_label.setPixmap(QPixmap())
-    
+
+    # ─── QR 오버레이 ────────────────────────────────────────────────────
+    # 슬라이드 위에 겹쳐 그리는 별도 위젯이다. 레이아웃에 넣으면 슬라이드가
+    # 밀려나 가로세로비가 틀어지므로 자식으로 두고 좌표를 직접 잡는다.
+
+    def show_qr(self, pixmap: QPixmap | None) -> None:
+        """QR을 우측 상단에 겹쳐 표시."""
+        if pixmap is None or pixmap.isNull():
+            self.hide_qr()
+            return
+        if self._qr_frame is None:
+            self._build_qr_overlay()
+        assert self._qr_frame is not None and self._qr_label is not None
+        self._qr_label.setPixmap(pixmap)
+        self._layout_qr()
+        self._qr_frame.show()
+        self._qr_frame.raise_()
+
+    def hide_qr(self) -> None:
+        """QR 오버레이 숨김."""
+        if self._qr_frame is not None:
+            self._qr_frame.hide()
+
+    def is_qr_visible(self) -> bool:
+        return self._qr_frame is not None and self._qr_frame.isVisible()
+
+    def _build_qr_overlay(self) -> None:
+        frame = QFrame(self)
+        frame.setObjectName("flowQrOverlay")
+        # 창 전체 스타일시트가 자식에게도 내려오므로 id 선택자로 눌러쓴다.
+        # 흰 여백(quiet zone)이 없으면 어두운 슬라이드 위에서 스캔이 안 된다.
+        frame.setStyleSheet(
+            "QFrame#flowQrOverlay { background-color: #ffffff; border-radius: 8px; }"
+            "QLabel#flowQrImage { background-color: transparent; }"
+        )
+        # 오버레이가 클릭을 먹지 않게 — 송출창은 조작 대상이 아니다.
+        frame.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        layout = QVBoxLayout(frame)
+        label = QLabel()
+        label.setObjectName("flowQrImage")
+        label.setScaledContents(True)
+        layout.addWidget(label)
+        self._qr_frame = frame
+        self._qr_label = label
+        self._qr_layout = layout
+
+    def _layout_qr(self) -> None:
+        """화면 크기에 비례해 QR 크기·위치를 잡는다 (우측 상단)."""
+        if self._qr_frame is None or self._qr_layout is None:
+            return
+        short_side = min(self.width(), self.height()) or 1080
+        side = max(120, min(560, int(short_side * self._QR_SIZE_PCT)))
+        pad = max(6, int(side * 0.06))
+        margin = max(12, int(short_side * 0.025))
+        self._qr_layout.setContentsMargins(pad, pad, pad, pad)
+        box = side + pad * 2
+        self._qr_frame.setFixedSize(box, box)
+        self._qr_frame.move(self.width() - box - margin, margin)
+
+
     @staticmethod
     def _use_native_fullscreen() -> bool:
         """showFullScreen()으로 전체화면에 들어갈지.

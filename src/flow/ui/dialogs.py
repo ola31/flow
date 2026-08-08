@@ -21,6 +21,7 @@ OS 기본 다이얼로그(QMessageBox, QInputDialog)는 타이틀바 글자 잘�
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from PySide6.QtCore import Qt, QPoint, QSize
@@ -706,8 +707,19 @@ def flow_show_install_guide(parent, *, platform_name: str = "") -> None:
 # ─── QR 팝업 ────────────────────────────────────────────────────────────────
 
 
-def flow_show_qr(parent, url: str, *, title: str = "웹 송출 QR") -> None:
-    """웹 송출 URL의 QR 코드를 큰 팝업으로 표시 (폰 카메라로 스캔)."""
+def flow_show_qr(
+    parent,
+    url: str,
+    *,
+    title: str = "웹 송출 QR",
+    on_live_toggle: Callable[[bool], None] | None = None,
+) -> None:
+    """웹 송출 URL의 QR 코드를 큰 팝업으로 표시 (폰 카메라로 스캔).
+
+    `on_live_toggle`을 주면 송출 화면에 QR을 겹쳐 띄우는 토글 버튼이 함께
+    나온다. 팝업을 닫을 때는 켜져 있어도 반드시 False로 되돌린다 — 조작
+    수단이 사라진 채 송출 화면에 QR만 남는 상태를 만들지 않기 위해서다.
+    """
     from flow.ui.qr import build_qr_pixmap
 
     dlg = _FlowDialog(parent, title=title)
@@ -736,7 +748,24 @@ def flow_show_qr(parent, url: str, *, title: str = "웹 송출 QR") -> None:
     url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     body.addWidget(url_label, 0, Qt.AlignmentFlag.AlignHCenter)
 
+    row = []
+    if on_live_toggle is not None and pixmap is not None:
+        btn_live = _make_button("송출 화면에 표시")
+        btn_live.setCheckable(True)
+        btn_live.toggled.connect(
+            lambda on: btn_live.setText(
+                "송출 화면에서 내리기" if on else "송출 화면에 표시"
+            )
+        )
+        btn_live.toggled.connect(on_live_toggle)
+        row.append(btn_live)
+
     btn_close = _make_button("닫기", primary=True)
     btn_close.clicked.connect(dlg.accept)
-    dlg.add_button_row([btn_close])
-    dlg.exec()
+    row.append(btn_close)
+    dlg.add_button_row(row)
+    try:
+        dlg.exec()
+    finally:
+        if on_live_toggle is not None:
+            on_live_toggle(False)
