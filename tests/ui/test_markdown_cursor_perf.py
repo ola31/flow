@@ -30,7 +30,10 @@ def editor(qtbot, tmp_path):
     ed.resize(900, 700)
     ed.show()
     qtbot.waitExposed(ed)
-    qtbot.wait(150)  # 최초 렌더 소화
+    # 썸네일은 비동기로 한 장씩 그려진다 — 다 채워지기 전에는 커서 이동이
+    # 인덱스 범위를 벗어나 selectRow 자체가 일어나지 않는다 (병렬 실행에서
+    # 고정 대기는 부족해 테스트가 흔들렸다).
+    qtbot.waitUntil(lambda: ed._thumbs.count() >= 12, timeout=10000)
     return ed
 
 

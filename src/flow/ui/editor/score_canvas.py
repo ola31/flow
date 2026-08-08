@@ -29,6 +29,12 @@ from flow.ui.styles import (
     HOTSPOT_UNMAPPED_BORDER,
 )
 
+# 프리페치 스레드가 도는 동안 캔버스를 살려 둔다. 스레드 클로저가 마지막
+# 참조를 들면 Thread.run의 `del self._target`이 QWidget인 캔버스를 워커
+# 스레드에서 파괴하고 프로세스가 죽는다(실측: Thread-N (_load)에서
+# segfault). 해제는 반드시 메인 스레드에서 한다.
+_PREFETCH_KEEPALIVE: set = set()
+
 
 class ScoreCanvas(QWidget):
     """악보 캔버스
@@ -53,6 +59,8 @@ class ScoreCanvas(QWidget):
     live_hotspot_clicked = Signal(object)
     emergency_patch_requested = Signal(object)  # Hotspot
     _prefetch_ready = Signal(str, object)  # (path_key, QImage) — 내부용
+    # 워커 종료 → 메인 스레드에서 keepalive 해제
+    _prefetch_finished = Signal()
 
     HOTSPOT_RADIUS = 15
     HOTSPOT_COLOR = QColor(*HOTSPOT_DEFAULT_FILL)
@@ -101,6 +109,7 @@ class ScoreCanvas(QWidget):
         self._pixmap_cache = {}
         # 이웃 시트 프리페치 — 디코드는 백그라운드, QPixmap 변환만 GUI에서
         self._prefetch_ready.connect(self._on_prefetch_ready)
+        self._prefetch_finished.connect(self._on_prefetch_finished)
         self._prefetching: set[str] = set()
 
         # press 시점엔 팝오버를 띄우지 않고 예약만 해 둔다 — release에서
@@ -142,18 +151,33 @@ class ScoreCanvas(QWidget):
         if not todo:
             return
         self._prefetching.update(todo)
+        # 스레드가 이 캔버스의 마지막 참조를 들지 못하게 붙들어 둔다
+        _PREFETCH_KEEPALIVE.add(self)
 
         import threading
 
         def _load() -> None:
             from PySide6.QtGui import QImage
 
-            for p in todo:
-                img = QImage(p)
-                if not img.isNull():
-                    self._prefetch_ready.emit(p, img)
+            try:
+                for p in todo:
+                    img = QImage(p)
+                    if not img.isNull():
+                        self._prefetch_ready.emit(p, img)
+            except RuntimeError:
+                pass  # 위젯의 C++ 객체가 이미 삭제됨
+            finally:
+                try:
+                    self._prefetch_finished.emit()
+                except RuntimeError:
+                    # C++ 객체가 없어 시그널을 못 쏨 — 파이썬 래퍼만 남았다
+                    _PREFETCH_KEEPALIVE.discard(self)
 
         threading.Thread(target=_load, daemon=True).start()
+
+    def _on_prefetch_finished(self) -> None:
+        """프리페치 종료 — 메인 스레드에서 해제해야 파괴도 여기서 일어난다."""
+        _PREFETCH_KEEPALIVE.discard(self)
 
     def _on_prefetch_ready(self, path_key: str, image) -> None:
         self._prefetching.discard(path_key)
