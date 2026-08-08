@@ -504,14 +504,21 @@ class HotspotManager(QObject):
         # 캡티브 설치 검사(firewall-cmd 3회, ~800ms)를 백그라운드로 미리
         # 데워 첫 웹 송출 페이지 전환이 느려지지 않게 한다. 주입된 테스트
         # 백엔드에는 적용하지 않는다 (결정적 테스트 유지).
+        #
+        # 스레드 클로저는 self를 절대 캡처하지 않는다 — 스레드가 마지막
+        # 참조를 들면 Thread.run의 `del self._target`이 이 매니저를 워커
+        # 스레드에서 파괴하고, 매니저가 소유한 폴링 QTimer는 다른
+        # 스레드에서 멈출 수 없어 프로세스가 segfault한다. 결과는
+        # QObject가 아닌 상자(list)에만 담아 건넨다.
+        self._prewarm_box: list = [None]
         if not injected:
             import threading
 
-            def _prewarm() -> None:
+            box = self._prewarm_box
+
+            def _prewarm(backend=backend, box=box) -> None:
                 try:
-                    result = self._backend.captive_portal_installed()
-                    if self._captive_installed_cache is None:
-                        self._captive_installed_cache = result
+                    box[0] = backend.captive_portal_installed()
                 except Exception:
                     pass
 
@@ -550,6 +557,8 @@ class HotspotManager(QObject):
         return self._backend.support_message()
 
     def captive_portal_installed(self) -> bool:
+        if self._captive_installed_cache is None and self._prewarm_box[0] is not None:
+            self._captive_installed_cache = self._prewarm_box[0]
         if self._captive_installed_cache is None:
             self._captive_installed_cache = (
                 self._backend.captive_portal_installed()
@@ -559,6 +568,7 @@ class HotspotManager(QObject):
     def invalidate_captive_cache(self) -> None:
         """설치/제거 스크립트 실행 후 호출 — 다음 조회 때 재검사."""
         self._captive_installed_cache = None
+        self._prewarm_box[0] = None  # 프리워밍 결과도 함께 버린다
 
     def captive_portal_install_command(self) -> list[str]:
         return self._backend.captive_portal_install_command()

@@ -434,3 +434,87 @@ class TestCaptiveInstalledCache:
         mgr.captive_portal_installed()
 
         assert backend.calls == 2
+
+
+class TestPrewarmThreadOwnership:
+    """프리워밍 스레드는 매니저를 붙잡으면 안 된다.
+
+    스레드가 마지막 참조를 들고 있으면 Thread.run의 `del self._target`이
+    워커 스레드에서 매니저를 파괴한다 — 매니저는 폴링 QTimer를 소유하므로
+    "Timers cannot be stopped from another thread"가 뜨고 프로세스가
+    segfault한다 (CI 워커 크래시의 원인).
+    """
+
+    class _Backend:
+        """프리워밍이 붙는 '주입되지 않은' 백엔드 대역."""
+
+        def is_supported(self):
+            return True
+
+        def is_active(self):
+            return False
+
+        def captive_portal_installed(self):
+            return True
+
+    def _patch_platform_backend(self, monkeypatch):
+        """backend=None 경로가 이 대역을 쓰게 한다 (프리워밍 스레드 발생)."""
+        from flow.services import hotspot as hs
+
+        for name in ("_LinuxHotspot", "_WindowsHotspot", "_UnsupportedHotspot"):
+            monkeypatch.setattr(hs, name, self._Backend, raising=False)
+
+    def _record_threads(self, monkeypatch) -> list:
+        import threading
+
+        targets = []
+        real_thread = threading.Thread
+
+        class _Recording(real_thread):
+            def __init__(self, *a, target=None, **k):
+                targets.append(target)
+                super().__init__(*a, target=target, **k)
+
+        monkeypatch.setattr(threading, "Thread", _Recording)
+        return targets
+
+    def test_thread_closure_does_not_hold_the_manager(self, qapp, monkeypatch):
+        from flow.services.hotspot import HotspotManager
+
+        self._patch_platform_backend(monkeypatch)
+        targets = self._record_threads(monkeypatch)
+
+        mgr = HotspotManager()
+
+        assert targets, "프리워밍 스레드가 뜨지 않음"
+        held = []
+        for target in targets:
+            held += [c.cell_contents for c in (target.__closure__ or ())]
+            held += list((target.__defaults__ or ()))
+        assert not any(h is mgr for h in held), (
+            "스레드가 매니저를 캡처 — 워커 스레드에서 파괴될 수 있다"
+        )
+
+    def test_prewarm_result_reaches_the_cache(self, qapp, qtbot, monkeypatch):
+        from flow.services.hotspot import HotspotManager
+
+        self._patch_platform_backend(monkeypatch)
+        mgr = HotspotManager()
+
+        qtbot.waitUntil(lambda: mgr._prewarm_box[0] is True, timeout=3000)
+        assert mgr.captive_portal_installed() is True
+
+    def test_invalidate_drops_the_prewarmed_value(
+        self, qapp, qtbot, monkeypatch
+    ):
+        from flow.services.hotspot import HotspotManager
+
+        self._patch_platform_backend(monkeypatch)
+        mgr = HotspotManager()
+        qtbot.waitUntil(lambda: mgr._prewarm_box[0] is True, timeout=3000)
+
+        mgr.invalidate_captive_cache()
+
+        assert mgr._prewarm_box[0] is None, (
+            "무효화 후에도 프리워밍 값이 남으면 재설치 상태를 못 본다"
+        )
