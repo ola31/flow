@@ -1766,6 +1766,7 @@ class _StandalonePanel(QWidget):
 
     sheet_selected = Signal(object)     # ScoreSheet
     sheet_rename_requested = Signal(object)     # ScoreSheet
+    sheet_replace_image_requested = Signal(object)  # ScoreSheet
     sheet_move_requested = Signal(object, int)  # (ScoreSheet, delta)
     sheet_delete_requested = Signal(object)     # ScoreSheet
     sheet_clear_mappings_requested = Signal(object)  # ScoreSheet
@@ -1967,6 +1968,9 @@ class _StandalonePanel(QWidget):
             card = _PageCard(sheet, i + 1, sheet.id == self._current_sheet_id)
             card.selected.connect(self.sheet_selected.emit)
             card.rename_requested.connect(self.sheet_rename_requested.emit)
+            card.replace_image_requested.connect(
+                self.sheet_replace_image_requested.emit
+            )
             card.move_requested.connect(self.sheet_move_requested.emit)
             card.delete_requested.connect(self.sheet_delete_requested.emit)
             card.clear_mappings_requested.connect(
@@ -1987,6 +1991,7 @@ class _PageCard(QFrame):
 
     selected = Signal(object)          # ScoreSheet
     rename_requested = Signal(object)  # ScoreSheet
+    replace_image_requested = Signal(object)  # ScoreSheet — 악보 그림만 교체
     move_requested = Signal(object, int)  # (ScoreSheet, -1=위/+1=아래)
     delete_requested = Signal(object)  # ScoreSheet
     clear_mappings_requested = Signal(object)  # ScoreSheet
@@ -2083,6 +2088,13 @@ class _PageCard(QFrame):
 
         rename_act = QAction("이름 변경", self)
         rename_act.triggered.connect(lambda: self.rename_requested.emit(self._sheet))
+
+        replace_act = QAction("이미지 교체", self)
+        replace_act.setToolTip("핫스팟과 매핑은 그대로 두고 악보 그림만 바꿉니다")
+        replace_act.triggered.connect(
+            lambda: self.replace_image_requested.emit(self._sheet)
+        )
+        menu.addAction(replace_act)
         menu.addAction(rename_act)
 
         move_mode_act = QAction("위치 이동", self)
@@ -2602,6 +2614,7 @@ class SongListWidget(QWidget):
         panel.set_song(song, current_id)
         panel.sheet_selected.connect(self._on_sheet_selected_direct)
         panel.sheet_rename_requested.connect(self._rename_sheet)
+        panel.sheet_replace_image_requested.connect(self._replace_sheet_image)
         panel.sheet_move_requested.connect(self._move_sheet)
         panel.sheet_delete_requested.connect(self._delete_sheet)
         panel.sheet_clear_mappings_requested.connect(self._clear_sheet_mappings)
@@ -3469,6 +3482,90 @@ class SongListWidget(QWidget):
         self.song_removed.emit(sheet.id)
         if self._main_window:
             self._main_window._mark_dirty()
+
+    def _replace_sheet_image(self, sheet: ScoreSheet) -> None:
+        """시트의 악보 그림만 바꾼다 (핫스팟·매핑은 그대로).
+
+        삭제 후 재추가로 교체하면 그 시트의 핫스팟과 슬라이드 매핑이
+        전부 사라진다 — 더 좋은 스캔으로 갈아끼우는 흔한 작업이라
+        제자리 교체가 필요하다.
+
+        핫스팟은 이미지 픽셀 좌표로 저장되므로, 크기가 다른 그림으로
+        바꾸면 좌표를 비례 보정해야 가사 위에 그대로 남는다. 기존 파일은
+        지우지 않는다 (시트 삭제와 같은 방침).
+        """
+        import shutil
+
+        from PySide6.QtGui import QImage
+
+        if getattr(self._main_window, "_is_live", False):
+            return
+        song = self._find_song_of_sheet(sheet)
+        if song is None:
+            return
+
+        project_dir = self._get_project_dir() or Path.cwd()
+        song_dir = project_dir / song.folder
+        old_abs = song_dir / sheet.image_path
+
+        image_path, _ = QFileDialog.getOpenFileName(
+            self,
+            f"'{sheet.name}'의 악보 이미지 교체",
+            str(old_abs.parent if old_abs.parent.exists() else song_dir),
+            "이미지 (*.jpg *.jpeg *.png *.bmp)",
+        )
+        if not image_path:
+            return
+
+        src = Path(image_path).resolve()
+        sheets_dir = song.sheets_dir if song.sheets_dir else (song.folder / "sheets")
+        abs_sheets_dir = project_dir / sheets_dir
+        abs_sheets_dir.mkdir(parents=True, exist_ok=True)
+        rel_sheets = (
+            sheets_dir.relative_to(song.folder)
+            if song.folder and sheets_dir.is_relative_to(song.folder)
+            else Path("sheets")
+        )
+
+        dest = src
+        if src.parent != abs_sheets_dir:
+            dest = _unique_sheet_dest(abs_sheets_dir, src)
+            try:
+                if not dest.exists():
+                    shutil.copy2(src, dest)
+            except OSError as e:
+                from flow.ui import dialogs
+
+                dialogs.flow_warning(
+                    self, "교체 실패", f"이미지를 복사할 수 없습니다:\n{e}"
+                )
+                return
+
+        old_size = QImage(str(old_abs)).size()
+        new_size = QImage(str(dest)).size()
+        sheet.image_path = (rel_sheets / dest.name).as_posix()
+
+        if (
+            sheet.hotspots
+            and old_size.width() > 0
+            and old_size.height() > 0
+            and new_size.width() > 0
+            and new_size.height() > 0
+            and old_size != new_size
+        ):
+            sx = new_size.width() / old_size.width()
+            sy = new_size.height() / old_size.height()
+            for h in sheet.hotspots:
+                h.x = int(round(h.x * sx))
+                h.y = int(round(h.y * sy))
+
+        self.refresh_list()
+        self.select_sheet_by_id(sheet.id)  # 캔버스가 새 그림을 다시 읽는다
+        if self._main_window:
+            self._main_window._mark_dirty()
+            self._main_window.statusBar().showMessage(
+                f"'{sheet.name}'의 악보 이미지를 교체했습니다.", 3000
+            )
 
     def _clear_sheet_mappings(self, sheet: ScoreSheet) -> None:
         """시트의 모든 핫스팟 매핑 일괄 해제 (Ctrl+Z 복구 가능)."""
