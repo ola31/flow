@@ -225,3 +225,73 @@ def test_effective_background_is_public():
     attrs = resolve_attrs(spec, slide)
     bg = effective_background(spec, slide, attrs)
     assert bg == spec.frontmatter.background  # 1줄이므로 기본 배경
+
+
+def _ink_rows(img: QImage) -> tuple[int, int]:
+    """본문 가사가 그려진 세로 범위 (첫 행, 마지막 행).
+
+    슬라이드 하단에는 보조 텍스트가 늘 함께 그려지므로, 잉크가 있는
+    구간을 묶은 뒤 맨 아래 덩어리(보조 텍스트)를 빼고 본문만 잰다.
+    """
+    rows = []
+    for y in range(img.height()):
+        for x in range(0, img.width(), 3):  # 3px 간격이면 충분히 잡힌다
+            c = img.pixelColor(x, y)
+            if c.red() > 60 or c.green() > 60 or c.blue() > 60:
+                rows.append(y)
+                break
+
+    bands: list[list[int]] = []
+    for y in rows:
+        if bands and y - bands[-1][1] <= 2:
+            bands[-1][1] = y
+        else:
+            bands.append([y, y])
+
+    main = bands[:-1]  # 마지막 덩어리는 하단 보조 텍스트
+    if not main:
+        return -1, -1
+    return main[0][0], main[-1][1]
+
+
+def _render(main: str, **fm_kw) -> QImage:
+    fm = Frontmatter(background="#000000", **fm_kw)
+    slide = Slide(main=main, sub_override=None, section_sub_default=None)
+    spec = SongSpec(title="T", frontmatter=fm, slides=[slide])
+    return render_slide(spec, slide, song_dir=Path("."))
+
+
+class TestSingleLineIsLifted:
+    """한 줄 가사가 두 줄 기준의 '아랫줄' 자리에 놓여 아래로 치우치던 문제.
+
+    아래 정렬(anchor=bottom)이라 줄 수가 적을수록 아래로 몰린다 —
+    한 줄은 반 줄만큼 올려 두 줄이 차지했을 영역의 가운데에 오게 한다.
+    """
+
+    def test_single_line_sits_above_the_two_line_bottom(self, qapp) -> None:
+        one_top, one_bottom = _ink_rows(_render("한 줄"))
+        _, two_bottom = _ink_rows(_render("첫 줄\n둘째 줄"))
+
+        assert one_top >= 0 and two_bottom >= 0
+        assert one_bottom < two_bottom, "한 줄이 두 줄짜리의 아랫줄보다 위여야 한다"
+
+    def test_single_line_lands_near_the_two_line_middle(self, qapp) -> None:
+        one_top, one_bottom = _ink_rows(_render("한 줄"))
+        two_top, two_bottom = _ink_rows(_render("첫 줄\n둘째 줄"))
+
+        one_mid = (one_top + one_bottom) / 2
+        two_mid = (two_top + two_bottom) / 2
+        # 두 줄 블록의 세로 가운데 근처 — 한 줄 높이의 절반 안쪽
+        assert abs(one_mid - two_mid) < (one_bottom - one_top + 1)
+
+    def test_lift_zero_restores_the_old_position(self, qapp) -> None:
+        _, lifted = _ink_rows(_render("한 줄"))
+        _, unlifted = _ink_rows(_render("한 줄", single_line_lift=0.0))
+
+        assert lifted < unlifted
+
+    def test_two_line_slide_is_unchanged_by_the_lift(self, qapp) -> None:
+        a = _ink_rows(_render("첫 줄\n둘째 줄"))
+        b = _ink_rows(_render("첫 줄\n둘째 줄", single_line_lift=0.0))
+
+        assert a == b

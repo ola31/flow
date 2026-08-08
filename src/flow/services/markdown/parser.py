@@ -84,6 +84,10 @@ class Frontmatter:
     text_bottom_pct_4plus: float = 0.796   # baseline fraction (4+ line slides)
     multiline_threshold: int = 3           # line count that triggers _3plus values
     multiline_4plus_threshold: int = 4     # line count that triggers _4plus values
+    # 한 줄짜리 가사를 위로 올리는 양 (줄 높이 배수, anchor=bottom 일 때만).
+    # 아래 정렬이라 한 줄은 두 줄 기준의 '아랫줄' 자리에 놓여 아래로 치우친다.
+    # 0.5 = 두 줄이 차지했을 영역의 정가운데. 0 이면 종전처럼 아랫줄 자리.
+    single_line_lift: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -208,6 +212,9 @@ def _build_frontmatter(raw: dict[str, Any] | None) -> Frontmatter:
         ),
         multiline_4plus_threshold=_parse_int(
             raw.get("multiline_4plus_threshold"), d.multiline_4plus_threshold
+        ),
+        single_line_lift=_parse_float(
+            raw.get("single_line_lift"), d.single_line_lift
         ),
     )
 

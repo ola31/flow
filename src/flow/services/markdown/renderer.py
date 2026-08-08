@@ -248,6 +248,11 @@ def _draw_main_text(
     first_line_leading = natural_lh * max(0.0, line_spacing - 1.0) * 0.7
     if fm.text_anchor == "bottom":
         y = h * text_bottom_pct - doc_h + first_line_leading
+        if len(lines) == 1:
+            # 아래 정렬이라 한 줄짜리는 두 줄 기준의 '아랫줄' 자리에 놓여
+            # 아래로 치우쳐 보인다. 반 줄만큼 올려 두 줄이 차지했을 영역의
+            # 가운데에 오게 한다 (single_line_lift=0 이면 종전 동작).
+            y -= natural_lh * line_spacing * fm.single_line_lift
     else:
         y = (h - doc_h) / 2 + first_line_leading / 2
     y = round(y)
