@@ -104,15 +104,27 @@ def resolve_background_file(bg: str, song_dir: Path) -> Path | None:
     return path if path.exists() else None
 
 
+# 슬라이드 이미지를 웹으로 보낼 때 쓰는 형식.
+# PNG는 1920x1080 한 장에 ~600ms가 걸린다. 이 인코딩은 슬라이드 송출
+# 슬롯 안에서 GUI 스레드를 잡고 도는데, 그동안 Qt가 이벤트 루프로
+# 돌아가지 못해 송출 화면 페인트까지 같이 밀린다 — PPT 기반 곡에서
+# 전환이 1초쯤 늦게 보이던 원인이 이것이다 (마크다운 곡은 텍스트
+# 페이로드로 나가서 이 경로를 타지 않는다).
+# q92 JPEG면 같은 그림이 ~48ms에 인코딩되고 크기는 1/5다.
+_IMAGE_FORMAT = "JPEG"
+_IMAGE_QUALITY = 92
+_IMAGE_MIME = "image/jpeg"
+
+
 def encode_image_payload(image) -> dict:
-    """Encode a QImage as a base64 PNG data URL payload."""
+    """Encode a QImage as a base64 JPEG data URL payload."""
     buffer = QBuffer()
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-    image.save(buffer, "PNG")
+    image.save(buffer, _IMAGE_FORMAT, _IMAGE_QUALITY)
     data = bytes(buffer.data())
     buffer.close()
     encoded = base64.b64encode(data).decode("ascii")
-    return {"type": "image", "data_url": f"data:image/png;base64,{encoded}"}
+    return {"type": "image", "data_url": f"data:{_IMAGE_MIME};base64,{encoded}"}
 
 
 def _bg_content_type(path: Path) -> str:

@@ -66,7 +66,36 @@ def test_encode_image_payload(qapp):
     img.fill(0xFF000000)
     payload = encode_image_payload(img)
     assert payload["type"] == "image"
-    assert payload["data_url"].startswith("data:image/png;base64,")
+    assert payload["data_url"].startswith("data:image/jpeg;base64,")
+
+
+def test_encode_image_payload_is_decodable_and_small(qapp):
+    """PNG로 되돌아가면 인코딩이 ~600ms로 늘어 송출 전환이 눈에 띄게 밀린다.
+
+    시간은 기계마다 달라 못 재므로, 그 비용을 부르는 무손실 형식으로
+    되돌아갔는지를 크기로 잡는다 — 사진 같은 슬라이드 한 장에서
+    PNG는 JPEG의 5배 넘게 나온다.
+    """
+    import base64
+    import math
+
+    from PySide6.QtGui import QImage, QColor
+
+    img = QImage(640, 360, QImage.Format.Format_RGB32)
+    for y in range(img.height()):  # PNG가 못 줄이는 연속 계조
+        for x in range(img.width()):
+            img.setPixelColor(
+                x, y, QColor(x % 256, y % 256, int(127 + 127 * math.sin(x / 40)))
+            )
+
+    payload = encode_image_payload(img)
+    raw = base64.b64decode(payload["data_url"].split(",", 1)[1])
+
+    assert raw[:2] == b"\xff\xd8", "JPEG SOI 마커여야 한다"
+    assert QImage.fromData(raw).size() == img.size(), "브라우저가 열 수 있어야 한다"
+    assert len(raw) < img.width() * img.height() // 4, (
+        f"픽셀당 2비트도 안 되게 압축돼야 한다 (실제 {len(raw)}바이트)"
+    )
 
 
 def test_detect_local_ips_returns_list():
