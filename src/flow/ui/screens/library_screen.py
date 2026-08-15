@@ -216,10 +216,11 @@ class LibraryScreen(QWidget):
             if card is None:
                 card = ItemCard(
                     path=key, title=path.name, subtitle=subtitle,
-                    deletable=True,
+                    deletable=True, categorizable=True,
                 )
                 card.clicked.connect(self.song_selected.emit)
                 card.delete_requested.connect(self.song_delete_requested.emit)
+                card.categorize_requested.connect(self._on_categorize)
                 self._cards[key] = card
             else:
                 card.set_subtitle(subtitle)
@@ -272,6 +273,47 @@ class LibraryScreen(QWidget):
             self._empty_lbl.show()
             return
         self._empty_lbl.hide()
+
+    # ── 분류 ────────────────────────────────────────────────────────────
+
+    def _known_categories(self) -> list[str]:
+        """지금 쓰이고 있는 분류 이름들.
+
+        마스터 목록을 따로 두지 않는다 — 그 분류의 마지막 곡이 빠지면
+        이름도 함께 사라지는 편이 관리할 것이 없어 낫다.
+        """
+        return sorted(
+            {e["category"] for e in self._index.values() if e["category"]}
+        )
+
+    def _on_categorize(self, key: str) -> None:
+        from flow.ui.dialogs import flow_pick_or_new
+
+        entry = self._index.get(key)
+        if entry is None:
+            return
+        value, ok = flow_pick_or_new(
+            self,
+            "분류 지정",
+            f"'{entry['path'].name}'의 분류 (비우면 분류 없음)",
+            self._known_categories(),
+            current=entry["category"],
+        )
+        if ok:
+            self._apply_category(key, value)
+
+    def _apply_category(self, key: str, category: str) -> None:
+        from flow.services.song_meta import set_category
+
+        entry = self._index.get(key)
+        if entry is None:
+            return
+        set_category(entry["path"], category)
+        entry["category"] = category
+        # meta.json이 바뀌었으니 다음 refresh가 디스크를 다시 보게 한다
+        self._last_fingerprint = None
+        self._applied_order = None
+        self._apply_view()
 
     def _detach_all_cards(self) -> None:
         """카드를 레이아웃에서만 떼어내고 위젯은 살려둔다 (끝의 stretch 유지).

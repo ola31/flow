@@ -176,6 +176,7 @@ class ItemCard(QFrame):
     clicked = Signal(str)  # path
     rename_requested = Signal(str)  # path
     delete_requested = Signal(str)  # path
+    categorize_requested = Signal(str)  # path
 
     def __init__(
         self,
@@ -186,6 +187,7 @@ class ItemCard(QFrame):
         match_snippet: str = "",
         renamable: bool = False,
         deletable: bool = False,
+        categorizable: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -193,7 +195,8 @@ class ItemCard(QFrame):
         self._match_snippet = match_snippet
         self._renamable = renamable
         self._deletable = deletable
-        if renamable or deletable:
+        self._categorizable = categorizable
+        if renamable or deletable or categorizable:
             self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             self.customContextMenuRequested.connect(self._show_context_menu)
         self.setObjectName("ItemCard")
@@ -263,6 +266,11 @@ class ItemCard(QFrame):
         if self._renamable:
             act = menu.addAction("이름 변경")
             act.triggered.connect(lambda: self.rename_requested.emit(self._path))
+        if self._categorizable:
+            act = menu.addAction("분류 지정…")
+            act.triggered.connect(
+                lambda: self.categorize_requested.emit(self._path)
+            )
         if self._deletable:
             if not menu.isEmpty():
                 menu.addSeparator()

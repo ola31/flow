@@ -604,6 +604,68 @@ def flow_input_text(
     return "", False
 
 
+def flow_pick_or_new(
+    parent,
+    title: str,
+    label: str,
+    options: list[str],
+    *,
+    current: str = "",
+    ok_text: str = "확인",
+    cancel_text: str = "취소",
+) -> tuple[str, bool]:
+    """이미 쓰이는 이름 중에서 고르거나 새 이름을 직접 입력하는 다이얼로그.
+
+    Returns:
+        (선택/입력된 값, 확인 여부). 빈 문자열은 '지정 안 함'을 뜻하므로
+        취소(False)와 구분해서 볼 것.
+    """
+    from PySide6.QtWidgets import QComboBox
+
+    dlg = _FlowDialog(parent, title=title)
+    dlg.setMinimumWidth(440)
+    body = dlg.body_layout()
+
+    if label:
+        prompt = QLabel(label)
+        prompt.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; font-size: {FONT_MD}px; "
+            "background: transparent; border: none;"
+        )
+        prompt.setWordWrap(True)
+        body.addWidget(prompt)
+
+    combo = QComboBox()
+    combo.setEditable(True)  # 목록에서 고르거나 새 이름을 직접 입력
+    combo.setFixedHeight(36)
+    combo.addItem("")  # 빈 항목 = 지정 안 함
+    for option in options:
+        combo.addItem(option)
+    combo.setCurrentText(current)
+    combo.setStyleSheet(
+        f"QComboBox {{ background: {SURFACE_GHOST}; color: {TEXT_PRIMARY}; "
+        f"border: 1px solid {BORDER_STANDARD_RGBA}; border-radius: {RADIUS_MD}px; "
+        f"padding: 0 {SP_MD}px; font-size: {FONT_MD}px; "
+        f"font-weight: {FW_MEDIUM}; }} "
+        f"QComboBox:focus {{ border-color: {ACCENT_INTER}; }} "
+        f"QComboBox QAbstractItemView {{ background: {BG_ELEVATED}; "
+        f"color: {TEXT_PRIMARY}; selection-background-color: {ACCENT}; }}"
+    )
+    body.addWidget(combo)
+
+    btn_cancel = _make_button(cancel_text)
+    btn_cancel.clicked.connect(dlg.reject)
+    btn_ok = _make_button(ok_text, primary=True)
+    btn_ok.clicked.connect(dlg.accept)
+    btn_ok.setDefault(True)
+    btn_ok.setAutoDefault(True)
+    dlg.add_button_row([btn_cancel, btn_ok])
+
+    if dlg.exec() == QDialog.DialogCode.Accepted:
+        return combo.currentText().strip(), True
+    return "", False
+
+
 # ─── 설치 안내 다이얼로그 ───────────────────────────────────────────────────
 
 _LIBREOFFICE_URL = "https://www.libreoffice.org/download/"
