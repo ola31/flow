@@ -11,6 +11,7 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
     QLabel,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -31,6 +32,7 @@ from flow.ui.styles import (
     BORDER_FOCUS,
     FONT_MD,
     FW_SEMI,
+    RADIUS_MD,
     SP_LG,
     SP_MD,
     SP_SM,
@@ -56,7 +58,7 @@ class LibraryScreen(QWidget):
     """
 
     song_selected = Signal(str)
-    new_song_requested = Signal()
+    new_song_requested = Signal(str)  # 새 곡을 넣을 분류 ("" = 분류 없음)
     # 삭제 요청 (곡 폴더 경로) — 실제 처리는 MainWindow가 한다
     song_delete_requested = Signal(str)
 
@@ -74,8 +76,10 @@ class LibraryScreen(QWidget):
         self._applied_order: list[str] | None = None
         self._config = ConfigService()
         self._view_mode = self._config.get_library_view_mode()
-        # 분류명 → 블록 헤더 라벨. 카드와 같은 이유로 풀에 두고 재사용한다.
+        # 분류명 → 블록 헤더 라벨 / '＋ 새 곡' 타일. 카드와 같은 이유로
+        # 풀에 두고 재사용한다.
         self._headers: dict[str, QLabel] = {}
+        self._add_tiles: dict[str, QPushButton] = {}
 
         self.setStyleSheet(f"background: {BG_DEEP};")
         root = QVBoxLayout(self)
@@ -87,7 +91,10 @@ class LibraryScreen(QWidget):
             new_button_label="＋ 새 곡 만들기",
             view_toggle=True,
         )
-        self._toolbar.new_clicked.connect(self.new_song_requested.emit)
+        # 툴바의 '새 곡'은 분류 없이 만든다 — 블록의 타일만 분류를 싣는다
+        self._toolbar.new_clicked.connect(
+            lambda: self.new_song_requested.emit("")
+        )
         self._toolbar.search_changed.connect(self._on_search_changed)
         self._toolbar.sort_changed.connect(self._on_sort_changed)
         self._toolbar.refresh_clicked.connect(self.force_refresh)
@@ -276,6 +283,8 @@ class LibraryScreen(QWidget):
             else:
                 for header in self._headers.values():
                     header.setVisible(False)
+                for tile in self._add_tiles.values():
+                    tile.setVisible(False)
                 for i, key in enumerate(order):
                     self._cards_layout.insertWidget(i, self._cards[key])
             self._applied_order = order
@@ -308,6 +317,27 @@ class LibraryScreen(QWidget):
             names.append(UNCATEGORIZED)
         return [(name, buckets[name]) for name in names]
 
+    def _add_tile_for(self, name: str) -> QPushButton:
+        """블록 끝의 '＋ 새 곡' 타일 (분류명 기준으로 재사용)."""
+        tile = self._add_tiles.get(name)
+        if tile is None:
+            tile = QPushButton("＋ 새 곡")
+            tile.setCursor(Qt.CursorShape.PointingHandCursor)
+            tile.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            tile.setFixedHeight(40)
+            tile.setStyleSheet(
+                f"QPushButton {{ background: transparent; "
+                f"color: {TEXT_TERTIARY}; border: 1px dashed {BORDER_FOCUS}; "
+                f"border-radius: {RADIUS_MD}px; font-size: {FONT_MD}px; }} "
+                f"QPushButton:hover {{ color: {TEXT_SECONDARY}; }}"
+            )
+            category = "" if name == UNCATEGORIZED else name
+            tile.clicked.connect(
+                lambda _c=False, c=category: self.new_song_requested.emit(c)
+            )
+            self._add_tiles[name] = tile
+        return tile
+
     def _header_for(self, name: str) -> QLabel:
         """블록 헤더 라벨 (분류명 기준으로 재사용)."""
         header = self._headers.get(name)
@@ -338,10 +368,17 @@ class LibraryScreen(QWidget):
             for key in keys:
                 self._cards_layout.insertWidget(row, self._cards[key])
                 row += 1
+            tile = self._add_tile_for(name)
+            tile.setVisible(True)
+            self._cards_layout.insertWidget(row, tile)
+            row += 1
 
         for name, header in self._headers.items():
             if name not in live:
                 header.setVisible(False)
+        for name, tile in self._add_tiles.items():
+            if name not in live:
+                tile.setVisible(False)
 
     def _on_view_changed(self, mode: str) -> None:
         self._view_mode = mode

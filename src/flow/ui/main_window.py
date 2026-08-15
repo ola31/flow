@@ -711,7 +711,7 @@ class MainWindow(QMainWindow):
             self._delete_library_song
         )
         self._library_screen.new_song_requested.connect(
-            lambda: self._launcher.new_song_requested.emit()
+            lambda category: self._new_song(category, in_library=True)
         )
         self._stack.addWidget(self._library_screen)
 
@@ -1270,11 +1270,21 @@ class MainWindow(QMainWindow):
                 self, "오류", f"프로젝트 폴더를 생성할 수 없습니다:\n{e}"
             )
 
-    def _new_song(self) -> None:
+    def _new_song(self, category: str = "", *, in_library: bool = False) -> None:
+        """새 곡을 만든다.
+
+        Args:
+            category: 만든 뒤 붙일 분류 (빈 문자열이면 분류 없음)
+            in_library: True면 프로젝트가 열려 있어도 워크스페이스의
+                library/에 만든다. 라이브러리 화면으로 이동해도 프로젝트는
+                닫히지 않으므로, 이 구분이 없으면 라이브러리에서 만든 곡이
+                프로젝트 폴더 안에 생겨 목록에서 사라진다.
+        """
         # 1. 곡 이름 입력 받기
         from flow.ui.dialogs import flow_input_text
 
-        if self._project and not self._is_standalone:
+        to_library = in_library and self._workspace is not None
+        if self._project and not self._is_standalone and not to_library:
             prompt = (
                 "곡 제목을 입력하세요.\n"
                 "이 곡은 현재 프로젝트의 songs 폴더 안에 생성됩니다."
@@ -1292,7 +1302,7 @@ class MainWindow(QMainWindow):
             return
 
         # 2. 모드에 따른 처리
-        if self._project and not self._is_standalone:
+        if self._project and not self._is_standalone and not to_library:
             song_dir = self._project_path.parent / "songs" / name
 
             try:
@@ -1332,19 +1342,31 @@ class MainWindow(QMainWindow):
             if not self._check_unsaved_changes():
                 return
 
-            start_dir = self._workspace.root if self._workspace is not None else self._repo.base_path
-            folder = QFileDialog.getExistingDirectory(
-                self, "곡 폴더를 생성할 위치 선택", str(start_dir)
-            )
-            if not folder:
-                return
+            if to_library:
+                # 라이브러리 화면에서 온 요청 — 위치를 묻지 않는다
+                song_dir = self._workspace.library_song_dir(name)
+            else:
+                start_dir = (
+                    self._workspace.root if self._workspace is not None
+                    else self._repo.base_path
+                )
+                folder = QFileDialog.getExistingDirectory(
+                    self, "곡 폴더를 생성할 위치 선택", str(start_dir)
+                )
+                if not folder:
+                    return
 
-            song_dir = Path(folder) / name
+                song_dir = Path(folder) / name
 
             try:
                 self._is_standalone = True
                 self._project = self._repo.create_standalone_song(song_dir, name)
                 self._project_path = song_dir
+
+                if category:
+                    from flow.services.song_meta import set_category
+
+                    set_category(song_dir, category)
                 self._live_controller.set_project(self._project)
 
                 self._song_list.set_standalone(True)
