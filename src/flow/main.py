@@ -12,6 +12,22 @@ from flow import __version__
 # 크래시 로그 파일 핸들 — GC로 닫히지 않게 모듈 전역으로 유지
 _CRASH_LOG_HANDLE = None
 
+# 스플래시를 최소한 이만큼은 보여준다 (초). 로고가 떴다 사라지는 깜빡임만
+# 막으면 되는 값이라 짧게 잡는다.
+SPLASH_MIN_VISIBLE_S = 0.6
+
+
+def _splash_wait_seconds(shown_at: float | None, now: float) -> float:
+    """스플래시를 더 붙잡아 둘 시간(초).
+
+    기준은 **스플래시를 띄운 시점**이다. 창을 다 만든 뒤부터 세면 그 시간이
+    시작 시간에 통째로 더해져, 창 생성이 느린 PC일수록 이미 오래 기다린
+    사용자를 더 붙잡는다.
+    """
+    if shown_at is None:
+        return 0.0
+    return max(0.0, SPLASH_MIN_VISIBLE_S - (now - shown_at))
+
 
 def _setup_crash_log() -> None:
     """Segfault 시 스택 트레이스를 영구 파일(~/.flow/crash.log)에 남긴다.
@@ -157,7 +173,7 @@ def main() -> int:
     # PySide6 임포트는 여기서 수행 (테스트 시 GUI 의존성 분리)
     from PySide6.QtCore import Qt, QTimer
     from PySide6.QtGui import QGuiApplication, QPixmap
-    from PySide6.QtWidgets import QApplication, QSplashScreen
+    from PySide6.QtWidgets import QApplication
 
     from flow.ui.main_window import MainWindow
 
@@ -187,6 +203,7 @@ def main() -> int:
     splash_path = os.path.join(base_path, "assets", "splash.png")
 
     splash = None
+    splash_shown_at: float | None = None
     if os.path.exists(splash_path):
         pixmap = QPixmap(splash_path)
         if not pixmap.isNull():
@@ -199,18 +216,15 @@ def main() -> int:
                     Qt.TransformationMode.SmoothTransformation,
                 )
 
-            # [수정] 리눅스/윈도우 공통 렌더링 보장 플래그
-            splash = QSplashScreen(
-                pixmap,
-                Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint,
-            )
+            # QSplashScreen을 쓰지 않는 이유는 flow.ui.splash 참고
+            # (이 Qt 버전에서 show() 한 번이 ~1.0초 블로킹한다)
+            from flow.ui.splash import Splash
+
+            splash = Splash(pixmap, "프로그램을 불러오는 중...")
+            splash.center_on(app.primaryScreen())
             splash.show()
+            splash_shown_at = time.monotonic()
             splash.raise_()  # 맨 앞으로 가져오기
-            splash.showMessage(
-                "프로그램을 불러오는 중...",
-                Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter,
-                Qt.GlobalColor.white,
-            )
 
             # 초기 강력 렌더링
             for _ in range(50):
@@ -274,14 +288,15 @@ def main() -> int:
     except Exception:
         pass
 
-    # 스플래시 최소 노출 시간. 무거운 MainWindow 생성·프리워밍 동안에는 이벤트
-    # 루프가 멈춰 xcb에서 스플래시가 실제로 그려지지 않으므로, 생성이 끝난
-    # '지금'을 기준으로 능동적으로 이벤트를 돌리며 1.8초를 보장한다.
-    splash_visible_seconds = 1.8
-    splash_floor_start = time.time()
-    while time.time() - splash_floor_start < splash_visible_seconds:
+    # 스플래시 최소 노출 시간. 띄운 시점부터 세므로, 창 생성·프리워밍이
+    # 이미 그만큼 걸렸다면 여기서 더 기다리지 않는다. (스플래시는 show 직후
+    # processEvents로 이미 그려져 있고, 이 루프는 남은 시간 동안 이벤트를
+    # 계속 돌려 화면이 얼어붙지 않게 하는 역할이다.)
+    remaining = _splash_wait_seconds(splash_shown_at, time.monotonic())
+    while remaining > 0:
         app.processEvents()
-        time.sleep(0.01)
+        time.sleep(min(0.01, remaining))
+        remaining = _splash_wait_seconds(splash_shown_at, time.monotonic())
 
     # X11(xcb)은 클라이언트가 위치를 못 정하면 창을 좌측 상단에 붙인다. Wayland
     # 에서 저장된 geometry의 위치도 신뢰할 수 없으므로, 저장된 크기는 유지하되
