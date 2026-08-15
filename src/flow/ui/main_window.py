@@ -1623,7 +1623,21 @@ class MainWindow(QMainWindow):
             self._in_transition = False
 
             if self._project and self._project.selected_songs:
-                self._slide_manager.load_songs(self._project.selected_songs)
+                # 파일이 바뀔 수 있는 건 방금 편집한 곡뿐이다 — 그 곡의
+                # 카운트만 지워 다시 세게 하고, 나머지 곡은 이미 센 값과
+                # mtime 키 변환 캐시를 그대로 쓴다. 전 곡 재카운트는 곡마다
+                # pptx를 두 번(메타데이터 + LOAD_SINGLE) 파싱하므로 셋리스트가
+                # 길수록 복귀가 통째로 다시 로딩되는 것처럼 보인다.
+                # load_songs 자체는 빼면 안 된다: _songs를 부모 프로젝트의
+                # Song 객체로 다시 묶고, 완료 신호가 진입 때 localize한
+                # 인덱스를 globalize한다.
+                if edited_song_name:
+                    for s in self._project.selected_songs:
+                        if s.name == edited_song_name:
+                            s.set_slide_count(0)
+                self._slide_manager.load_songs(
+                    self._project.selected_songs, skip_counted=True
+                )
 
         except Exception as e:
             self._in_transition = False
