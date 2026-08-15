@@ -19,6 +19,7 @@ class ConfigService:
             "window_state": "",
             "display_screen_name": "",  # 송출 모니터 식별 (QScreen.name)
             "output_resolution": [1920, 1080],  # 송출/렌더 출력 해상도 [W, H]
+            "library_view_mode": "list",  # 라이브러리 화면: list | cards
         }
         self.load()
 
@@ -261,6 +262,18 @@ class ConfigService:
     def set_max_verses(self, count: int):
         """최대 절 수 설정"""
         self._config["max_verses"] = max(1, min(10, count))  # 1~10 사이로 제한
+        self.save()
+
+    def get_library_view_mode(self) -> str:
+        """라이브러리 화면의 뷰 모드 ("list" | "cards").
+
+        키가 없는 예전 설정 파일에서는 목록 뷰로 시작한다.
+        """
+        return self._config.get("library_view_mode", "list")
+
+    def set_library_view_mode(self, mode: str) -> None:
+        """라이브러리 화면의 뷰 모드 저장"""
+        self._config["library_view_mode"] = mode
         self.save()
 
     def get_window_layout(self) -> tuple[str, str]:

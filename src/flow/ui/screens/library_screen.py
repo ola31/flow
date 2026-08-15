@@ -16,10 +16,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from flow.services.config_service import ConfigService
 from flow.services.song_index import song_info, song_lyrics
 from flow.ui.screens._browser_widgets import (
     SORT_CREATED,
     SORT_NAME,
+    VIEW_CARDS,
+    VIEW_LIST,
     BrowserToolbar,
     ItemCard,
 )
@@ -65,6 +68,8 @@ class LibraryScreen(QWidget):
         # 바뀔 때만 다시 만든다 — 타이핑 중에는 이 색인만 훑는다.
         self._index: dict[str, dict] = {}
         self._applied_order: list[str] | None = None
+        self._config = ConfigService()
+        self._view_mode = self._config.get_library_view_mode()
 
         self.setStyleSheet(f"background: {BG_DEEP};")
         root = QVBoxLayout(self)
@@ -74,11 +79,16 @@ class LibraryScreen(QWidget):
         self._toolbar = BrowserToolbar(
             title="라이브러리",
             new_button_label="＋ 새 곡 만들기",
+            view_toggle=True,
         )
         self._toolbar.new_clicked.connect(self.new_song_requested.emit)
         self._toolbar.search_changed.connect(self._on_search_changed)
         self._toolbar.sort_changed.connect(self._on_sort_changed)
         self._toolbar.refresh_clicked.connect(self.force_refresh)
+        # 저장된 뷰를 먼저 반영한 뒤에 연결한다 — 순서를 바꾸면 아직 만들지
+        # 않은 카드 레이아웃을 초기화 도중에 그리려 든다.
+        self._toolbar.set_view(self._view_mode)
+        self._toolbar.view_changed.connect(self._on_view_changed)
         root.addWidget(self._toolbar)
 
         # F5 — 이 화면이 떠 있을 때만 동작하도록 위젯 범위로 제한한다
@@ -273,6 +283,12 @@ class LibraryScreen(QWidget):
             self._empty_lbl.show()
             return
         self._empty_lbl.hide()
+
+    def _on_view_changed(self, mode: str) -> None:
+        self._view_mode = mode
+        self._config.set_library_view_mode(mode)
+        self._applied_order = None  # 레이아웃을 처음부터 다시 구성한다
+        self._apply_view()
 
     # ── 분류 ────────────────────────────────────────────────────────────
 

@@ -171,3 +171,23 @@ def test_hotspot_ssid_password_roundtrip(config_service):
     config_service.set_hotspot_password("pw123456")
     assert config_service.get_hotspot_ssid() == "Flow-ABCD"
     assert config_service.get_hotspot_password() == "pw123456"
+
+
+class TestLibraryViewMode:
+    """라이브러리 목록/카드 뷰 선택은 다음 실행까지 유지된다."""
+
+    def test_defaults_to_list(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        from flow.services.config_service import ConfigService
+
+        assert ConfigService().get_library_view_mode() == "list"
+
+    def test_roundtrip(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        from flow.services.config_service import ConfigService
+
+        ConfigService().set_library_view_mode("cards")
+
+        assert ConfigService().get_library_view_mode() == "cards"

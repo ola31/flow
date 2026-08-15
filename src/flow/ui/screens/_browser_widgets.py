@@ -32,6 +32,7 @@ from flow.ui.styles import (
     SP_MD,
     SP_SM,
     SP_XS,
+    SURFACE_RAISED,
     SURFACE_SUBTLE,
     TEXT_PRIMARY,
     TEXT_SECONDARY,
@@ -47,6 +48,11 @@ SORT_CREATED = "created"
 # ~16ms) 대기 자체가 체감 지연이라 짧게 잡는다.
 SEARCH_DEBOUNCE_MS = 120
 
+# 라이브러리 화면의 보기 방식. 아이콘 서브셋에 그리드 글리프가 없어
+# 토글은 텍스트 라벨로 만든다 (이모지는 쓰지 않는다).
+VIEW_LIST = "list"
+VIEW_CARDS = "cards"
+
 
 class BrowserToolbar(QWidget):
     """Title + new-button + search + sort dropdown row."""
@@ -55,12 +61,15 @@ class BrowserToolbar(QWidget):
     search_changed = Signal(str)
     sort_changed = Signal(str)  # SORT_NAME | SORT_CREATED
     refresh_clicked = Signal()
+    view_changed = Signal(str)  # VIEW_LIST | VIEW_CARDS
 
     def __init__(
         self,
         title: str,
         new_button_label: str,
         parent: QWidget | None = None,
+        *,
+        view_toggle: bool = False,
     ) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
@@ -77,6 +86,24 @@ class BrowserToolbar(QWidget):
         )
         title_row.addWidget(lbl)
         title_row.addStretch()
+
+        # 보기 전환 — 목록 / 분류별 카드
+        self._view = VIEW_LIST
+        self._view_buttons: dict[str, QPushButton] = {}
+        if view_toggle:
+            for mode, label in ((VIEW_LIST, "목록"), (VIEW_CARDS, "카드")):
+                btn = QPushButton(label)
+                btn.setCheckable(True)
+                btn.setFixedHeight(32)
+                btn.setMinimumWidth(52)
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                btn.clicked.connect(
+                    lambda _c=False, m=mode: self.set_view(m)
+                )
+                self._view_buttons[mode] = btn
+                title_row.addWidget(btn)
+            self._refresh_view_buttons()
 
         # 새로고침 — 파일 관리자에서 폴더를 직접 고쳤을 때처럼 앱 밖에서
         # 일어난 변경을 즉시 반영하기 위한 수단 (F5도 같은 동작).
@@ -168,6 +195,36 @@ class BrowserToolbar(QWidget):
         self._search.clear()
         self._search_timer.stop()
         self.search_changed.emit("")
+
+
+    # ── 보기 전환 ───────────────────────────────────────────────────────
+
+    def view(self) -> str:
+        return self._view
+
+    def set_view(self, mode: str) -> None:
+        """보기 방식을 바꾼다. 값이 실제로 달라질 때만 신호를 낸다."""
+        if mode not in (VIEW_LIST, VIEW_CARDS) or mode == self._view:
+            self._refresh_view_buttons()
+            return
+        self._view = mode
+        self._refresh_view_buttons()
+        self.view_changed.emit(mode)
+
+    def _refresh_view_buttons(self) -> None:
+        for mode, btn in self._view_buttons.items():
+            active = mode == self._view
+            btn.setChecked(active)
+            btn.setStyleSheet(
+                f"QPushButton {{ background: "
+                f"{SURFACE_RAISED if active else 'transparent'}; "
+                f"color: {TEXT_PRIMARY if active else TEXT_TERTIARY}; "
+                f"border: 1px solid "
+                f"{BORDER_STANDARD_RGBA if active else BORDER_SUBTLE_RGBA}; "
+                f"border-radius: {RADIUS_MD}px; font-size: {FONT_SM}px; "
+                f"font-weight: {FW_MEDIUM}; padding: 0 10px; }} "
+                f"QPushButton:hover {{ background: {SURFACE_SUBTLE}; }}"
+            )
 
 
 class ItemCard(QFrame):
