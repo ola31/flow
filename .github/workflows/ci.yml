@@ -99,17 +99,7 @@ jobs:
         run: pyinstaller Flow.spec --noconfirm
 
       - name: Verify exe runs
-        # 실행 파일이 생성되었고 import 가 깨지지 않았는지 5초 동안만 띄워 확인.
-        # 시작 자체가 실패하면 (exit non-zero) PR 이 빨갛게 표시됨.
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: |
-          test -x dist/Flow/Flow
-          set +e
-          timeout 5 dist/Flow/Flow
-          code=$?
-          # 124 = timeout(정상), 0 = 깨끗하게 종료 — 둘 다 OK
-          if [ "$code" -ne 124 ] && [ "$code" -ne 0 ]; then
-            echo "Flow crashed with exit $code"
-            exit 1
-          fi
+        # 릴리스와 같은 스크립트를 쓴다 — 릴리스 때 처음 돌려보는 코드가
+        # 되지 않도록. 워크스페이스를 미리 만들어 주므로 첫 실행 다이얼로그
+        # 앞에서 멈추지 않고 메인 창 생성까지 지나간다.
+        run: python scripts/smoke_launch.py --seconds 10

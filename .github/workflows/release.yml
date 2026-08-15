@@ -67,6 +67,12 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller Flow.spec --noconfirm
 
+      # 산출물이 실제로 뜨는지 확인 — 여기서 걸러야 깨진 빌드가 릴리스로
+      # 나가지 않는다. 번들 누락이나 과하게 걷어낸 Qt 플러그인은 개발
+      # 환경에서는 드러나지 않고 설치본에서만 터진다.
+      - name: Verify the build launches
+        run: python scripts/smoke_launch.py --seconds 20
+
       # ─── Windows: portable zip + Inno Setup installer ──────────────────────
       - name: Package portable zip (Windows)
         if: runner.os == 'Windows'
