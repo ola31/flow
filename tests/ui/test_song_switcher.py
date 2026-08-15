@@ -61,6 +61,14 @@ def widget(qtbot, tmp_path):
     return w
 
 
+def _search(sw, qtbot, text: str) -> None:
+    """검색어를 넣고 디바운스가 끝날 때까지 기다린다."""
+    from flow.ui.screens._browser_widgets import SEARCH_DEBOUNCE_MS
+
+    sw._search.setText(text)
+    qtbot.wait(SEARCH_DEBOUNCE_MS + 120)
+
+
 class TestSwitcherListing:
     def test_lists_library_songs_with_current_highlighted(self, widget):
         sw = widget._song_switcher
@@ -91,13 +99,13 @@ class TestSwitcherListing:
 
         assert opened == []  # 현재 곡 재클릭은 무시 (저장 확인 팝업 방지)
 
-    def test_search_filters_rows(self, widget):
+    def test_search_filters_rows(self, widget, qtbot):
         sw = widget._song_switcher
-        sw._search.setText("alpha")
+        _search(sw, qtbot, "alpha")
         visible = [r._name for r in sw._rows if not r.isHidden()]
         assert visible == ["song_alpha"]
 
-        sw._search.setText("")
+        _search(sw, qtbot, "")
         visible = [r._name for r in sw._rows if not r.isHidden()]
         assert len(visible) == 3
 
@@ -429,7 +437,7 @@ class TestSwitcherLyricsSearch:
         w = self._widget_with_lyrics(qtbot, tmp_path)
         sw = w._song_switcher
 
-        sw._search.setText("별처럼")
+        _search(sw, qtbot, "별처럼")
 
         visible = [r._name for r in sw._rows if not r.isHidden()]
         assert visible == ["song_alpha"]
@@ -438,7 +446,7 @@ class TestSwitcherLyricsSearch:
         w = self._widget_with_lyrics(qtbot, tmp_path)
         sw = w._song_switcher
 
-        sw._search.setText("gamma")
+        _search(sw, qtbot, "gamma")
 
         visible = [r._name for r in sw._rows if not r.isHidden()]
         assert visible == ["song_gamma"]
@@ -449,7 +457,7 @@ class TestSwitcherLyricsSearch:
         w = self._widget_with_lyrics(qtbot, tmp_path)
         sw = w._song_switcher
 
-        sw._search.setText("별처럼")
+        _search(sw, qtbot, "별처럼")
 
         row = next(r for r in sw._rows if r._name == "song_alpha")
         texts = [lbl.text() for lbl in row.findChildren(QLabel)]
@@ -462,8 +470,8 @@ class TestSwitcherLyricsSearch:
 
         w = self._widget_with_lyrics(qtbot, tmp_path)
         sw = w._song_switcher
-        sw._search.setText("별처럼")
-        sw._search.setText("")
+        _search(sw, qtbot, "별처럼")
+        _search(sw, qtbot, "")
 
         row = next(r for r in sw._rows if r._name == "song_alpha")
         texts = [lbl.text() for lbl in row.findChildren(QLabel)]
@@ -473,7 +481,7 @@ class TestSwitcherLyricsSearch:
         w = self._widget_with_lyrics(qtbot, tmp_path)
         sw = w._song_switcher
 
-        sw._search.setText("gamma")
+        _search(sw, qtbot, "gamma")
 
         row = next(r for r in sw._rows if r._name == "song_gamma")
         assert row._snippet == ""

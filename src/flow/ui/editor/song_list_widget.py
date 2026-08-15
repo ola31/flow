@@ -136,10 +136,19 @@ def _scan_library_song(song_dir: Path) -> dict:
     실제 읽기는 mtime 키 캐시(services.song_index)가 담당한다 — 라이브러리
     화면과 같은 캐시를 공유하므로 곡 추가 팝업을 다시 열 때 디스크를
     한 번도 건드리지 않는다.
-    """
-    from flow.services.song_index import song_info
 
-    return song_info(song_dir)
+    가사 소문자 사본도 여기서 함께 담는다. 검색할 때마다 song_lyrics()를
+    부르면 곡당 slides.md를 stat 하게 되고(140곡이면 키 입력당 140회),
+    타이핑이 디스크 속도에 묶인다. 캐시가 돌려주는 dict는 공유물이라
+    사본에 넣는다.
+    """
+    from flow.services.song_index import song_info, song_lyrics
+
+    info = dict(song_info(song_dir))
+    lyrics, lyrics_lower = song_lyrics(song_dir)
+    info["lyrics"] = lyrics  # 캐시된 문자열 참조 — 사본이 아니다
+    info["lyrics_lower"] = lyrics_lower
+    return info
 
 
 
@@ -486,12 +495,15 @@ class SongLibraryBrowser(QWidget):
             QLineEdit:focus {{ border-color: {ACCENT}; }}
         """)
         # 키 입력마다 카드 전체 재생성은 큰 라이브러리에서 버벅임 —
-        # 150ms 디바운스 후 한 번만 렌더
+        # 디바운스 후 한 번만 렌더. 값은 라이브러리·프로젝트 화면과 같은
+        # 근거(한글 IME가 자모마다 발화)라 상수를 공유한다.
         from PySide6.QtCore import QTimer
+
+        from flow.ui.screens._browser_widgets import SEARCH_DEBOUNCE_MS
 
         self._filter_timer = QTimer(self)
         self._filter_timer.setSingleShot(True)
-        self._filter_timer.setInterval(150)
+        self._filter_timer.setInterval(SEARCH_DEBOUNCE_MS)
         self._filter_timer.timeout.connect(
             lambda: self._filter(self._search.text())
         )
@@ -563,8 +575,6 @@ class SongLibraryBrowser(QWidget):
         self._render(self._all_infos)
 
     def _filter(self, query: str) -> None:
-        from flow.services.song_index import song_lyrics
-
         q = query.strip().lower()
         if not q:
             self._render(self._all_infos)
@@ -572,7 +582,7 @@ class SongLibraryBrowser(QWidget):
         filtered = [
             info for info in self._all_infos
             if q in info["name_lower"]
-            or q in song_lyrics(info["path"])[1]
+            or q in info.get("lyrics_lower", "")
         ]
         self._render(filtered, q)
 
@@ -609,9 +619,8 @@ class SongLibraryBrowser(QWidget):
             snippet = ""
             if query and query not in info["name_lower"]:
                 from flow.services.markdown import lyric_snippet
-                from flow.services.song_index import song_lyrics
 
-                snippet = lyric_snippet(song_lyrics(info["path"])[0], query)
+                snippet = lyric_snippet(info.get("lyrics", ""), query)
             card = self._card_pool.get(info["name"])
             if card is None:
                 card = _LibrarySongCard(
@@ -1622,7 +1631,17 @@ class _LibrarySongSwitcher(QWidget):
             f"padding: 0 8px; font-size: {FONT_SM}px; }}"
             f"QLineEdit:focus {{ border-color: {ACCENT}; }}"
         )
-        self._search.textChanged.connect(self._filter)
+        # 라이브러리 화면과 같은 근거(한글 IME가 자모마다 발화)라 같은 상수를
+        # 쓴다 — 행 수백 개의 visibility 토글을 조합 중마다 돌리지 않는다.
+        from flow.ui.screens._browser_widgets import SEARCH_DEBOUNCE_MS
+
+        self._filter_timer = QTimer(self)
+        self._filter_timer.setSingleShot(True)
+        self._filter_timer.setInterval(SEARCH_DEBOUNCE_MS)
+        self._filter_timer.timeout.connect(
+            lambda: self._filter(self._search.text())
+        )
+        self._search.textChanged.connect(lambda _t: self._filter_timer.start())
         body.addWidget(self._search)
 
         self._list_scroll = QScrollArea()
@@ -1674,11 +1693,16 @@ class _LibrarySongSwitcher(QWidget):
     def _make_row(
         self, song_dir: Path, is_current: bool, st: dict | None = None
     ) -> _SwitcherRow:
+        from flow.services.song_index import song_lyrics
+
         st = st or _scan_library_song(song_dir)
         row = _SwitcherRow(song_dir.name, is_current, self._warning_from(st))
         # 가사는 검색을 시작할 때 읽는다 — 곡을 열 때마다 라이브러리 전체의
         # slides.md를 읽으면 열기가 그만큼 느려진다 (mtime 캐시가 재사용).
         row._song_dir = song_dir
+        # 검색할 때마다 song_lyrics()를 부르면 행마다 slides.md를 stat 한다
+        # — 목록을 만들 때 한 번만 읽어 둔다 (문자열은 캐시 참조).
+        row._lyrics, row._lyrics_lower = song_lyrics(song_dir)
         # 모든 행을 연결하고 현재 곡만 가드 — 재사용 시 현재 곡이
         # 바뀌어도 연결을 다시 만들 필요가 없다
         row.clicked.connect(
@@ -1725,16 +1749,14 @@ class _LibrarySongSwitcher(QWidget):
 
     def _filter(self, query: str) -> None:
         from flow.services.markdown import lyric_snippet
-        from flow.services.song_index import song_lyrics
 
         q = query.strip().lower()
         for row in self._rows:
             name_hit = not q or q in row._name.lower()
-            lyrics = ""
+            lyrics = getattr(row, "_lyrics", "")
             lyric_hit = False
-            if q and not name_hit and getattr(row, "_song_dir", None):
-                lyrics, lyrics_lower = song_lyrics(row._song_dir)
-                lyric_hit = q in lyrics_lower
+            if q and not name_hit:
+                lyric_hit = q in getattr(row, "_lyrics_lower", "")
             row.setVisible(name_hit or lyric_hit)
             # 가사로 매칭된 행은 제목 아래에 매칭 줄을 보여준다
             row.set_snippet(lyric_snippet(lyrics, q) if lyric_hit else "")
