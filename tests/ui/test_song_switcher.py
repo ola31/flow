@@ -412,11 +412,13 @@ class TestImmediateSheetDisplay:
 class TestSwitcherLyricsSearch:
     """곡 전환 목록 검색은 이름뿐 아니라 가사(slides.md)도 매칭해야 한다."""
 
-    def _widget_with_lyrics(self, qtbot, tmp_path):
+    def _widget_with_lyrics(self, qtbot, tmp_path, extra_lyrics: dict | None = None):
         lib = _make_library(tmp_path, ["song_alpha", "song_beta", "song_gamma"])
         (lib / "song_alpha" / "slides.md").write_text(
             "# 페이지\n하늘의 별처럼 빛나는\n", encoding="utf-8"
         )
+        for name, text in (extra_lyrics or {}).items():
+            (lib / name / "slides.md").write_text(text, encoding="utf-8")
         song_dir = lib / "song_beta"
         song = Song(
             name="song_beta",
@@ -485,3 +487,33 @@ class TestSwitcherLyricsSearch:
 
         row = next(r for r in sw._rows if r._name == "song_gamma")
         assert row._snippet == ""
+
+    def test_lyrics_edited_in_the_editor_are_searchable_on_return(
+        self, qtbot, tmp_path
+    ):
+        """편집하던 곡의 가사를 고치고 다른 곡으로 넘어가면, 방금 고친
+        가사로 검색돼야 한다.
+
+        update_current는 행 140개 재생성을 피하려고 떠나는 곡의 행을
+        재사용한다 — 검색이 행에 담아 둔 가사 사본을 훑으므로 그 사본도
+        같이 갱신해야 한다. 아니면 편집한 곡은 옛 가사로만 검색된다.
+        """
+        import os
+
+        w = self._widget_with_lyrics(
+            qtbot, tmp_path, {"song_beta": "# 페이지\n예전 가사\n"}
+        )
+        sw = w._song_switcher
+        # 편집 중인 곡(song_beta)의 가사를 고친다. 슬라이드 유무는 그대로라
+        # 경고가 바뀌지 않아 행이 재사용되는 경로를 탄다.
+        md = sw._library_dir / "song_beta" / "slides.md"
+        md.write_text("# 페이지\n새로 고친 가사\n", encoding="utf-8")
+        stamp = md.stat().st_mtime + 1  # mtime 해상도가 거친 파일시스템 대비
+        os.utime(md, (stamp, stamp))
+
+        sw.update_current("song_alpha")  # 다른 곡으로 이동
+
+        _search(sw, qtbot, "새로 고친")
+
+        visible = [r._name for r in sw._rows if not r.isHidden()]
+        assert visible == ["song_beta"]

@@ -1697,11 +1697,12 @@ class _LibrarySongSwitcher(QWidget):
 
         st = st or _scan_library_song(song_dir)
         row = _SwitcherRow(song_dir.name, is_current, self._warning_from(st))
-        # 가사는 검색을 시작할 때 읽는다 — 곡을 열 때마다 라이브러리 전체의
-        # slides.md를 읽으면 열기가 그만큼 느려진다 (mtime 캐시가 재사용).
         row._song_dir = song_dir
-        # 검색할 때마다 song_lyrics()를 부르면 행마다 slides.md를 stat 한다
-        # — 목록을 만들 때 한 번만 읽어 둔다 (문자열은 캐시 참조).
+        # 가사는 행을 만들 때 한 번만 읽는다 — 검색할 때마다 song_lyrics()를
+        # 부르면 행마다 slides.md를 stat 하게 되어 타이핑이 디스크에 묶인다.
+        # 대신 사본이 낡을 수 있으므로, 곡을 편집하고 떠나는 경로
+        # (update_current)에서 그 행의 사본을 다시 채운다.
+        # (문자열은 mtime 캐시가 준 참조라 사본 비용은 없다.)
         row._lyrics, row._lyrics_lower = song_lyrics(song_dir)
         # 모든 행을 연결하고 현재 곡만 가드 — 재사용 시 현재 곡이
         # 바뀌어도 연결을 다시 만들 필요가 없다
@@ -1725,6 +1726,8 @@ class _LibrarySongSwitcher(QWidget):
         이전 현재 곡은 방금까지 편집한 곡이라 상태가 바뀌었을 수 있으므로
         경고를 다시 계산해 그 행만 교체한다.
         """
+        from flow.services.song_index import song_lyrics
+
         old = self._current_name
         self._current_name = folder_name
         for i, row in enumerate(self._rows):
@@ -1739,8 +1742,11 @@ class _LibrarySongSwitcher(QWidget):
                     self._list_layout.insertWidget(idx, new_row)
                     self._rows[i] = new_row
                 else:
-                    # 가사가 바뀌었어도 song_lyrics가 mtime으로 알아서
-                    # 새로 읽는다 — 여기서 미리 채워둘 필요가 없다
+                    # 방금 편집한 곡이라 가사가 바뀌었을 수 있다. 검색은
+                    # 행에 담아 둔 사본을 훑으므로(디스크를 건드리지 않으려고)
+                    # 재사용하는 행의 사본도 여기서 갱신한다 — 한 곡분이고
+                    # mtime 캐시가 받쳐준다.
+                    row._lyrics, row._lyrics_lower = song_lyrics(d)
                     row.set_current(False)
             elif row._name == folder_name:
                 row.set_current(True)
