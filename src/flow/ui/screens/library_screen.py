@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
+    QGridLayout,
     QLabel,
     QPushButton,
     QScrollArea,
@@ -24,18 +25,20 @@ from flow.ui.screens._browser_widgets import (
     SORT_NAME,
     VIEW_CARDS,
     BrowserToolbar,
+    CategoryTile,
     ItemCard,
+    NewCategoryTile,
 )
 from flow.ui.styles import (
     AMBER,
     BG_DEEP,
     BORDER_FOCUS,
     FONT_MD,
-    FW_SEMI,
     RADIUS_MD,
     SP_LG,
     SP_MD,
     SP_SM,
+    TEXT_QUAT,
     TEXT_SECONDARY,
     TEXT_TERTIARY,
 )
@@ -62,6 +65,9 @@ class LibraryScreen(QWidget):
     # 삭제 요청 (곡 폴더 경로) — 실제 처리는 MainWindow가 한다
     song_delete_requested = Signal(str)
 
+    # 분류 타일 격자의 열 수
+    _COLUMNS = 3
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._workspace = None
@@ -76,10 +82,10 @@ class LibraryScreen(QWidget):
         self._applied_order: list[str] | None = None
         self._config = ConfigService()
         self._view_mode = self._config.get_library_view_mode()
-        # 분류명 → 블록 헤더 라벨 / '＋ 새 곡' 타일. 카드와 같은 이유로
-        # 풀에 두고 재사용한다.
-        self._headers: dict[str, QLabel] = {}
-        self._add_tiles: dict[str, QPushButton] = {}
+        # 분류명 → 타일. 카드와 같은 이유로 풀에 두고 재사용한다.
+        self._tiles: dict[str, CategoryTile] = {}
+        # 카드 뷰에서 열어 둔 분류 (None이면 타일 화면)
+        self._open_category_name: str | None = None
 
         self.setStyleSheet(f"background: {BG_DEEP};")
         root = QVBoxLayout(self)
@@ -102,6 +108,7 @@ class LibraryScreen(QWidget):
         # 않은 카드 레이아웃을 초기화 도중에 그리려 든다.
         self._toolbar.set_view(self._view_mode)
         self._toolbar.view_changed.connect(self._on_view_changed)
+        self._toolbar.back_clicked.connect(self._close_category)
         root.addWidget(self._toolbar)
 
         # F5 — 이 화면이 떠 있을 때만 동작하도록 위젯 범위로 제한한다
@@ -129,6 +136,39 @@ class LibraryScreen(QWidget):
         self._cards_layout.addStretch()
         scroll.setWidget(self._cards_host)
         root.addWidget(scroll, 1)
+
+        # 분류 타일 격자 — 카드 뷰의 첫 화면. 곡 카드와 같은 스크롤 안에
+        # 얹되, 상태에 따라 통째로 보였다 숨었다 한다.
+        self._grid_host = QWidget()
+        self._grid_host.setStyleSheet("background: transparent;")
+        self._grid = QGridLayout(self._grid_host)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setHorizontalSpacing(SP_MD)
+        self._grid.setVerticalSpacing(SP_MD)
+        for col in range(self._COLUMNS):
+            self._grid.setColumnStretch(col, 1)
+        self._grid_host.setVisible(False)
+        self._new_tile = NewCategoryTile()
+        self._new_tile.clicked.connect(self._on_new_category)
+
+        # 분류 안에서 목록 끝에 붙는 '이 분류에 새 곡'
+        self._add_here = QPushButton("＋ 이 분류에 새 곡")
+        self._add_here.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._add_here.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._add_here.setFixedHeight(44)
+        self._add_here.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {TEXT_QUAT}; "
+            f"border: 1px dashed {BORDER_FOCUS}; border-radius: {RADIUS_MD}px; "
+            f"font-size: {FONT_MD}px; }} "
+            f"QPushButton:hover {{ color: {TEXT_SECONDARY}; }}"
+        )
+        self._add_here.setVisible(False)
+        self._add_here.clicked.connect(
+            lambda: self.new_song_requested.emit(
+                "" if self._open_category_name == UNCATEGORIZED
+                else (self._open_category_name or "")
+            )
+        )
 
         # Empty state label
         self._empty_lbl = QLabel("이 워크스페이스에 곡이 없습니다.")
@@ -221,6 +261,7 @@ class LibraryScreen(QWidget):
             key = str(path)
             lyrics, lyrics_lower = song_lyrics(path)
             subtitle = self._build_subtitle(path)
+            chips = self._build_chips(path)
             try:
                 mtime = path.stat().st_mtime
             except OSError:
@@ -233,13 +274,14 @@ class LibraryScreen(QWidget):
                 "lyrics": lyrics,
                 "lyrics_lower": lyrics_lower,
                 "subtitle": subtitle,
+                "chips": chips,
                 "mtime": mtime,
             }
             card = self._cards.get(key)
             if card is None:
                 card = ItemCard(
                     path=key, title=path.name, subtitle=subtitle,
-                    deletable=True, categorizable=True,
+                    deletable=True, categorizable=True, show_path=False,
                 )
                 card.clicked.connect(self.song_selected.emit)
                 card.delete_requested.connect(self.song_delete_requested.emit)
@@ -247,6 +289,7 @@ class LibraryScreen(QWidget):
                 self._cards[key] = card
             else:
                 card.set_subtitle(subtitle)
+            card.set_chips(chips)
 
     def _apply_view(self) -> None:
         """검색어·정렬을 색인에만 적용한다 (디스크 접근 없음)."""
@@ -274,28 +317,59 @@ class LibraryScreen(QWidget):
         for key, snippet in matched:
             self._cards[key].set_match_snippet(snippet)
 
-        # 순서가 그대로면 레이아웃을 건드리지 않는다
-        if order != self._applied_order:
+        searching = bool(self._search_text)
+        tiles_state = (
+            self._view_mode == VIEW_CARDS
+            and self._open_category_name is not None
+        )
+        show_tiles = (
+            self._view_mode == VIEW_CARDS
+            and self._open_category_name is None
+            and not searching
+        )
+
+        # 분류 안에서는 그 분류의 곡만 보인다. 검색은 분류를 건너뛴다 —
+        # 검색은 곡을 찾는 수단이지 분류를 찾는 수단이 아니다.
+        if tiles_state and not searching:
+            visible = [
+                key for key in order
+                if (self._index[key]["category"] or UNCATEGORIZED)
+                == self._open_category_name
+            ]
+        elif show_tiles:
+            visible = []
+        else:
+            visible = order
+
+        layout_key = ("tiles" if show_tiles else "cards", tuple(visible), tuple(order))
+        if layout_key != self._applied_order:
             while self._cards_layout.count() > 1:
                 self._cards_layout.takeAt(0)
-            if self._view_mode == VIEW_CARDS:
-                self._lay_out_blocks(order)
+            if show_tiles:
+                self._grid_host.setVisible(True)
+                self._cards_layout.insertWidget(0, self._grid_host)
+                self._lay_out_tiles(order)
             else:
-                for header in self._headers.values():
-                    header.setVisible(False)
-                for tile in self._add_tiles.values():
-                    tile.setVisible(False)
-                for i, key in enumerate(order):
+                self._hide_tiles()
+                self._grid_host.setVisible(False)
+                for i, key in enumerate(visible):
                     self._cards_layout.insertWidget(i, self._cards[key])
-            self._applied_order = order
+                if tiles_state and not searching:
+                    self._add_here.setVisible(True)
+                    self._cards_layout.insertWidget(len(visible), self._add_here)
+                else:
+                    self._add_here.setVisible(False)
+            self._applied_order = layout_key
 
-        shown = set(order)
+        shown = set(visible)
         for key, card in self._cards.items():
             want = key in shown
             if card.isHidden() == want:  # 실제로 바뀔 때만 토글
                 card.setVisible(want)
 
-        if not order:
+        self._refresh_context(order)
+
+        if not order or (not show_tiles and not visible):
             self._empty_lbl.setText(
                 "이 워크스페이스에 곡이 없습니다." if not self._search_text
                 else f"'{self._search_text}'와(과) 일치하는 곡이 없습니다."
@@ -304,10 +378,30 @@ class LibraryScreen(QWidget):
             return
         self._empty_lbl.hide()
 
-    # ── 분류별 블록 배치 ─────────────────────────────────────────────────
+    def _refresh_context(self, order: list[str]) -> None:
+        """헤더 제목·메타와 주 버튼 라벨을 현재 상태에 맞춘다."""
+        in_category = (
+            self._view_mode == VIEW_CARDS
+            and self._open_category_name is not None
+            and not self._search_text
+        )
+        if in_category:
+            self._toolbar.set_context(self._open_category_name, meta="분류")
+            self._toolbar.set_new_button_label("＋ 이 분류에 새 곡")
+            return
+
+        self._toolbar.set_context(None)
+        self._toolbar.set_new_button_label("＋ 새 곡 만들기")
+        if self._view_mode == VIEW_CARDS and not self._search_text:
+            groups = len(self._grouped(order))
+            self._toolbar.set_context(
+                None, meta=f"분류 {groups}개 · 곡 {len(order)}"
+            )
+
+    # ── 분류 타일 / 드릴인 ───────────────────────────────────────────────
 
     def _grouped(self, order: list[str] | None) -> list[tuple[str, list[str]]]:
-        """표시 순서를 분류별 블록으로 묶는다. '분류 없음'은 항상 마지막."""
+        """표시 순서를 분류별로 묶는다. '분류 없음'은 항상 마지막."""
         buckets: dict[str, list[str]] = {}
         for key in order or []:
             name = self._index[key]["category"] or UNCATEGORIZED
@@ -317,68 +411,74 @@ class LibraryScreen(QWidget):
             names.append(UNCATEGORIZED)
         return [(name, buckets[name]) for name in names]
 
-    def _add_tile_for(self, name: str) -> QPushButton:
-        """블록 끝의 '＋ 새 곡' 타일 (분류명 기준으로 재사용)."""
-        tile = self._add_tiles.get(name)
+    def _tile_for(self, name: str) -> CategoryTile:
+        """분류 타일 (분류명 기준으로 재사용)."""
+        tile = self._tiles.get(name)
         if tile is None:
-            tile = QPushButton("＋ 새 곡")
-            tile.setCursor(Qt.CursorShape.PointingHandCursor)
-            tile.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            tile.setFixedHeight(40)
-            tile.setStyleSheet(
-                f"QPushButton {{ background: transparent; "
-                f"color: {TEXT_TERTIARY}; border: 1px dashed {BORDER_FOCUS}; "
-                f"border-radius: {RADIUS_MD}px; font-size: {FONT_MD}px; }} "
-                f"QPushButton:hover {{ color: {TEXT_SECONDARY}; }}"
-            )
-            category = "" if name == UNCATEGORIZED else name
-            tile.clicked.connect(
-                lambda _c=False, c=category: self.new_song_requested.emit(c)
-            )
-            self._add_tiles[name] = tile
+            tile = CategoryTile(name)
+            tile.clicked.connect(self._open_category)
+            self._tiles[name] = tile
         return tile
 
-    def _header_for(self, name: str) -> QLabel:
-        """블록 헤더 라벨 (분류명 기준으로 재사용)."""
-        header = self._headers.get(name)
-        if header is None:
-            header = QLabel(name)
-            header.setStyleSheet(
-                f"color: {TEXT_SECONDARY}; font-size: {FONT_MD}px; "
-                f"font-weight: {FW_SEMI}; padding: {SP_SM}px 0 0 2px;"
-            )
-            self._headers[name] = header
-        return header
+    def _on_new_category(self) -> None:
+        """'＋ 새 분류' — 이름을 먼저 묻고 그 분류로 곡을 만든다.
 
-    def _lay_out_blocks(self, order: list[str]) -> None:
-        """분류별로 헤더 + 카드들을 쌓는다.
-
-        카드는 풀에서 꺼내 순서만 바꾸고, 헤더도 분류명으로 재사용한다 —
-        전환할 때마다 위젯을 새로 만들면 곡이 많을수록 눈에 띄게 밀린다.
+        빈 분류는 저장할 곳이 없다(분류는 곡의 meta.json에만 있다). 그래서
+        분류를 먼저 만들어 두는 게 아니라, 첫 곡을 만들면서 이름을 붙인다.
         """
+        from flow.ui.dialogs import flow_input_text
+
+        name, ok = flow_input_text(
+            self,
+            "새 분류",
+            "새 분류의 이름을 정하고, 그 분류에 넣을 첫 곡을 만듭니다.",
+            placeholder="예: 팝송",
+        )
+        if ok and name:
+            self.new_song_requested.emit(name)
+
+    def _open_category(self, name: str) -> None:
+        """분류 안으로 들어간다 (카드 뷰 전용)."""
+        self._open_category_name = name
+        self._applied_order = None
+        self._apply_view()
+
+    def _close_category(self) -> None:
+        """분류 타일 화면으로 돌아온다."""
+        self._open_category_name = None
+        self._applied_order = None
+        self._apply_view()
+
+    def _lay_out_tiles(self, order: list[str]) -> None:
+        """분류 타일을 격자로 배치한다 (곡 카드는 전부 감춘다)."""
         live: set[str] = set()
-        row = 0
+        row = col = 0
         for name, keys in self._grouped(order):
             live.add(name)
-            header = self._header_for(name)
-            header.setText(f"{name} · {len(keys)}곡")
-            header.setVisible(True)
-            self._cards_layout.insertWidget(row, header)
-            row += 1
-            for key in keys:
-                self._cards_layout.insertWidget(row, self._cards[key])
-                row += 1
-            tile = self._add_tile_for(name)
+            tile = self._tile_for(name)
+            tile.set_contents(
+                len(keys),
+                [self._index[k]["path"].name for k in keys[: tile.PREVIEW_LIMIT]],
+            )
             tile.setVisible(True)
-            self._cards_layout.insertWidget(row, tile)
-            row += 1
+            self._grid.addWidget(tile, row, col)
+            col += 1
+            if col >= self._COLUMNS:
+                col, row = 0, row + 1
 
-        for name, header in self._headers.items():
-            if name not in live:
-                header.setVisible(False)
-        for name, tile in self._add_tiles.items():
+        self._new_tile.setVisible(True)
+        self._grid.addWidget(self._new_tile, row, col)
+
+        for name, tile in self._tiles.items():
             if name not in live:
                 tile.setVisible(False)
+
+    def _hide_tiles(self) -> None:
+        for tile in self._tiles.values():
+            tile.setVisible(False)
+        self._new_tile.setVisible(False)
+        while self._grid.count():
+            self._grid.takeAt(0)
 
     def _on_view_changed(self, mode: str) -> None:
         self._view_mode = mode
@@ -459,6 +559,32 @@ class LibraryScreen(QWidget):
         if mapping_part:
             subtitle += f" · {mapping_part}"
         return subtitle
+
+    def _build_chips(self, song_dir: Path) -> list[tuple[str, bool]]:
+        """상태 칩 (문구, 문제 여부) — 부제와 같은 판단을 조각으로 돌려준다."""
+        info = song_info(song_dir)
+        sheet_count = info["sheet_count"]
+        chips: list[tuple[str, bool]] = [
+            (f"악보 {sheet_count}장", False) if sheet_count
+            else ("악보 없음", True)
+        ]
+        if info["has_ppt"]:
+            chips.append(("PPT", False))
+        elif info["has_md"]:
+            chips.append((".md", False))
+        else:
+            chips.append(("슬라이드 없음", True))
+
+        has_slides = info["has_ppt"] or info["has_md"]
+        if has_slides and sheet_count and (song_dir / "song.json").exists():
+            total, mapped = info["total_hotspots"], info["mapped_hotspots"]
+            if mapped == 0:
+                chips.append(("매핑 없음", True))
+            elif mapped < total:
+                chips.append((f"매핑 {mapped}/{total}", True))
+            else:
+                chips.append((f"매핑 {mapped}", False))
+        return chips
 
     def _mapping_part(
         self, info: dict, has_slides: bool, sheet_count: int

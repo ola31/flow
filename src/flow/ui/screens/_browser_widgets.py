@@ -19,22 +19,31 @@ from PySide6.QtWidgets import (
 
 from flow.ui.icons import icon_qicon
 from flow.ui.styles import (
+    AMBER,
     BG_INPUT,
     BG_SURFACE,
+    BORDER_FOCUS,
     BORDER_STANDARD_RGBA,
     BORDER_SUBTLE_RGBA,
+    FONT_2XS,
+    FONT_DISPLAY,
     FONT_HEAD,
     FONT_MD,
     FONT_SM,
+    FONT_TITLE,
     FW_MEDIUM,
+    FW_REGULAR,
     FW_SEMI,
     RADIUS_MD,
+    SP_LG,
     SP_MD,
     SP_SM,
     SP_XS,
+    SURFACE_GHOST,
     SURFACE_RAISED,
     SURFACE_SUBTLE,
     TEXT_PRIMARY,
+    TEXT_QUAT,
     TEXT_SECONDARY,
     TEXT_TERTIARY,
 )
@@ -62,6 +71,7 @@ class BrowserToolbar(QWidget):
     sort_changed = Signal(str)  # SORT_NAME | SORT_CREATED
     refresh_clicked = Signal()
     view_changed = Signal(str)  # VIEW_LIST | VIEW_CARDS
+    back_clicked = Signal()
 
     def __init__(
         self,
@@ -80,11 +90,40 @@ class BrowserToolbar(QWidget):
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(SP_MD)
+
+        # 뒤로가기 — 분류 안으로 들어갔을 때만 보인다
+        self._btn_back = QPushButton("←")
+        self._btn_back.setFixedSize(32, 32)
+        self._btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_back.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_back.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {TEXT_SECONDARY}; "
+            f"border: 1px solid {BORDER_SUBTLE_RGBA}; "
+            f"border-radius: {RADIUS_MD}px; font-size: {FONT_MD}px; }} "
+            f"QPushButton:hover {{ background: {SURFACE_SUBTLE}; }}"
+        )
+        self._btn_back.clicked.connect(self.back_clicked.emit)
+        self._btn_back.setVisible(False)
+        title_row.addWidget(self._btn_back)
+
+        # 제목 — 위에 작은 메타 줄, 아래 큰 제목
+        title_box = QVBoxLayout()
+        title_box.setContentsMargins(0, 0, 0, 0)
+        title_box.setSpacing(0)
+        self._meta_lbl = QLabel("")
+        self._meta_lbl.setStyleSheet(
+            f"color: {TEXT_QUAT}; font-size: {FONT_2XS}px; letter-spacing: 1px;"
+        )
+        self._meta_lbl.setVisible(False)
+        title_box.addWidget(self._meta_lbl)
+        self._default_title = title
         lbl = QLabel(title)
         lbl.setStyleSheet(
             f"color: {TEXT_PRIMARY}; font-size: {FONT_HEAD}px; font-weight: {FW_SEMI};"
         )
-        title_row.addWidget(lbl)
+        self._title_lbl = lbl
+        title_box.addWidget(lbl)
+        title_row.addLayout(title_box)
         title_row.addStretch()
 
         # 보기 전환 — 목록 / 분류별 카드
@@ -197,6 +236,29 @@ class BrowserToolbar(QWidget):
         self.search_changed.emit("")
 
 
+    # ── 제목 / 뒤로가기 ─────────────────────────────────────────────────
+
+    def title(self) -> str:
+        return self._title_lbl.text()
+
+    def back_visible(self) -> bool:
+        return not self._btn_back.isHidden()
+
+    def set_context(self, title: str | None = None, meta: str = "") -> None:
+        """제목 줄을 바꾼다.
+
+        Args:
+            title: None이면 생성 시의 기본 제목으로 되돌린다.
+            meta: 제목 위 작은 줄. 빈 문자열이면 숨긴다.
+        """
+        self._title_lbl.setText(title if title is not None else self._default_title)
+        self._meta_lbl.setText(meta)
+        self._meta_lbl.setVisible(bool(meta))
+        self._btn_back.setVisible(title is not None)
+
+    def set_new_button_label(self, label: str) -> None:
+        self._btn_new.setText(label)
+
     # ── 보기 전환 ───────────────────────────────────────────────────────
 
     def view(self) -> str:
@@ -227,6 +289,125 @@ class BrowserToolbar(QWidget):
             )
 
 
+class CategoryTile(QFrame):
+    """분류 하나를 나타내는 타일 — 이름, 곡 수, 미리보기 곡 몇 줄.
+
+    카드 뷰의 첫 화면은 곡이 아니라 이 타일들이다. 사진이 없으므로 곡 수를
+    큰 고스트 숫자로 세워 타일마다 다른 무게추를 준다.
+    """
+
+    clicked = Signal(str)  # 분류명
+
+    PREVIEW_LIMIT = 3
+
+    def __init__(self, name: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._name = name
+        self._count = 0
+        self._preview: list[str] = []
+        self.setObjectName("CategoryTile")
+        self.setMinimumHeight(186)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(
+            f"QFrame#CategoryTile {{ background: {BG_SURFACE}; "
+            f"border: 1px solid {BORDER_SUBTLE_RGBA}; "
+            f"border-radius: {RADIUS_MD + 2}px; }} "
+            f"QFrame#CategoryTile:hover {{ background: {SURFACE_SUBTLE}; "
+            f"border-color: {BORDER_STANDARD_RGBA}; }}"
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(SP_LG, SP_MD + 4, SP_LG, SP_MD + 4)
+        layout.setSpacing(0)
+
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(SP_SM)
+        self._name_lbl = QLabel(name)
+        self._name_lbl.setStyleSheet(
+            f"background: transparent; color: {TEXT_PRIMARY}; "
+            f"font-size: {FONT_TITLE}px; font-weight: {FW_SEMI};"
+        )
+        head.addWidget(self._name_lbl, 1)
+        self._count_lbl = QLabel("0")
+        self._count_lbl.setStyleSheet(
+            f"background: transparent; color: {TEXT_QUAT}; "
+            f"font-size: {FONT_DISPLAY}px; font-weight: {FW_REGULAR};"
+        )
+        head.addWidget(self._count_lbl, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(head)
+        layout.addSpacing(SP_MD)
+
+        rule = QFrame()
+        rule.setFixedHeight(1)
+        rule.setStyleSheet(f"background: {BORDER_SUBTLE_RGBA}; border: none;")
+        layout.addWidget(rule)
+        layout.addSpacing(SP_MD)
+
+        # 미리보기 줄은 최대 개수만큼 미리 만들어 두고 내용만 갈아끼운다
+        self._preview_lbls: list[QLabel] = []
+        for _ in range(self.PREVIEW_LIMIT):
+            lbl = QLabel("")
+            lbl.setStyleSheet(
+                f"background: transparent; color: {TEXT_TERTIARY}; "
+                f"font-size: {FONT_SM}px; padding: 1px 0;"
+            )
+            layout.addWidget(lbl)
+            self._preview_lbls.append(lbl)
+        layout.addStretch()
+
+        self._more_lbl = QLabel("")
+        self._more_lbl.setStyleSheet(
+            f"background: transparent; color: {TEXT_QUAT}; font-size: {FONT_2XS}px;"
+        )
+        layout.addWidget(self._more_lbl)
+
+    def name(self) -> str:
+        return self._name
+
+    def count(self) -> int:
+        return self._count
+
+    def preview_names(self) -> list[str]:
+        return list(self._preview)
+
+    def set_contents(self, count: int, preview: list[str]) -> None:
+        self._count = count
+        self._preview = preview[: self.PREVIEW_LIMIT]
+        self._count_lbl.setText(str(count))
+        for i, lbl in enumerate(self._preview_lbls):
+            text = self._preview[i] if i < len(self._preview) else ""
+            lbl.setText(text)
+            lbl.setVisible(bool(text))
+        hidden = count - len(self._preview)
+        self._more_lbl.setText(f"외 {hidden}곡" if hidden > 0 else "")
+        self._more_lbl.setVisible(hidden > 0)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 (Qt 오버라이드)
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self.rect().contains(event.position().toPoint())
+        ):
+            self.clicked.emit(self._name)
+        super().mouseReleaseEvent(event)
+
+
+class NewCategoryTile(QPushButton):
+    """분류 타일 그리드 끝에 붙는 '＋ 새 분류' 점선 타일."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__("＋  새 분류", parent)
+        self.setMinimumHeight(186)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {TEXT_QUAT}; "
+            f"border: 1px dashed {BORDER_FOCUS}; "
+            f"border-radius: {RADIUS_MD + 2}px; font-size: {FONT_MD}px; }} "
+            f"QPushButton:hover {{ color: {TEXT_SECONDARY}; }}"
+        )
+
+
 class ItemCard(QFrame):
     """Click-to-open card showing name + sub line + path hint."""
 
@@ -234,6 +415,9 @@ class ItemCard(QFrame):
     rename_requested = Signal(str)  # path
     delete_requested = Signal(str)  # path
     categorize_requested = Signal(str)  # path
+
+    # 상태 칩 최대 개수 (악보 / 슬라이드 형식 / 매핑)
+    MAX_CHIPS = 3
 
     def __init__(
         self,
@@ -245,6 +429,7 @@ class ItemCard(QFrame):
         renamable: bool = False,
         deletable: bool = False,
         categorizable: bool = False,
+        show_path: bool = True,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -288,6 +473,24 @@ class ItemCard(QFrame):
         layout.addWidget(self._sub_lbl)
         self._sub_lbl.setVisible(bool(subtitle))
 
+        # 상태 칩 줄 — set_chips로 채우면 부제 문장을 대신한다. 칩 위젯은
+        # 최대 개수만큼 미리 만들어 두고 내용만 갈아끼운다 (카드 재사용과
+        # 같은 이유 — 검색 한 글자마다 위젯을 새로 만들지 않는다).
+        self._chip_row = QWidget(self)
+        self._chip_row.setStyleSheet("background: transparent;")
+        chip_lay = QHBoxLayout(self._chip_row)
+        chip_lay.setContentsMargins(0, 0, 0, 0)
+        chip_lay.setSpacing(SP_XS + 2)
+        self._chips: list[QLabel] = []
+        for _ in range(self.MAX_CHIPS):
+            chip = QLabel("")
+            chip.setVisible(False)
+            chip_lay.addWidget(chip)
+            self._chips.append(chip)
+        chip_lay.addStretch()
+        self._chip_row.setVisible(False)
+        layout.addWidget(self._chip_row)
+
         # 가사 검색 매칭 줄 — 가사로 검색되어 매칭 줄이 있을 때만 표시
         self._snippet_lbl = QLabel(f"“{match_snippet}”" if match_snippet else "")
         self._snippet_lbl.setStyleSheet(
@@ -304,6 +507,9 @@ class ItemCard(QFrame):
         )
         self._path_lbl.setWordWrap(True)
         layout.addWidget(self._path_lbl)
+        # [주의] setVisible은 반드시 addWidget 뒤에 — 부모 없는 위젯을 보이게
+        # 하면 Qt가 독립 창으로 띄워 페이지 전환이 번쩍인다
+        self._path_lbl.setVisible(show_path)
 
     def set_title(self, title: str) -> None:
         self._title_lbl.setText(title)
@@ -311,6 +517,38 @@ class ItemCard(QFrame):
     def set_subtitle(self, subtitle: str) -> None:
         self._sub_lbl.setText(subtitle)
         self._sub_lbl.setVisible(bool(subtitle))
+
+    def set_chips(self, chips: list[tuple[str, bool]]) -> None:
+        """상태를 칩으로 표시한다. 빈 목록이면 부제 문장으로 되돌린다.
+
+        Args:
+            chips: (문구, 문제 여부) 목록. 문제인 칩만 앰버로 칠한다.
+        """
+        chips = chips[: self.MAX_CHIPS]
+        for i, chip in enumerate(self._chips):
+            if i < len(chips):
+                text, warn = chips[i]
+                chip.setText(text)
+                chip.setStyleSheet(
+                    f"background: {SURFACE_GHOST}; border-radius: 4px; "
+                    f"padding: 2px 7px; font-size: {FONT_2XS}px; "
+                    f"color: {AMBER if warn else TEXT_QUAT};"
+                )
+                chip.setProperty("warn", warn)
+                chip.setVisible(True)
+            else:
+                chip.setVisible(False)
+        self._chip_row.setVisible(bool(chips))
+        self._sub_lbl.setVisible(not chips and bool(self._sub_lbl.text()))
+
+    def chip_texts(self) -> list[str]:
+        return [c.text() for c in self._chips if not c.isHidden()]
+
+    def warned_chips(self) -> list[str]:
+        return [
+            c.text() for c in self._chips
+            if not c.isHidden() and c.property("warn")
+        ]
 
     def set_match_snippet(self, snippet: str) -> None:
         self._match_snippet = snippet
