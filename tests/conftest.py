@@ -17,6 +17,21 @@ import pytest  # noqa: E402
 _live_slide_managers: "weakref.WeakSet" = weakref.WeakSet()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_home(tmp_path_factory, monkeypatch):
+    """테스트는 실제 홈 디렉터리를 건드리지 않는다.
+
+    ConfigService·crash.log·perf.log가 모두 ~/.flow 아래를 쓴다. 화면 하나가
+    설정을 읽기 시작하면(라이브러리 뷰 모드) 스위트 결과가 개발자 PC의
+    설정에 좌우되고, 반대로 스위트가 그 설정을 덮어쓴다 — 둘 다 실제로
+    겪었다. 매 테스트마다 빈 홈을 준다.
+    """
+    home = tmp_path_factory.mktemp("home")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    return home
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _track_slide_managers():
     from flow.services.slide_manager import SlideManager
