@@ -22,7 +22,6 @@ from flow.ui.screens._browser_widgets import (
     SORT_CREATED,
     SORT_NAME,
     VIEW_CARDS,
-    VIEW_LIST,
     BrowserToolbar,
     ItemCard,
 )
@@ -31,11 +30,16 @@ from flow.ui.styles import (
     BG_DEEP,
     BORDER_FOCUS,
     FONT_MD,
+    FW_SEMI,
     SP_LG,
     SP_MD,
     SP_SM,
+    TEXT_SECONDARY,
     TEXT_TERTIARY,
 )
+
+# 분류가 지정되지 않은 곡이 모이는 블록 이름 — 항상 마지막에 놓인다.
+UNCATEGORIZED = "분류 없음"
 
 
 def _amber(text: str) -> str:
@@ -70,6 +74,8 @@ class LibraryScreen(QWidget):
         self._applied_order: list[str] | None = None
         self._config = ConfigService()
         self._view_mode = self._config.get_library_view_mode()
+        # 분류명 → 블록 헤더 라벨. 카드와 같은 이유로 풀에 두고 재사용한다.
+        self._headers: dict[str, QLabel] = {}
 
         self.setStyleSheet(f"background: {BG_DEEP};")
         root = QVBoxLayout(self)
@@ -265,8 +271,13 @@ class LibraryScreen(QWidget):
         if order != self._applied_order:
             while self._cards_layout.count() > 1:
                 self._cards_layout.takeAt(0)
-            for i, key in enumerate(order):
-                self._cards_layout.insertWidget(i, self._cards[key])
+            if self._view_mode == VIEW_CARDS:
+                self._lay_out_blocks(order)
+            else:
+                for header in self._headers.values():
+                    header.setVisible(False)
+                for i, key in enumerate(order):
+                    self._cards_layout.insertWidget(i, self._cards[key])
             self._applied_order = order
 
         shown = set(order)
@@ -283,6 +294,54 @@ class LibraryScreen(QWidget):
             self._empty_lbl.show()
             return
         self._empty_lbl.hide()
+
+    # ── 분류별 블록 배치 ─────────────────────────────────────────────────
+
+    def _grouped(self, order: list[str] | None) -> list[tuple[str, list[str]]]:
+        """표시 순서를 분류별 블록으로 묶는다. '분류 없음'은 항상 마지막."""
+        buckets: dict[str, list[str]] = {}
+        for key in order or []:
+            name = self._index[key]["category"] or UNCATEGORIZED
+            buckets.setdefault(name, []).append(key)
+        names = sorted(n for n in buckets if n != UNCATEGORIZED)
+        if UNCATEGORIZED in buckets:
+            names.append(UNCATEGORIZED)
+        return [(name, buckets[name]) for name in names]
+
+    def _header_for(self, name: str) -> QLabel:
+        """블록 헤더 라벨 (분류명 기준으로 재사용)."""
+        header = self._headers.get(name)
+        if header is None:
+            header = QLabel(name)
+            header.setStyleSheet(
+                f"color: {TEXT_SECONDARY}; font-size: {FONT_MD}px; "
+                f"font-weight: {FW_SEMI}; padding: {SP_SM}px 0 0 2px;"
+            )
+            self._headers[name] = header
+        return header
+
+    def _lay_out_blocks(self, order: list[str]) -> None:
+        """분류별로 헤더 + 카드들을 쌓는다.
+
+        카드는 풀에서 꺼내 순서만 바꾸고, 헤더도 분류명으로 재사용한다 —
+        전환할 때마다 위젯을 새로 만들면 곡이 많을수록 눈에 띄게 밀린다.
+        """
+        live: set[str] = set()
+        row = 0
+        for name, keys in self._grouped(order):
+            live.add(name)
+            header = self._header_for(name)
+            header.setText(f"{name} · {len(keys)}곡")
+            header.setVisible(True)
+            self._cards_layout.insertWidget(row, header)
+            row += 1
+            for key in keys:
+                self._cards_layout.insertWidget(row, self._cards[key])
+                row += 1
+
+        for name, header in self._headers.items():
+            if name not in live:
+                header.setVisible(False)
 
     def _on_view_changed(self, mode: str) -> None:
         self._view_mode = mode
