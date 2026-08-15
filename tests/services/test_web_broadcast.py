@@ -162,6 +162,29 @@ def test_http_serves_real_index_html(qapp):
         srv.stop()
 
 
+def test_index_html_wraps_lyrics_at_word_boundaries(qapp):
+    """긴 가사가 브라우저에서 접힐 때는 띄어쓰기 단위로만 끊는다.
+
+    데스크톱 슬라이드보다 폭이 좁아 줄바꿈이 생기는데, 기본값
+    (word-break: normal)은 한글을 음절에서 끊어 "노을이"가 "노 / 을이"로
+    갈라진다. 줄은 최대한 채운다 — 가운데에서 나누는 text-wrap: balance는
+    쓰지 않는다.
+    """
+    srv = WebBroadcastServer()
+    srv.start()
+    try:
+        resp = urllib.request.urlopen(
+            f"http://127.0.0.1:{srv._http_port}/", timeout=3
+        )
+        body = resp.read().decode("utf-8")
+        assert "word-break: keep-all" in body
+        # 한 어절이 한 줄보다 길 때의 탈출구
+        assert "overflow-wrap: break-word" in body
+        assert "text-wrap: balance" not in body
+    finally:
+        srv.stop()
+
+
 def test_index_html_drops_dead_changed_background_field(qapp):
     """FIX-C1: late joiners must not depend on the (dropped) changed_background
     flag — the client now dedupes/reloads bg by comparing the URL itself."""
