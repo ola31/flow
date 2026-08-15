@@ -18,10 +18,10 @@ from PySide6.QtWidgets import (
 
 from flow.services.song_index import song_info, song_lyrics
 from flow.ui.screens._browser_widgets import (
+    SORT_CREATED,
     SORT_NAME,
     BrowserToolbar,
     ItemCard,
-    sort_paths,
 )
 from flow.ui.styles import (
     AMBER,
@@ -61,6 +61,10 @@ class LibraryScreen(QWidget):
         # 곡 폴더 경로 → 카드. 검색·정렬은 카드를 다시 만들지 않고 이
         # 풀에서 꺼내 순서만 바꾼다 (수백 개 QFrame 재생성 방지).
         self._cards: dict[str, ItemCard] = {}
+        # 곡 경로 → 검색·정렬에 필요한 값(이름/가사/부제/mtime). 디스크가
+        # 바뀔 때만 다시 만든다 — 타이핑 중에는 이 색인만 훑는다.
+        self._index: dict[str, dict] = {}
+        self._applied_order: list[str] | None = None
 
         self.setStyleSheet(f"background: {BG_DEEP};")
         root = QVBoxLayout(self)
@@ -155,63 +159,60 @@ class LibraryScreen(QWidget):
                 _mt(p / "sheets"),
                 _mt(p / "sheet"),
             ))
-        return (self._search_text, self._sort_mode, tuple(entries))
+        # 검색어·정렬은 뷰 상태라 넣지 않는다 — 넣으면 한 글자마다 지문이
+        # 달라져 라이브러리 전체를 다시 검증하게 되고 타이핑이 밀린다.
+        return tuple(entries)
 
     def refresh(self) -> None:
-        # 페이지 전환마다 카드 수백 개를 재생성하면 전환이 느려진다 —
-        # 내용이 안 바뀌었으면 기존 카드를 그대로 둔다.
-        if self._workspace is not None:
-            paths_for_fp = self._workspace.list_library_songs()
-            fp = self._fingerprint(paths_for_fp)
-            if fp == getattr(self, "_last_fingerprint", None):
-                return
-            self._last_fingerprint = fp
-        else:
-            self._last_fingerprint = None
-
+        """디스크가 바뀌었으면 색인·카드를 갱신하고, 화면을 다시 적용한다."""
         if self._workspace is None:
             self._detach_all_cards()
             for card in self._cards.values():
                 card.deleteLater()
             self._cards.clear()
+            self._index.clear()
+            self._applied_order = None
+            self._last_fingerprint = None
             self._empty_lbl.setText("워크스페이스가 열려있지 않습니다.")
             self._empty_lbl.show()
             return
 
-        all_paths = paths_for_fp
-        paths = all_paths
-        snippets: dict[Path, str] = {}
-        if self._search_text:
-            from flow.services.markdown import lyric_snippet
+        paths = self._workspace.list_library_songs()
+        fp = self._fingerprint(paths)
+        if fp != getattr(self, "_last_fingerprint", None):
+            self._last_fingerprint = fp
+            self._rebuild_index(paths)
+        self._apply_view()
 
-            q = self._search_text.lower()
-            matched = []
-            for p in all_paths:
-                if q in song_info(p)["name_lower"]:
-                    matched.append(p)  # 제목 매칭 — 스니펫 없음
-                    continue
-                lyrics, lyrics_lower = song_lyrics(p)
-                if q in lyrics_lower:
-                    matched.append(p)
-                    snippets[p] = lyric_snippet(lyrics, q)
-            paths = matched
-
-        paths = sort_paths(paths, self._sort_mode)
-
-        # 라이브러리에서 사라진 곡의 카드는 폐기
-        alive = {str(p) for p in all_paths}
+    def _rebuild_index(self, paths) -> None:
+        """디스크에서 곡 정보를 읽어 색인과 카드를 맞춘다 (디스크 변경 시에만)."""
+        alive = {str(p) for p in paths}
         for key in [k for k in self._cards if k not in alive]:
             self._cards.pop(key).deleteLater()
+        for key in [k for k in self._index if k not in alive]:
+            del self._index[key]
+        self._applied_order = None  # 목록 구성이 바뀌었으니 재배치 필요
 
-        ordered: list[ItemCard] = []
         for path in paths:
             key = str(path)
-            card = self._cards.get(key)
+            lyrics, lyrics_lower = song_lyrics(path)
             subtitle = self._build_subtitle(path)
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+            self._index[key] = {
+                "path": path,
+                "name_lower": song_info(path)["name_lower"],
+                "lyrics": lyrics,
+                "lyrics_lower": lyrics_lower,
+                "subtitle": subtitle,
+                "mtime": mtime,
+            }
+            card = self._cards.get(key)
             if card is None:
                 card = ItemCard(
                     path=key, title=path.name, subtitle=subtitle,
-                    match_snippet=snippets.get(path, ""),
                     deletable=True,
                 )
                 card.clicked.connect(self.song_selected.emit)
@@ -219,15 +220,48 @@ class LibraryScreen(QWidget):
                 self._cards[key] = card
             else:
                 card.set_subtitle(subtitle)
-                card.set_match_snippet(snippets.get(path, ""))
-            ordered.append(card)
 
-        self._detach_all_cards()
-        for i, card in enumerate(ordered):
-            self._cards_layout.insertWidget(i, card)
-            card.setVisible(True)
+    def _apply_view(self) -> None:
+        """검색어·정렬을 색인에만 적용한다 (디스크 접근 없음)."""
+        from flow.services.markdown import lyric_snippet
 
-        if not ordered:
+        q = self._search_text.lower()
+        matched: list[tuple[str, str]] = []
+        for key, entry in self._index.items():
+            snippet = ""
+            if q:
+                if q in entry["name_lower"]:
+                    pass  # 제목 매칭 — 스니펫 없음
+                elif q in entry["lyrics_lower"]:
+                    snippet = lyric_snippet(entry["lyrics"], q)
+                else:
+                    continue
+            matched.append((key, snippet))
+
+        if self._sort_mode == SORT_CREATED:
+            matched.sort(key=lambda kv: self._index[kv[0]]["mtime"], reverse=True)
+        else:
+            matched.sort(key=lambda kv: self._index[kv[0]]["name_lower"])
+
+        order = [key for key, _ in matched]
+        for key, snippet in matched:
+            self._cards[key].set_match_snippet(snippet)
+
+        # 순서가 그대로면 레이아웃을 건드리지 않는다
+        if order != self._applied_order:
+            while self._cards_layout.count() > 1:
+                self._cards_layout.takeAt(0)
+            for i, key in enumerate(order):
+                self._cards_layout.insertWidget(i, self._cards[key])
+            self._applied_order = order
+
+        shown = set(order)
+        for key, card in self._cards.items():
+            want = key in shown
+            if card.isHidden() == want:  # 실제로 바뀔 때만 토글
+                card.setVisible(want)
+
+        if not order:
             self._empty_lbl.setText(
                 "이 워크스페이스에 곡이 없습니다." if not self._search_text
                 else f"'{self._search_text}'와(과) 일치하는 곡이 없습니다."
@@ -291,8 +325,8 @@ class LibraryScreen(QWidget):
 
     def _on_search_changed(self, text: str) -> None:
         self._search_text = text.strip()
-        self.refresh()
+        self._apply_view()  # 디스크 재검증 없이 색인만 훑는다
 
     def _on_sort_changed(self, mode: str) -> None:
         self._sort_mode = mode
-        self.refresh()
+        self._apply_view()
