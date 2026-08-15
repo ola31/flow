@@ -41,9 +41,11 @@ from flow.ui.styles import (
 SORT_NAME = "name"
 SORT_CREATED = "created"
 
-# 한글 IME는 자모 하나마다 textChanged를 쏜다 — 매 입력마다 목록을 다시
-# 필터링하면 큰 라이브러리에서 타이핑이 밀린다. 입력이 멎은 뒤 한 번만 렌더.
-SEARCH_DEBOUNCE_MS = 180
+# 한글 IME는 자모 하나마다 textChanged를 쏜다 — 조합 중에 매번 목록을
+# 다시 그리지 않도록 입력이 멎은 뒤 한 번만 렌더한다. 필터가 디스크를
+# 건드리던 시절엔 180ms로 막아야 했지만, 지금은 색인만 훑으므로(키당
+# ~16ms) 대기 자체가 체감 지연이라 짧게 잡는다.
+SEARCH_DEBOUNCE_MS = 120
 
 
 class BrowserToolbar(QWidget):
