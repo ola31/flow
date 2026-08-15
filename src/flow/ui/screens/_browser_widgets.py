@@ -91,8 +91,11 @@ class BrowserToolbar(QWidget):
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(SP_MD)
 
-        # 뒤로가기 — 분류 안으로 들어갔을 때만 보인다
-        self._btn_back = QPushButton("←")
+        # 뒤로가기 — 분류 안으로 들어갔을 때만 보인다. 화살표는 아이콘 폰트로
+        # 그린다 (본문 폰트에는 이 글리프가 없어 빈 칸으로 보인다).
+        self._btn_back = QPushButton()
+        self._btn_back.setIcon(icon_qicon("arrow_back", size=16, color=TEXT_SECONDARY))
+        self._btn_back.setToolTip("라이브러리로 돌아가기")
         self._btn_back.setFixedSize(32, 32)
         self._btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_back.setFocusPolicy(Qt.FocusPolicy.NoFocus)
