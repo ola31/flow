@@ -2875,6 +2875,26 @@ class MainWindow(QMainWindow):
         self._song_list.set_editable(editable)
         self._slide_preview.set_editable(editable)
 
+    def set_setlist_select_mode(self, active: bool) -> None:
+        """셋리스트 다중 선택 중에는 셋리스트 밖의 편집 영역을 잠근다.
+
+        선택은 곡을 고르는 중간 상태다 — 그 사이에 캔버스에서 핫스팟을
+        옮기거나 슬라이드를 매핑하면 어느 곡을 고르는 중이었는지 흐려진다.
+        """
+        editable = not active
+        for widget in (
+            getattr(self, "_canvas", None),
+            getattr(self, "_mapping_panel", None),
+            getattr(self, "_slide_preview", None),
+        ):
+            if widget is not None:
+                widget.setEnabled(editable)
+        # 라이브 중이거나 되돌릴 게 없으면 원래 꺼져 있어야 한다 —
+        # 선택을 끝냈다고 빈 스택의 실행 취소를 켜지 않는다
+        allow = editable and not self._is_live
+        self._undo_action.setEnabled(allow and self._undo_stack.canUndo())
+        self._redo_action.setEnabled(allow and self._undo_stack.canRedo())
+
     def _mark_dirty(self) -> None:
         """변경사항이 있음을 표시"""
         if not self._is_dirty:

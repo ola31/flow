@@ -174,6 +174,14 @@ off its lyrics (`SongListWidget._replace_sheet_image` does).
   entered from the library or the song switcher; the setlist panel becomes a
   sheet list plus a library song switcher
 - **Live mode** (F5): red accent, PIP panel, keyboard hint bar, editing locked
+- **Setlist select mode** ("선택" in the setlist header): cards become checkboxes
+  and one confirmation removes every checked seat. It is exclusive with the
+  other panel modes — while it is on, section-splitting, the per-card
+  edit/remove buttons, the card context menu and everything outside the panel
+  (canvas, mapping panel, slide preview) are disabled, so a half-finished
+  selection can't be spent on some other edit. Entering live or swapping the
+  project exits it. Checks are keyed by `id(song)`, not by name: the same song
+  can hold two seats in a setlist and only the checked seat is removed.
 
 ---
 

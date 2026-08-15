@@ -238,6 +238,169 @@ class TestSheetPrefetch:
         assert str(tmp_path / "no.png") not in canvas._pixmap_cache
 
 
+def test_header_keeps_panel_narrow_without_eliding_title(song_list, qtbot):
+    """헤더 버튼이 늘어도 220px 패널에서 제목이 온전해야 한다.
+
+    ProjectScreen이 주는 최소 폭은 220px인데, 헤더 내용이 그보다 넓으면
+    그 값이 무시되고 패널이 더 이상 안 좁아진다. 모드 토글이 둘이 되면서
+    "구간 나누기"를 다 적었을 땐 최소 폭이 268px로 밀렸고, 제목을 대신
+    줄이자 좁은 패널에서 "셋리…"가 됐다.
+    """
+    assert song_list.minimumSizeHint().width() <= 220
+
+    song_list.resize(220, 400)
+    song_list.show()
+    qtbot.addWidget(song_list)
+    assert song_list._title_label.text() == "셋리스트"
+
+
+class TestMultiSelectRemoval:
+    """'선택' 모드: 여러 곡을 체크해 한 번의 확인으로 제거."""
+
+    @pytest.fixture
+    def loaded(self, song_list):
+        project = Project(name="테스트")
+        project.selected_songs = [
+            _make_song(f"곡{i}", [f"시트{i}"]) for i in range(4)
+        ]
+        project.song_order = [s.name for s in project.selected_songs]
+        song_list.set_project(project)
+        return song_list, project
+
+    def _check(self, qtbot, song_list, *indices: int) -> None:
+        """카드를 실제로 클릭해 체크 (선택 모드의 클릭 경로까지 검증)."""
+        for i in indices:
+            qtbot.mouseClick(song_list._cards[i], Qt.MouseButton.LeftButton)
+
+    def test_toggle_marks_and_unmarks(self, loaded, qtbot):
+        song_list, _ = loaded
+        song_list._btn_select_mode.setChecked(True)
+
+        self._check(qtbot, song_list, 1)
+        assert song_list._cards[1]._checked
+        assert song_list._btn_select_delete.isEnabled()
+
+        self._check(qtbot, song_list, 1)  # 다시 누르면 해제
+        assert not song_list._cards[1]._checked
+        assert not song_list._btn_select_delete.isEnabled()
+
+    def test_removes_only_checked_occurrences(self, loaded, qtbot, monkeypatch):
+        song_list, project = loaded
+        monkeypatch.setattr(
+            "flow.ui.dialogs.flow_question", lambda *a, **k: True
+        )
+        song_list._btn_select_mode.setChecked(True)
+        self._check(qtbot, song_list, 0, 2)
+
+        song_list._remove_checked()
+
+        assert [s.name for s in project.selected_songs] == ["곡1", "곡3"]
+        assert project.song_order == ["곡1", "곡3"]
+        assert not song_list._select_mode  # 제거 후 모드 종료
+
+    def test_cancel_keeps_setlist(self, loaded, qtbot, monkeypatch):
+        song_list, project = loaded
+        monkeypatch.setattr(
+            "flow.ui.dialogs.flow_question", lambda *a, **k: False
+        )
+        song_list._btn_select_mode.setChecked(True)
+        self._check(qtbot, song_list, 0, 1)
+
+        song_list._remove_checked()
+
+        assert len(project.selected_songs) == 4
+        assert song_list._select_mode  # 취소는 선택을 유지
+
+    def test_same_song_twice_removes_one_seat(
+        self, song_list, qtbot, monkeypatch
+    ):
+        """같은 곡이 오전·오후에 들어 있어도 체크한 자리만 빠진다."""
+        monkeypatch.setattr(
+            "flow.ui.dialogs.flow_question", lambda *a, **k: True
+        )
+        project = Project(name="테스트")
+        song = _make_song("중복곡", ["시트1"])
+        project.selected_songs = [song]
+        project.song_order = ["중복곡"]
+        project.add_song_occurrence(song, section="오후")
+        song_list.set_project(project)
+
+        song_list._btn_select_mode.setChecked(True)
+        self._check(qtbot, song_list, 1)
+        song_list._remove_checked()
+
+        assert len(project.selected_songs) == 1
+        assert project.selected_songs[0] is song
+        assert project.song_order == ["중복곡"]
+
+    def test_mode_locks_other_actions(self, loaded):
+        from PySide6.QtCore import QPointF
+        from PySide6.QtGui import QEnterEvent
+
+        song_list, _ = loaded
+        song_list._btn_select_mode.setChecked(True)
+
+        # 위젯이 화면에 안 떠 있어도 참인 isHidden으로 본다 (isVisible은
+        # 최상위 창이 show되기 전엔 항상 False라 아무것도 검증하지 못한다)
+        assert not song_list._btn_section_mode.isEnabled()
+        assert song_list._footer.isHidden()
+        assert not song_list._select_bar.isHidden()
+        # 카드의 개별 조작(편집/제거)은 hover해도 노출되지 않는다
+        card = song_list._cards[0]
+        origin = QPointF(1, 1)
+        card.enterEvent(QEnterEvent(origin, origin, origin))
+        assert card._btn_edit.isHidden()
+        assert card._btn_remove.isHidden()
+
+    def test_card_click_does_not_open_sheet(self, loaded, qtbot):
+        song_list, _ = loaded
+        seen: list = []
+        song_list.song_selected.connect(seen.append)
+        song_list._btn_select_mode.setChecked(True)
+
+        self._check(qtbot, song_list, 0)
+
+        assert seen == []
+
+    def test_exit_clears_checks_on_reused_cards(self, loaded, qtbot):
+        song_list, _ = loaded
+        song_list._btn_select_mode.setChecked(True)
+        self._check(qtbot, song_list, 0, 1)
+
+        song_list._btn_select_mode.setChecked(False)
+
+        assert not song_list._checked_ids
+        assert all(not c._checked for c in song_list._cards)
+        assert all(c._check.isHidden() for c in song_list._cards)
+        assert not song_list._footer.isHidden()
+        assert song_list._select_bar.isHidden()
+
+    def test_live_mode_blocks_select_mode(self, loaded):
+        song_list, _ = loaded
+
+        class _Live:
+            _is_live = True
+
+            def _mark_dirty(self):
+                pass
+
+        song_list.set_main_window(_Live())
+        song_list._btn_select_mode.setChecked(True)
+
+        assert not song_list._select_mode
+        assert not song_list._btn_select_mode.isChecked()
+
+    def test_entering_live_exits_select_mode(self, loaded, qtbot):
+        song_list, _ = loaded
+        song_list._btn_select_mode.setChecked(True)
+        self._check(qtbot, song_list, 0)
+
+        song_list.set_editable(False)
+
+        assert not song_list._select_mode
+        assert not song_list._checked_ids
+
+
 class TestSheetTabsReuse:
     """시트가 많은 곡은 탭 재생성(setStyleSheet ~40ms)이 방향키 전환을
     끊는다 — 시트 구성이 같으면 탭을 재사용하고 활성 상태만 갱신한다."""
