@@ -158,6 +158,7 @@ class LibraryScreen(QWidget):
                 _mt(p / "slides.md"),
                 _mt(p / "sheets"),
                 _mt(p / "sheet"),
+                _mt(p / "meta.json"),
             ))
         # 검색어·정렬은 뷰 상태라 넣지 않는다 — 넣으면 한 글자마다 지문이
         # 달라져 라이브러리 전체를 다시 검증하게 되고 타이핑이 밀린다.
@@ -201,9 +202,11 @@ class LibraryScreen(QWidget):
                 mtime = path.stat().st_mtime
             except OSError:
                 mtime = 0.0
+            info = song_info(path)
             self._index[key] = {
                 "path": path,
-                "name_lower": song_info(path)["name_lower"],
+                "name_lower": info["name_lower"],
+                "category": info["category"],
                 "lyrics": lyrics,
                 "lyrics_lower": lyrics_lower,
                 "subtitle": subtitle,

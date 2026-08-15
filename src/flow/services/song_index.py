@@ -47,6 +47,7 @@ def _stamp(song_dir: Path) -> tuple:
         _mtime(song_dir / "slides.md"),
         _mtime(song_dir / "sheets"),
         _mtime(song_dir / "sheet"),
+        _mtime(song_dir / "meta.json"),
     )
 
 
@@ -55,7 +56,7 @@ class SongIndex:
 
     반환되는 dict의 키:
         name, path, sheet_count, first_sheet, has_ppt, has_md, lyrics,
-        total_hotspots, mapped_hotspots
+        total_hotspots, mapped_hotspots, category
     """
 
     def __init__(self) -> None:
@@ -126,6 +127,10 @@ def _scan(song_dir: Path) -> dict[str, Any]:
             pass
     result["total_hotspots"] = total_hs
     result["mapped_hotspots"] = mapped_hs
+
+    from flow.services.song_meta import read_category
+
+    result["category"] = read_category(song_dir)
     return result
 
 
