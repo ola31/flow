@@ -1095,6 +1095,7 @@ class _SongCard(QFrame):
     sheet_selected = Signal(object)     # ScoreSheet
     edit_requested = Signal(object)     # Song
     remove_requested = Signal(object)   # Song
+    select_toggled = Signal(object)     # Song — 선택 모드에서 카드 클릭
     reload_requested = Signal(object)   # Song
     import_ppt_requested = Signal(object)  # Song
     move_requested = Signal(object, int)   # (Song, -1=위/+1=아래)
@@ -1110,6 +1111,9 @@ class _SongCard(QFrame):
         self._is_selected = False
         self._current_sheet_id: str | None = None
         self._sheet_tabs: list[_SheetTab] = []
+        # 다중 선택 모드 — 켜지면 카드 클릭이 시트 선택 대신 체크 토글
+        self._select_mode = False
+        self._checked = False
         self._setup_ui()
         self.refresh_status()
 
@@ -1127,6 +1131,13 @@ class _SongCard(QFrame):
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
         top_row.setSpacing(SP_XS + 2)
+
+        # 선택 모드 체크 — 평소엔 숨김. 번호 배지를 가리지 않고 그 앞에 선다.
+        self._check = QLabel()
+        self._check.setFixedSize(18, 18)
+        self._check.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._check.hide()
+        top_row.addWidget(self._check)
 
         self._badge = QLabel(str(self._position))
         self._badge.setFixedSize(22, 22)
@@ -1276,7 +1287,9 @@ class _SongCard(QFrame):
             f"font-size: {FONT_LG}px; font-weight: 500; color: {TEXT_PRIMARY}; background: transparent;"
         )
         self._refresh_tabs(current_sheet_id)
-        self._tabs_container.setVisible(selected and bool(self._sheet_tabs))
+        self._tabs_container.setVisible(
+            not self._select_mode and selected and bool(self._sheet_tabs)
+        )
         self._fmt_tag.setVisible(selected and bool(self._fmt_tag.text()))
         self._refresh_frame_style()
 
@@ -1332,10 +1345,60 @@ class _SongCard(QFrame):
             if last_row_count < self._TABS_PER_ROW:
                 self._tabs_layout.setColumnStretch(self._TABS_PER_ROW, 1)
 
+    # ── 다중 선택 모드 ────────────────────────────────────────────────────
+
+    def set_select_mode(self, enabled: bool, checked: bool = False) -> None:
+        """선택 모드 진입/이탈. 카드는 풀에서 재사용되므로 반드시 원복한다."""
+        self._select_mode = enabled
+        self._checked = enabled and checked
+        self._check.setVisible(enabled)
+        self._refresh_check_style()
+        if enabled:
+            # 선택 중에는 카드의 다른 조작을 아예 내보내지 않는다
+            self._btn_edit.hide()
+            self._btn_remove.hide()
+            self._tabs_container.hide()
+        else:
+            self._tabs_container.setVisible(
+                self._is_selected and bool(self._sheet_tabs)
+            )
+        self._refresh_frame_style()
+
+    def set_checked(self, checked: bool) -> None:
+        if checked == self._checked:
+            return
+        self._checked = checked
+        self._refresh_check_style()
+        self._refresh_frame_style()
+
+    def _refresh_check_style(self) -> None:
+        if self._checked:
+            self._check.setText("✓")
+            self._check.setStyleSheet(
+                f"background: {ACCENT}; color: {TEXT_INVERSE}; "
+                f"border-radius: 9px; font-size: 10px; "
+                f"font-weight: {FW_SEMI};"
+            )
+        else:
+            self._check.setText("")
+            self._check.setStyleSheet(
+                f"background: transparent; border: 1px solid {BORDER}; "
+                f"border-radius: 9px;"
+            )
+
     def _refresh_frame_style(self) -> None:
         # Linear 패턴: selected = 미묘한 white-overlay + 좌측 액센트 바
         # idle = ghost(거의 투명), hover = subtle white-overlay
-        if self._is_selected:
+        if self._select_mode and self._checked:
+            self.setStyleSheet(f"""
+                QFrame#SongCard {{
+                    background: {SURFACE_SUBTLE};
+                    border: 1px solid {BORDER_STANDARD_RGBA};
+                    border-left: 3px solid {ACCENT};
+                    border-radius: {RADIUS_LG}px;
+                }}
+            """)
+        elif self._is_selected:
             self.setStyleSheet(f"""
                 QFrame#SongCard {{
                     background: {SURFACE_SUBTLE};
@@ -1360,8 +1423,9 @@ class _SongCard(QFrame):
     # ── 호버 시 액션 버튼 표시 ────────────────────────────────────────────
 
     def enterEvent(self, event) -> None:
-        self._btn_edit.show()
-        self._btn_remove.show()
+        if not self._select_mode:
+            self._btn_edit.show()
+            self._btn_remove.show()
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:
@@ -1371,6 +1435,10 @@ class _SongCard(QFrame):
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
+            if self._select_mode:
+                # 선택 모드에서는 시트를 열지 않는다 — 체크만 토글
+                self.select_toggled.emit(self._song)
+                return
             # 탭 클릭이 아닌 카드 영역 클릭 → 첫 번째 시트 선택
             valid = [s for s in self._song.score_sheets if s.image_path]
             if valid:
@@ -1378,6 +1446,10 @@ class _SongCard(QFrame):
         super().mousePressEvent(event)
 
     def contextMenuEvent(self, event) -> None:
+        if self._select_mode:
+            # 선택 중에 곡 편집/제거 메뉴가 열리면 두 흐름이 섞인다
+            event.ignore()
+            return
         self._build_context_menu().exec(event.globalPos())
 
     def _build_context_menu(self) -> QMenu:
@@ -2187,6 +2259,10 @@ class SongListWidget(QWidget):
         self._section_headers: list[_SectionHeader] = []
         self._section_zones: list[_SectionInsertZone] = []
         self._section_edit_mode = False  # 구간 나누기 모드 (토글)
+        # 다중 선택 모드 — 체크한 곡을 한 번에 셋리스트에서 뺀다.
+        # 키는 id(song): 같은 곡이 두 번 들어 있어도 자리마다 따로 골라야 한다.
+        self._select_mode = False
+        self._checked_ids: set[int] = set()
         self._standalone_panel: _StandalonePanel | None = None
         # 위치 이동 모드: {"kind": "sheet"|"song", "obj": ..., "start": int}
         self._move_mode: dict | None = None
@@ -2229,13 +2305,7 @@ class SongListWidget(QWidget):
         header_layout.addWidget(self._count_label)
         header_layout.addStretch()
 
-        # 구간 나누기 모드 토글 — 켜면 카드 사이가 벌어지며 삽입 존 표시
-        self._btn_section_mode = QPushButton("구간 나누기")
-        self._btn_section_mode.setCheckable(True)
-        self._btn_section_mode.setFixedHeight(24)
-        self._btn_section_mode.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_section_mode.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_section_mode.setStyleSheet(f"""
+        mode_btn_css = f"""
             QPushButton {{
                 background: transparent; color: {TEXT_TERTIARY};
                 border: 1px solid {BORDER}; border-radius: {RADIUS_SM}px;
@@ -2245,7 +2315,32 @@ class SongListWidget(QWidget):
             QPushButton:checked {{
                 color: {ACCENT}; border-color: {ACCENT};
             }}
-        """)
+            QPushButton:disabled {{ color: {TEXT_TERTIARY}; border-color: {BORDER}; }}
+        """
+
+        # 다중 선택 모드 토글 — 켜면 카드가 체크 대상이 된다
+        self._btn_select_mode = QPushButton("선택")
+        self._btn_select_mode.setCheckable(True)
+        self._btn_select_mode.setFixedHeight(24)
+        self._btn_select_mode.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_select_mode.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_select_mode.setToolTip("여러 곡을 골라 한 번에 제거")
+        self._btn_select_mode.setStyleSheet(mode_btn_css)
+        self._btn_select_mode.toggled.connect(self._on_select_mode_toggled)
+        header_layout.addWidget(self._btn_select_mode)
+
+        # 구간 나누기 모드 토글 — 켜면 카드 사이가 벌어지며 삽입 존 표시.
+        # 토글이 둘이 되면서 "구간 나누기"를 다 적으면 헤더가 제목을 밀어낸다
+        # (좁은 패널에서 "셋리…"가 된다) — 이름은 줄이고 뜻은 툴팁으로.
+        self._btn_section_mode = QPushButton("구간")
+        self._btn_section_mode.setCheckable(True)
+        self._btn_section_mode.setFixedHeight(24)
+        self._btn_section_mode.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_section_mode.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_section_mode.setToolTip(
+            "구간 나누기 — 셋리스트를 오전·오후처럼 나눠 표시"
+        )
+        self._btn_section_mode.setStyleSheet(mode_btn_css)
         self._btn_section_mode.toggled.connect(self._on_section_mode_toggled)
         header_layout.addWidget(self._btn_section_mode)
 
@@ -2320,6 +2415,62 @@ class SongListWidget(QWidget):
 
         root.addWidget(self._footer)
 
+        # ── 선택 모드 액션 바 (푸터 자리를 대신 차지)
+        self._select_bar = QFrame()
+        self._select_bar.setStyleSheet(
+            f"background: {BG_SURFACE}; border-top: 1px solid {BORDER};"
+        )
+        select_layout = QHBoxLayout(self._select_bar)
+        select_layout.setContentsMargins(8, 8, 8, 8)
+        select_layout.setSpacing(6)
+
+        self._select_count_label = QLabel()
+        self._select_count_label.setStyleSheet(
+            f"font-size: {FONT_SM}px; color: {TEXT_SECONDARY}; "
+            f"background: transparent; border: none;"
+        )
+        select_layout.addWidget(self._select_count_label)
+        select_layout.addStretch()
+
+        self._btn_select_cancel = QPushButton("취소")
+        self._btn_select_cancel.setFixedHeight(30)
+        self._btn_select_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_select_cancel.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_select_cancel.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {TEXT_TERTIARY};
+                border: 1px solid {BORDER}; border-radius: {RADIUS_MD}px;
+                font-size: {FONT_SM}px; padding: 0 12px;
+            }}
+            QPushButton:hover {{ background: {BG_HOVER}; color: {TEXT_SECONDARY}; }}
+        """)
+        self._btn_select_cancel.clicked.connect(
+            lambda: self._exit_select_mode(refresh=True)
+        )
+        select_layout.addWidget(self._btn_select_cancel)
+
+        from flow.ui.icons import icon_qicon
+
+        self._btn_select_delete = QPushButton("  제거")
+        self._btn_select_delete.setIcon(icon_qicon("delete", size=14, color=RED))
+        self._btn_select_delete.setFixedHeight(30)
+        self._btn_select_delete.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_select_delete.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_select_delete.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {RED};
+                border: 1px solid {RED}; border-radius: {RADIUS_MD}px;
+                font-size: {FONT_SM}px; padding: 0 12px;
+            }}
+            QPushButton:hover {{ background: {BG_HOVER}; }}
+            QPushButton:disabled {{ color: {TEXT_TERTIARY}; border-color: {BORDER}; }}
+        """)
+        self._btn_select_delete.clicked.connect(self._remove_checked)
+        select_layout.addWidget(self._btn_select_delete)
+
+        self._select_bar.setVisible(False)
+        root.addWidget(self._select_bar)
+
     # ── 퍼블릭 인터페이스 (MainWindow 호환) ──────────────────────────────
 
     def set_main_window(self, win) -> None:
@@ -2331,6 +2482,8 @@ class SongListWidget(QWidget):
     def set_standalone(self, standalone: bool) -> None:
         from flow.ui.icons import icon, icon_font
         self._is_standalone = standalone
+        # 단독 곡 편집 모드에는 셋리스트가 없다
+        self._exit_select_mode()
         if standalone:
             self._title_label.setText("곡 편집")
             self._title_icon.setFont(icon_font(16))
@@ -2346,11 +2499,16 @@ class SongListWidget(QWidget):
             self._footer.setVisible(True)
 
     def set_project(self, project: Project | None) -> None:
+        # 선택은 이전 프로젝트의 곡 객체를 가리킨다 — 넘기기 전에 버린다
+        self._exit_select_mode()
         self._project = project
         self.refresh_list()
 
     def set_editable(self, editable: bool) -> None:
         self._editable = editable
+        if not editable:
+            # 라이브 진입 — 선택 모드는 편집 조작이므로 함께 닫는다
+            self._exit_select_mode(refresh=True)
         # 라이브 중에도 "라이브러리에서 추가"는 허용 (좌측 패널로 열림)
         self._btn_add_lib.setEnabled(True)
         self._btn_new_song.setEnabled(editable)
@@ -2485,6 +2643,10 @@ class SongListWidget(QWidget):
                 self._exit_move_mode(confirm=False)
             event.accept()
             return
+        if self._select_mode and event.key() == Qt.Key.Key_Escape:
+            self._exit_select_mode(refresh=True)
+            event.accept()
+            return
         super().keyPressEvent(event)
 
     def eventFilter(self, watched, event) -> bool:
@@ -2572,10 +2734,11 @@ class SongListWidget(QWidget):
             self._drop_song_cards()
             return
 
+        is_live = getattr(self._main_window, "_is_live", False)
         self._btn_section_mode.setVisible(not self._is_standalone)
-        self._btn_section_mode.setEnabled(
-            not getattr(self._main_window, "_is_live", False)
-        )
+        self._btn_section_mode.setEnabled(not is_live and not self._select_mode)
+        self._btn_select_mode.setVisible(not self._is_standalone)
+        self._btn_select_mode.setEnabled(not is_live)
         if self._is_standalone:
             self._drop_song_cards()
             self._refresh_standalone()
@@ -2699,6 +2862,10 @@ class SongListWidget(QWidget):
         alive = {id(s) for s in songs}
         for key in [k for k in self._song_cards if k not in alive]:
             self._song_cards.pop(key).deleteLater()
+        # 빠진 곡의 체크는 함께 버린다 — 남으면 카운트가 실제 카드와 어긋난다
+        if self._checked_ids - alive:
+            self._checked_ids &= alive
+            self._update_select_count()
         current_sheet = self._project.get_current_score_sheet()
         current_id = current_sheet.id if current_sheet else None
 
@@ -2721,7 +2888,9 @@ class SongListWidget(QWidget):
         active_occurrence = self._occurrence_of_current_sheet()
 
         is_live = getattr(self._main_window, "_is_live", False)
-        section_mode = self._section_edit_mode and not is_live
+        section_mode = (
+            self._section_edit_mode and not is_live and not self._select_mode
+        )
         # 칩 제안은 이미 쓰는 구간 이름만 — 프리셋은 넣지 않는다
         section_names: list[str] = []
         for s in songs:
@@ -2789,10 +2958,15 @@ class SongListWidget(QWidget):
                     self._toggle_sheet_names
                 )
                 card.set_section_requested.connect(self._set_song_section)
+                card.select_toggled.connect(self._on_card_select_toggled)
                 self._song_cards[id(song)] = card
             else:
                 card.set_position(i + 1)
                 card.refresh_status()
+
+            card.set_select_mode(
+                self._select_mode, id(song) in self._checked_ids
+            )
 
             # 재사용 카드는 상태가 실제로 바뀐 경우에만 재스타일
             if fresh or is_selected != card._is_selected or (
@@ -3398,6 +3572,111 @@ class SongListWidget(QWidget):
             return
         self._section_edit_mode = checked
         self.refresh_list()
+
+    # ── 다중 선택 모드 ────────────────────────────────────────────────────
+
+    def _on_select_mode_toggled(self, checked: bool) -> None:
+        if checked and (
+            self._is_standalone
+            or getattr(self._main_window, "_is_live", False)
+        ):
+            self._btn_select_mode.setChecked(False)
+            return
+        self._select_mode = checked
+        self._checked_ids.clear()
+        if checked and self._section_edit_mode:
+            # 두 모드가 겹치면 카드 사이 삽입 존이 선택 클릭을 가로챈다
+            self._section_edit_mode = False
+            self._btn_section_mode.blockSignals(True)
+            self._btn_section_mode.setChecked(False)
+            self._btn_section_mode.blockSignals(False)
+        self._apply_select_mode_ui()
+        self.refresh_list()
+
+    def _apply_select_mode_ui(self) -> None:
+        """선택 모드에 맞춰 패널과 바깥 편집 영역을 잠그거나 푼다."""
+        active = self._select_mode
+        self._btn_section_mode.setEnabled(
+            not active and not getattr(self._main_window, "_is_live", False)
+        )
+        self._footer.setVisible(not active and not self._is_standalone)
+        self._select_bar.setVisible(active)
+        self._update_select_count()
+
+        # 셋리스트 밖(악보 캔버스·매핑 패널 등)은 선택이 끝날 때까지 잠근다
+        mw = self._main_window
+        if mw is not None and hasattr(mw, "set_setlist_select_mode"):
+            mw.set_setlist_select_mode(active)
+
+    def _update_select_count(self) -> None:
+        count = len(self._checked_ids)
+        self._select_count_label.setText(
+            f"{count}곡 선택됨" if count else "제거할 곡을 선택하세요"
+        )
+        self._btn_select_delete.setEnabled(count > 0)
+
+    def _on_card_select_toggled(self, song: Song) -> None:
+        key = id(song)
+        if key in self._checked_ids:
+            self._checked_ids.discard(key)
+        else:
+            self._checked_ids.add(key)
+        card = self._song_cards.get(key)
+        if card is not None:
+            card.set_checked(key in self._checked_ids)
+        self._update_select_count()
+
+    def _exit_select_mode(self, refresh: bool = False) -> None:
+        if not self._select_mode:
+            return
+        self._select_mode = False
+        self._checked_ids.clear()
+        self._btn_select_mode.blockSignals(True)
+        self._btn_select_mode.setChecked(False)
+        self._btn_select_mode.blockSignals(False)
+        # 카드는 풀에서 재사용된다 — 체크 표시를 여기서 끄지 않으면
+        # 모드를 빠져나온 뒤에도 체크 동그라미가 남는다.
+        for card in self._song_cards.values():
+            card.set_select_mode(False)
+        self._apply_select_mode_ui()
+        if refresh:
+            self.refresh_list()
+
+    def _remove_checked(self) -> None:
+        """체크한 자리들을 한 번의 확인으로 셋리스트에서 뺀다."""
+        if not self._project or not self._checked_ids:
+            return
+        songs = self._project.selected_songs
+        indices = [i for i, s in enumerate(songs) if id(s) in self._checked_ids]
+        if not indices:
+            return
+
+        names = [songs[i].name for i in indices]
+        preview = "\n".join(f"· {n}" for n in names[:8])
+        if len(names) > 8:
+            preview += f"\n… 외 {len(names) - 8}곡"
+
+        from flow.ui.dialogs import flow_question
+
+        if not flow_question(
+            self,
+            "곡 제거",
+            f"선택한 {len(indices)}곡을 셋리스트에서 제거하시겠습니까?\n"
+            f"(파일은 삭제되지 않습니다)\n\n{preview}",
+            yes_text="제거",
+            no_text="취소",
+        ):
+            return
+
+        # 뒤에서부터 빼야 앞 인덱스가 밀리지 않는다
+        for i in reversed(indices):
+            self._project.remove_occurrence(i)
+
+        self._exit_select_mode()
+        self.refresh_list()
+        self.song_removed.emit("ALL_OF_SONG")
+        if self._main_window:
+            self._main_window._mark_dirty()
 
     def _apply_section_from(self, index: int, name: str) -> None:
         """index 곡부터 같은 구간이 이어지는 데까지 name을 채운다.

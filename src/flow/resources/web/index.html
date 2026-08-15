@@ -63,6 +63,12 @@
     line-height: 1.4;
     text-shadow: 0 2px 12px rgba(0, 0, 0, 0.75), 0 0 4px rgba(0, 0, 0, 0.6);
     max-width: 100%;
+    /* 데스크톱 슬라이드보다 폭이 좁아 한 줄이 넘칠 때가 있다. 기본값은
+       한글을 음절에서 끊어 “노을이”가 “노 / 을이”로 갈라진다 — 띄어쓰기
+       단위로만 끊는다. 줄은 최대한 채우고(balance 안 씀), 한 어절이 한
+       줄보다 길 때만 break-word가 받는다. */
+    word-break: keep-all;
+    overflow-wrap: break-word;
   }
 
   #sub-text {
@@ -76,6 +82,8 @@
     font-weight: 300;
     text-shadow: 0 1px 6px rgba(0, 0, 0, 0.75);
     white-space: pre-wrap;
+    word-break: keep-all;
+    overflow-wrap: break-word;
   }
 
   #status {
