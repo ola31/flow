@@ -24,6 +24,13 @@ import tempfile
 import time
 from pathlib import Path
 
+# 이 스크립트의 메시지는 한글이다. Windows에서 stdout이 파이프로 넘어가면
+# 인코딩이 로케일 코드페이지(GitHub 러너는 cp1252)로 잡혀 print 한 줄에
+# UnicodeEncodeError가 나고, 앱은 멀쩡한데 릴리즈 게이트가 죽는다.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 
 def binary_path(platform_name: str, dist_dir: Path) -> Path:
     """PyInstaller가 산출물을 놓는 자리."""
@@ -64,6 +71,10 @@ def run(binary: Path, home: Path, seconds: float) -> int:
         stderr=subprocess.STDOUT,
         env=env,
         text=True,
+        # 앱도 한글을 찍는다 — 로케일 코드페이지로 디코딩하면 여기서 또
+        # 터진다. 진단용 출력이므로 못 읽는 바이트는 흘려보낸다.
+        encoding="utf-8",
+        errors="replace",
     )
 
     deadline = time.monotonic() + seconds
