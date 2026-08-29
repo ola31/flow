@@ -3257,7 +3257,28 @@ class SongListWidget(QWidget):
             return
         name = name.strip()
         project_dir = self._main_window._project_path.parent
-        song_dir = project_dir / "songs" / name
+        workspace = getattr(self._main_window, "_workspace", None)
+
+        # 곡이 있을 수 있는 자리는 두 곳뿐이다 — project.json은 곡을 이름으로만
+        # 저장하고, 다시 열 때 projects/{프로젝트}/songs/{곡}과 library/{곡}만
+        # 찾는다. 그래서 위치를 자유롭게 고르게 하는 대신 둘 중 하나를 묻는다.
+        from flow.ui.dialogs import flow_question
+
+        to_library = False
+        if workspace is not None:
+            to_library = flow_question(
+                self,
+                "새 곡을 어디에 만들까요?",
+                "라이브러리에 만들면 다른 프로젝트에서도 쓸 수 있습니다.\n"
+                "이 프로젝트에만 만들면 이 프로젝트 폴더 안에만 남습니다.",
+                yes_text="라이브러리에 만들기",
+                no_text="이 프로젝트에만",
+            )
+
+        song_dir = (
+            workspace.library_song_dir(name) if to_library
+            else project_dir / "songs" / name
+        )
         if song_dir.exists():
             QMessageBox.warning(self, "오류", f"'{name}' 곡이 이미 존재합니다.")
             return
@@ -3271,7 +3292,12 @@ class SongListWidget(QWidget):
                 with open(song_dir / "song.json", "w", encoding="utf-8-sig") as f:
                     json.dump({"name": name, "sheets": []}, f, ensure_ascii=False, indent=2)
 
-            song = Song(name=name, folder=Path("songs") / name, score_sheets=[], project_dir=project_dir)
+            song = None
+            if to_library:
+                # 라이브러리 곡은 참조로 붙인다 (source="library")
+                song = Song.load_from_workspace(workspace, project_dir.name, name)
+            if song is None:
+                song = Song(name=name, folder=Path("songs") / name, score_sheets=[], project_dir=project_dir)
             self._project.selected_songs.append(song)
             if name not in self._project.song_order:
                 self._project.song_order.append(name)
@@ -3280,8 +3306,6 @@ class SongListWidget(QWidget):
                 self._main_window._mark_dirty()
 
             # 슬라이드 형식 선택 (마크다운 / PPT)
-            from flow.ui.dialogs import flow_question
-
             use_markdown = flow_question(
                 self,
                 "슬라이드 형식 선택",
