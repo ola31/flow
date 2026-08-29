@@ -1271,107 +1271,72 @@ class MainWindow(QMainWindow):
             )
 
     def _new_song(self) -> None:
+        """새 곡을 만든다 — 열려 있는 프로젝트와 무관하게.
+
+        라이브러리·시작 화면으로 이동해도 편집하던 프로젝트는 닫히지 않는다.
+        예전에는 그 상태를 '현재 프로젝트에 곡 추가'로 해석해서, 라이브러리에서
+        만든 곡이 프로젝트 폴더 안에 생기고 셋리스트에 끼어들며 저장되지 않은
+        변경까지 남겼다 — 프로젝트를 열 때 뜨던 저장 확인창의 정체가 이것이다.
+        셋리스트에 곡을 넣는 일은 편집 화면의 '곡 추가'가 담당한다.
+        """
         # 1. 곡 이름 입력 받기
         from flow.ui.dialogs import flow_input_text
-
-        if self._project and not self._is_standalone:
-            prompt = (
-                "곡 제목을 입력하세요.\n"
-                "이 곡은 현재 프로젝트의 songs 폴더 안에 생성됩니다."
-            )
-        else:
-            prompt = "곡 제목을 입력하세요:"
 
         name, ok = flow_input_text(
             self,
             "새 곡 생성",
-            prompt,
+            "곡 제목을 입력하세요:",
             placeholder="예: 새 곡 이름",
         )
         if not ok or not name:
             return
 
-        # 2. 모드에 따른 처리
-        if self._project and not self._is_standalone:
-            song_dir = self._project_path.parent / "songs" / name
+        if not self._check_unsaved_changes():
+            return
 
-            try:
-                self._repo.init_song_folder(song_dir, name)
+        start_dir = (
+            self._workspace.library_dir if self._workspace is not None
+            else self._repo.base_path
+        )
+        folder = QFileDialog.getExistingDirectory(
+            self, "곡 폴더를 생성할 위치 선택", str(start_dir)
+        )
+        if not folder:
+            return
 
-                virtual_proj = self._repo.load_standalone_song(song_dir)
-                new_song = virtual_proj.selected_songs[0]
-                new_song.project_dir = self._project_path.parent
-                new_song.folder = Path("songs") / name
+        song_dir = Path(folder) / name
 
-                if new_song.name not in [s.name for s in self._project.selected_songs]:
-                    self._project.selected_songs.append(new_song)
-                    if new_song.name not in self._project.song_order:
-                        self._project.song_order.append(new_song.name)
+        try:
+            self._is_standalone = True
+            self._project = self._repo.create_standalone_song(song_dir, name)
+            self._project_path = song_dir
+            self._live_controller.set_project(self._project)
 
-                self._song_list.refresh_list()
+            self._song_list.set_standalone(True)
+            self._canvas.set_hotspot_editable(True)
+            self._song_list.set_project(self._project)
+            self._canvas.set_score_sheet(None)
+            self._slide_manager.load_pptx("")
+            self._slide_manager.load_songs(self._project.selected_songs)
 
-                if new_song.score_sheets:
-                    # select_sheet_by_id가 선택을 알린다 — 직접 부르던
-                    # _on_song_selected는 이제 중복(인덱스 갱신 전 호출이라
-                    # 순서도 어긋났다)
-                    self._song_list.select_sheet_by_id(
-                        new_song.score_sheets[0].id
-                    )
+            self.setWindowTitle(f"Flow - {self._project.name}")
+            self._clear_dirty()
+            self._show_editor()
+            self._statusbar.showMessage(f"새 곡이 생성되었습니다: {name}")
 
-                self._mark_dirty()
-                self._statusbar.showMessage(
-                    f"새 곡이 프로젝트에 추가되었습니다: {name}", 3000
+            # 슬라이드 형식 선택 (standalone 모드에서도 동일하게)
+            if self._project.selected_songs:
+                self._prompt_song_format(self._project.selected_songs[0])
+            else:
+                QMessageBox.information(
+                    self,
+                    "새 곡 편집 시작",
+                    f"'{name}' 곡이 생성되었습니다.\n\n"
+                    "1. 왼쪽 하단의 '+ 시트(이미지) 추가' 버튼으로 악보 이미지를 등록하세요.\n"
+                    "2. 'PPT 가져오기' 버튼으로 슬라이드 파일을 등록하면 매핑을 시작할 수 있습니다.",
                 )
-
-                self._prompt_song_format(new_song)
-
-            except Exception as e:
-                QMessageBox.critical(self, "오류", f"곡을 생성할 수 없습니다:\n{e}")
-
-        else:
-            if not self._check_unsaved_changes():
-                return
-
-            start_dir = self._workspace.root if self._workspace is not None else self._repo.base_path
-            folder = QFileDialog.getExistingDirectory(
-                self, "곡 폴더를 생성할 위치 선택", str(start_dir)
-            )
-            if not folder:
-                return
-
-            song_dir = Path(folder) / name
-
-            try:
-                self._is_standalone = True
-                self._project = self._repo.create_standalone_song(song_dir, name)
-                self._project_path = song_dir
-                self._live_controller.set_project(self._project)
-
-                self._song_list.set_standalone(True)
-                self._canvas.set_hotspot_editable(True)
-                self._song_list.set_project(self._project)
-                self._canvas.set_score_sheet(None)
-                self._slide_manager.load_pptx("")
-                self._slide_manager.load_songs(self._project.selected_songs)
-
-                self.setWindowTitle(f"Flow - {self._project.name}")
-                self._clear_dirty()
-                self._show_editor()
-                self._statusbar.showMessage(f"새 곡이 생성되었습니다: {name}")
-
-                # 슬라이드 형식 선택 (standalone 모드에서도 동일하게)
-                if self._project.selected_songs:
-                    self._prompt_song_format(self._project.selected_songs[0])
-                else:
-                    QMessageBox.information(
-                        self,
-                        "새 곡 편집 시작",
-                        f"'{name}' 곡이 생성되었습니다.\n\n"
-                        "1. 왼쪽 하단의 '+ 시트(이미지) 추가' 버튼으로 악보 이미지를 등록하세요.\n"
-                        "2. 'PPT 가져오기' 버튼으로 슬라이드 파일을 등록하면 매핑을 시작할 수 있습니다.",
-                    )
-            except Exception as e:
-                QMessageBox.critical(self, "오류", f"곡을 생성할 수 없습니다:\n{e}")
+        except Exception as e:
+            QMessageBox.critical(self, "오류", f"곡을 생성할 수 없습니다:\n{e}")
 
     def _prompt_song_format(self, song) -> None:
         """새 곡 생성 후 슬라이드 형식(마크다운/PPT) 선택 다이얼로그.
