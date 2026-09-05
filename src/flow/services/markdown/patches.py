@@ -151,6 +151,26 @@ def apply_patches(spec: SongSpec, patches: list[SlidePatch]) -> SongSpec:
     return replace(spec, slides=new_slides)
 
 
+def edit_patches_for_slide(
+    patches: list[SlidePatch], spec: SongSpec, index: int
+) -> list[SlidePatch]:
+    """`index` 번째 원본 슬라이드를 겨냥하는 EDIT 패치들.
+
+    되돌리기가 기존 패치를 걷어낼 때 쓴다. apply_patches의 매칭 규칙과
+    같은 두 갈래를 본다 — 원문 해시가 같거나, slide_index가 그 자리를
+    가리키거나.
+    """
+    if not (0 <= index < len(spec.slides)):
+        return []
+    target_hash = slide_hash(spec.slides[index].main)
+    return [
+        p
+        for p in patches
+        if p.type is PatchType.EDIT
+        and (p.slide_hash == target_hash or p.slide_index == index)
+    ]
+
+
 def _find_edit_target(slides: list, patch: SlidePatch) -> int | None:
     if patch.slide_hash is not None:
         for i, s in enumerate(slides):

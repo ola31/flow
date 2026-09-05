@@ -50,10 +50,15 @@ class EmergencyPatchPanel(QWidget):
         spec: SongSpec,
         song_dir: Path,
         initial_index: int | None,
+        original_spec: SongSpec | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._spec = spec
+        # 화면에 보이는 spec은 이미 적용된 패치가 반영된 것이다. '원본으로
+        # 되돌리기'가 돌아갈 자리는 그게 아니라 패치 이전의 .md 원문이므로
+        # 따로 들고 있는다. 안 주면 예전처럼 보이는 글을 원본으로 친다.
+        self._original_spec = original_spec if original_spec is not None else spec
         self._song_dir = song_dir
 
         self._current_key: int | str
@@ -185,9 +190,27 @@ class EmergencyPatchPanel(QWidget):
                 # No existing slides — close
                 self.close_requested.emit()
             return
-        # Edit-mode: clear pending so refresh seeds with original
-        self._pending.pop(key, None)
+        # Edit-mode: .md 원문으로 되돌린다. 적용해 둔 패치가 있으면 그
+        # 결과가 _spec에 들어 있어서, pending만 버리면 같은 글이 다시
+        # 채워진다 — 버튼이 아무 일도 안 하는 것처럼 보였다.
+        original = self._original_text_for(key)
+        self._pending[key] = _PendingState(
+            text=original,
+            is_dirty=original != self._spec.slides[key].main,
+        )
         self._refresh_editor_for_current()
+
+    def _original_text_for(self, key: int | str) -> str:
+        """패치 이전의 .md 원문 (없으면 현재 보이는 글)."""
+        if isinstance(key, str):
+            return ""
+        slides = self._original_spec.slides
+        if 0 <= key < len(slides):
+            return slides[key].main
+        # 패치로 늘어난 슬라이드는 원문에 자리가 없다 — 보이는 글을 쓴다
+        if 0 <= key < len(self._spec.slides):
+            return self._spec.slides[key].main
+        return ""
 
     def apply_now(self) -> None:
         self._sync_current_to_pending()

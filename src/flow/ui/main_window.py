@@ -2360,6 +2360,8 @@ class MainWindow(QMainWindow):
         # visually confusing when both shared a top edge.
         panel = EmergencyPatchPanel(
             spec=patched_spec,
+            # '원본으로 되돌리기'가 돌아갈 자리는 패치 이전의 .md 원문이다
+            original_spec=spec,
             song_dir=md_path.parent,
             initial_index=initial_index,
             parent=self.centralWidget(),
@@ -2538,6 +2540,7 @@ class MainWindow(QMainWindow):
             PatchStore,
             PatchType,
             SlidePatch,
+            edit_patches_for_slide,
             parse,
             slide_hash,
         )
@@ -2553,6 +2556,13 @@ class MainWindow(QMainWindow):
                     h = slide_hash(spec.slides[key].main)
                 else:
                     h = None
+                if h is not None and text == spec.slides[key].main:
+                    # 원본으로 되돌린 슬라이드 — 원문과 같은 내용의 패치를
+                    # 새로 쌓으면 '수정 n건'이 계속 남아 되돌린 티가 안 난다.
+                    # 이 슬라이드를 겨냥하던 기존 EDIT 패치를 걷어낸다.
+                    for stale in edit_patches_for_slide(store.patches, spec, key):
+                        store.remove(stale.id)
+                    continue
                 store.add(
                     SlidePatch(
                         id=str(uuid.uuid4()),

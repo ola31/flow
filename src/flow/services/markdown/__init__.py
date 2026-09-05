@@ -18,6 +18,7 @@ from flow.services.markdown.patches import (
     SlidePatch,
     apply_patches,
     apply_patches_to_text,
+    edit_patches_for_slide,
     slide_hash,
 )
 from flow.services.markdown.renderer import (
@@ -36,6 +37,7 @@ __all__ = [
     "SongSpec",
     "apply_patches",
     "apply_patches_to_text",
+    "edit_patches_for_slide",
     "effective_background",
     "lyric_snippet",
     "parse",
