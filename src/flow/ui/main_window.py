@@ -2207,6 +2207,16 @@ class MainWindow(QMainWindow):
         title = self.windowTitle().replace(" [LIVE]", "")
         self.setWindowTitle(title + " [LIVE]")
         # Propagate live + slide_source to widgets that gate emergency patch
+        self._propagate_live_slide_source()
+
+    def _propagate_live_slide_source(self) -> None:
+        """현재 곡의 슬라이드 형식을 '긴급 수정' 게이트에 전달한다.
+
+        라이브 진입 때 한 번만 정하면 그 값이 세션 내내 굳는다 — PPT 곡에서
+        라이브를 시작한 뒤 마크다운 곡으로 넘어가면 '긴급 수정'이 끝까지
+        나오지 않고, 반대로 넘어가면 못 쓰는 메뉴가 남는다. 그래서 곡이
+        바뀔 때마다(_on_song_selected) 다시 부른다.
+        """
         song = self._current_markdown_song()
         if song is not None:
             source = "markdown"
@@ -2228,8 +2238,8 @@ class MainWindow(QMainWindow):
                 source = actual_song.slide_source if actual_song else "none"
             except Exception:
                 source = "none"
-        self._canvas.set_live_mode(is_live=True, slide_source=source)
-        self._slide_preview.set_live_mode(is_live=True, slide_source=source)
+        self._canvas.set_live_mode(is_live=self._is_live, slide_source=source)
+        self._slide_preview.set_live_mode(is_live=self._is_live, slide_source=source)
 
     def _exit_live(self) -> None:
         self._is_live = False
@@ -3129,6 +3139,8 @@ class MainWindow(QMainWindow):
                 None,
             )
             self._project_screen.set_nav_song_name(song.name if song else sheet.name)
+            # 곡마다 슬라이드 형식이 다르다 — 게이트도 함께 따라와야 한다
+            self._propagate_live_slide_source()
 
         self._statusbar.showMessage(
             f"곡 선택: {sheet.name} (핫스팟: {len(sheet.hotspots)}개)"
