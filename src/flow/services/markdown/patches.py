@@ -200,8 +200,13 @@ def apply_patches_to_text(text: str, patches: list[SlidePatch]) -> str:
         lines.append("")
     out = "\n".join(lines).rstrip() + "\n"
 
-    # Preserve original frontmatter block if present
-    m = re.match(r"\A(---\s*\n.*?\n---\s*\n)", text, flags=re.DOTALL)
+    # Preserve original frontmatter block if present.
+    # 본문이 빈 블록(--- 다음 줄이 바로 ---)도 잡아야 한다 — 라이브러리 곡이
+    # 대부분 그 형태라, 못 잡으면 패치를 원본에 반영할 때마다 그 두 줄이
+    # 사라진다. 뒤따르는 빈 줄까지 함께 떠서 제목과의 간격도 원래대로 둔다.
+    m = re.match(
+        r"\A(---[ \t]*\n(?:.*?\n)?---[ \t]*\n\n*)", text, flags=re.DOTALL
+    )
     if m:
         out = m.group(1) + out
     return out
