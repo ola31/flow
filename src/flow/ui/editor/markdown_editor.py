@@ -207,6 +207,10 @@ class MarkdownEditor(QWidget):
         self._saved_changes = False
         self._text_edit.setPlainText(self._original_text)
         self._refresh_patches_bar(md_path)
+        # 텍스트만 갈아끼우면 미리보기·썸네일은 이전 파일 그대로 남는다
+        # (_render_preview를 부르는 곳이 save()와 생성 직후뿐이라, '원본에
+        # 반영'을 눌러도 화면이 안 바뀌는 것처럼 보였다).
+        self._render_preview()
 
     # Patches bar helpers
 
@@ -235,6 +239,10 @@ class MarkdownEditor(QWidget):
         store.save()
         # Reload current view to reflect new .md content
         self.load_file(self._current_md_path)
+        # load_file이 세션의 '바뀜' 표시를 지운다 — 그대로 두면 편집기를
+        # 나갈 때 main_window가 "수정 없음"으로 보고 슬라이드 재로딩을
+        # 통째로 건너뛴다 (셋리스트·라이브가 반영 전 그림을 계속 쓴다).
+        self._saved_changes = True
 
     def _on_patches_discard(self) -> None:
         if self._current_md_path is None:
@@ -243,6 +251,9 @@ class MarkdownEditor(QWidget):
         store.clear()
         store.save()
         self._refresh_patches_bar(self._current_md_path)
+        # .md는 그대로지만 패치가 사라져 곡이 다르게 그려진다 — 나갈 때
+        # 슬라이드를 다시 세고 그리도록 바뀜으로 표시한다.
+        self._saved_changes = True
 
     def _on_patches_details(self) -> None:
         if self._current_md_path is None:
@@ -250,9 +261,13 @@ class MarkdownEditor(QWidget):
         from flow.ui.editor.patch_details_dialog import PatchDetailsDialog
 
         dlg = PatchDetailsDialog(self._current_md_path, parent=self)
-        dlg.patches_changed.connect(
-            lambda: self._refresh_patches_bar(self._current_md_path)
-        )
+
+        def _on_changed() -> None:
+            # 자세히 보기에서 패치를 지워도 곡이 다르게 그려진다
+            self._saved_changes = True
+            self._refresh_patches_bar(self._current_md_path)
+
+        dlg.patches_changed.connect(_on_changed)
         dlg.exec()
         # Final refresh in case the user only used the close button
         self._refresh_patches_bar(self._current_md_path)
