@@ -86,15 +86,32 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install innosetup -y --no-progress
 
+      # 설치본이 안 나와도 포터블 zip 하나만으로 업로드 단계가 통과해
+      # 릴리스가 '성공'으로 나간 적이 있다 (v0.3.14). 여기서 산출물을
+      # 직접 확인하고, 없으면 dist 내용을 찍고 잡을 세운다. 경로는 절대
+      # 경로로 넘겨 컴파일러가 어디를 기준으로 푸는지에 기대지 않는다.
       - name: Build installer (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\iscc.exe" `
-            /DAppVersion=${{ steps.version.outputs.version }} `
-            /DSourceDir=..\dist\Flow `
-            /DOutputDir=..\dist `
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\iscc.exe"
+          if (-not (Test-Path $iscc)) {
+            $iscc = (Get-Command iscc -ErrorAction Stop).Source
+          }
+          Write-Host "iscc: $iscc  $((Get-Item $iscc).VersionInfo.ProductVersion)"
+          $ver = "${{ steps.version.outputs.version }}"
+          & $iscc `
+            "/DAppVersion=$ver" `
+            "/DSourceDir=$env:GITHUB_WORKSPACE\dist\Flow" `
+            "/DOutputDir=$env:GITHUB_WORKSPACE\dist" `
             installer\Flow.iss
+          if ($LASTEXITCODE -ne 0) { throw "iscc exited with $LASTEXITCODE" }
+          $setup = Get-ChildItem "dist\Flow-Setup-$ver.exe" -ErrorAction SilentlyContinue
+          if (-not $setup) {
+            Write-Host "--- dist ---"; Get-ChildItem dist | Format-Table Name, Length
+            throw "installer was not produced: dist\Flow-Setup-$ver.exe"
+          }
+          Write-Host "installer: $($setup.Name) ($([math]::Round($setup.Length / 1MB)) MB)"
 
       # ─── macOS: zip the .app bundle ────────────────────────────────────────
       # 노타리제이션은 별도 단계 (Apple Developer ID 필요). 미서명 빌드는
