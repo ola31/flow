@@ -110,3 +110,61 @@ def test_untouched_editor_stays_unchanged(qtbot, song_dir):
     editor = _editor(qtbot, song_dir)
 
     assert editor.content_changed() is False
+
+
+def test_exiting_after_apply_reloads_the_song(qapp, tmp_path, monkeypatch):
+    """반영하고 편집기를 나가면 곡을 다시 세고 그려야 한다.
+
+    main_window는 세션의 '바뀜' 표시로 재로딩 여부를 정한다 — 표시가 없으면
+    셋리스트와 라이브가 반영 전 슬라이드를 계속 쓴다.
+    """
+    import json
+
+    from flow.domain.project import Project
+    from flow.domain.score_sheet import ScoreSheet
+    from flow.domain.song import Song
+    from flow.domain.workspace import Workspace
+    from flow.repository.project_repository import ProjectRepository
+    from flow.ui.main_window import MainWindow
+
+    ws = Workspace.create(tmp_path / "ws")
+    folder = ws.library_song_dir("테스트곡")
+    (folder / "sheets").mkdir(parents=True, exist_ok=True)
+    (folder / "slides.md").write_text(_MD, encoding="utf-8")
+    (folder / "song.json").write_text(
+        json.dumps(
+            {"name": "테스트곡", "sheets": [ScoreSheet(name="p1").to_dict()]},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    _add_patch(folder, 1, "노을이 붉게 물든다")
+
+    mw = MainWindow(workspace=ws)
+    try:
+        mw._project = Project(name="셋")
+        mw._project_path = ProjectRepository(ws.projects_dir).save_to_workspace(
+            mw._project, ws
+        )
+        song = Song.load_from_workspace(ws, "셋", "테스트곡", order=0)
+        song.set_slide_count(2)
+        mw._project.selected_songs.append(song)
+
+        reloaded: list = []
+        monkeypatch.setattr(
+            mw._slide_manager,
+            "load_songs",
+            lambda songs, **kw: reloaded.append(
+                [(s.name, s.get_slide_count()) for s in songs]
+            ),
+        )
+
+        mw.show_markdown_editor(song)
+        mw._markdown_editor_screen._editor._on_patches_apply_to_source()
+        mw._exit_markdown_editor()
+
+        assert reloaded, "반영 후 나가면 슬라이드를 다시 세야 한다"
+        # 편집된 곡은 카운트를 비워 다시 세게 한다
+        assert reloaded[0] == [("테스트곡", 0)]
+    finally:
+        mw.close()
