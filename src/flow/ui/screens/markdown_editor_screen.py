@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from flow.ui.editor.markdown_editor import MarkdownEditor
+from flow.ui.editor.score_sheet_pane import resolve_sheet_images
 from flow.ui.styles import (
     BG_DEEP,
     BG_SURFACE,
@@ -100,7 +101,10 @@ class MarkdownEditorScreen(QWidget):
             self._editor.deleteLater()
             self._editor = None
 
-        self._editor = MarkdownEditor(self._md_path)
+        # 악보를 옆에 두고 가사를 옮겨 적을 수 있게 시트 이미지를 함께 넘긴다
+        self._editor = MarkdownEditor(
+            self._md_path, sheets=resolve_sheet_images(song)
+        )
         self._editor_layout.addWidget(self._editor)
 
     def is_dirty(self) -> bool:

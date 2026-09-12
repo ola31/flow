@@ -28,13 +28,23 @@ from flow.ui.editor.markdown_frontmatter_dialog import (
 )
 from flow.ui.editor.markdown_help_dialog import MarkdownHelpDialog
 from flow.ui.editor.markdown_highlighter import MarkdownHighlighter
+from flow.ui.editor.score_sheet_pane import ScoreSheetPane
 from flow.ui.icons import icon_qicon
 
 
 class MarkdownEditor(QWidget):
-    """Split-view editor: text on left, preview on right."""
+    """Split-view editor: 악보(선택) — 텍스트 — 미리보기.
 
-    def __init__(self, md_path: Path, parent=None) -> None:
+    가사를 옮겨 적을 때는 악보를 보면서 타이핑한다. `sheets`를 주면 왼쪽에
+    악보 패널이 붙고 툴바의 '악보 보기'로 접었다 펼 수 있다.
+    """
+
+    def __init__(
+        self,
+        md_path: Path,
+        parent=None,
+        sheets: list[tuple[str, Path]] | None = None,
+    ) -> None:
         super().__init__(parent)
         self._md_path = md_path
         self._original_text = (
@@ -55,11 +65,14 @@ class MarkdownEditor(QWidget):
         slide_btn = QPushButton("슬라이드 추가")
         fm_btn = QPushButton("Frontmatter 편집")
         help_btn = QPushButton("도움말")
+        self._score_btn = QPushButton("악보 보기")
+        self._score_btn.setCheckable(True)
         toolbar.addWidget(save_btn)
         toolbar.addWidget(section_btn)
         toolbar.addWidget(slide_btn)
         toolbar.addWidget(fm_btn)
         toolbar.addWidget(help_btn)
+        toolbar.addWidget(self._score_btn)
 
         # Text editor (left)
         self._text_edit = QPlainTextEdit()
@@ -80,12 +93,30 @@ class MarkdownEditor(QWidget):
         right_layout.addWidget(self._preview_label, 1)
         right_layout.addWidget(self._thumbs)
 
+        # 악보 (왼쪽, 선택) — 시트가 없는 곡은 버튼을 잠그고 패널을 접는다
+        self._sheets = list(sheets or [])
+        self._score_pane = ScoreSheetPane(self._sheets)
+        has_sheets = bool(self._sheets)
+        self._score_btn.setEnabled(has_sheets)
+        self._score_btn.setToolTip(
+            "곡의 악보를 텍스트 옆에 펼쳐 보면서 가사를 적습니다"
+            if has_sheets else "이 곡에는 악보가 없습니다"
+        )
+        self._score_btn.setChecked(has_sheets)
+        self._score_pane.setVisible(has_sheets)
+
         # Split
         splitter = QSplitter()
+        splitter.addWidget(self._score_pane)
         splitter.addWidget(self._text_edit)
         splitter.addWidget(right)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 1)
+        # 세 칸이 되면 타이핑 칸이 가장 좁아진다 — 텍스트에 조금 더 준다
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 3)
+        splitter.setStretchFactor(2, 2)
+        # 접어도 손잡이를 끌어 다시 열 수 없게 — 열고 닫기는 버튼이 맡는다
+        splitter.setCollapsible(0, False)
+        self._splitter = splitter
 
         # Layout
         layout = QVBoxLayout(self)
@@ -138,6 +169,7 @@ class MarkdownEditor(QWidget):
         self._current_md_path: Path | None = None
 
         # Wire
+        self._score_btn.toggled.connect(self._score_pane.setVisible)
         save_btn.clicked.connect(self.save)
         section_btn.clicked.connect(self._insert_section)
         slide_btn.clicked.connect(self._insert_slide)

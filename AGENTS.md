@@ -173,6 +173,12 @@ off its lyrics (`SongListWidget._replace_sheet_image` does).
 - **Song edit mode**: standalone single-song editing (`MainWindow._is_standalone`),
   entered from the library or the song switcher; the setlist panel becomes a
   sheet list plus a library song switcher
+- **Markdown editor** (`MarkdownEditorScreen`): 악보 — text — preview. The score
+  pane (`editor/score_sheet_pane.py`) shows the song's sheet images fitted to
+  width with page tabs, so lyrics can be typed while reading the score; the
+  "악보 보기" toolbar toggle folds it, and it is absent for songs without
+  sheets. The screen resolves sheet paths with `resolve_sheet_images(song)`,
+  which follows the canvas's `sheets/`↔`sheet/` fallback.
 - **Live mode** (F5): red accent, PIP panel, keyboard hint bar, editing locked
 - **Setlist select mode** ("선택" in the setlist header): cards become checkboxes
   and one confirmation removes every checked seat. It is exclusive with the
