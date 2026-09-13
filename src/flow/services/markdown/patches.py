@@ -162,22 +162,34 @@ def edit_patches_for_slide(
     """
     if not (0 <= index < len(spec.slides)):
         return []
-    target_hash = slide_hash(spec.slides[index].main)
+    # apply_patches가 실제로 어디에 붙이는지와 같은 판정을 쓴다 — 따로
+    # 해시/자리로 고르면 같은 글이 두 번 나오는 곡에서 서로 어긋난다.
+    slides = list(spec.slides)
     return [
         p
         for p in patches
-        if p.type is PatchType.EDIT
-        and (p.slide_hash == target_hash or p.slide_index == index)
+        if p.type is PatchType.EDIT and _find_edit_target(slides, p) == index
     ]
 
 
 def _find_edit_target(slides: list, patch: SlidePatch) -> int | None:
+    """패치가 겨냥하는 슬라이드 자리.
+
+    저장된 자리(slide_index)의 글이 그대로면 그 자리다. 해시부터 찾으면
+    같은 후렴이 두 번 나오는 곡에서 뒤쪽을 고쳐도 앞쪽 첫 일치에 붙는다.
+    자리의 글이 바뀌었을 때(.md 편집으로 슬라이드가 끼어들거나 빠짐)만
+    해시로 옮겨간 자리를 찾고, 해시조차 없으면 자리를 믿는다.
+    """
+    idx = patch.slide_index
+    in_range = idx is not None and 0 <= idx < len(slides)
     if patch.slide_hash is not None:
+        if in_range and slide_hash(slides[idx].main) == patch.slide_hash:
+            return idx
         for i, s in enumerate(slides):
             if slide_hash(s.main) == patch.slide_hash:
                 return i
-    if patch.slide_index is not None and 0 <= patch.slide_index < len(slides):
-        return patch.slide_index
+    if in_range:
+        return idx
     return None
 
 

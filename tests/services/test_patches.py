@@ -276,3 +276,59 @@ def test_apply_patches_append_runs_after_edits() -> None:
     )
     result = apply_patches(spec, [edit, appended])
     assert [s.main for s in result.slides] == ["원본 1", "수정 2", "새것"]
+
+
+def test_apply_patches_edit_prefers_the_saved_seat_when_text_repeats() -> None:
+    """같은 후렴이 두 번 나오는 곡에서 뒤쪽을 고치면 뒤쪽이 바뀌어야 한다.
+
+    해시부터 찾으면 첫 일치(앞쪽)에 붙어, 고친 자리는 그대로고 엉뚱한
+    자리가 바뀐다.
+    """
+    spec = _make_spec("후렴", "둘째 줄", "후렴")
+    patch = SlidePatch(
+        id="p1",
+        type=PatchType.EDIT,
+        patched_main="후렴 (수정)",
+        slide_hash=slide_hash("후렴"),
+        slide_index=2,
+        created_at="t",
+        created_during="live",
+    )
+    result = apply_patches(spec, [patch])
+    assert [s.main for s in result.slides] == ["후렴", "둘째 줄", "후렴 (수정)"]
+
+
+def test_apply_patches_edit_follows_the_slide_when_it_moved() -> None:
+    """자리의 글이 바뀌었으면(앞에 슬라이드가 끼어듦) 해시로 옮겨간 자리를
+    찾는다."""
+    spec = _make_spec("새로 끼어든 줄", "원본 1", "원본 2")
+    patch = SlidePatch(
+        id="p1",
+        type=PatchType.EDIT,
+        patched_main="패치된 본문",
+        slide_hash=slide_hash("원본 2"),
+        slide_index=1,  # 저장 당시 자리 — 지금은 '원본 1'이 있다
+        created_at="t",
+        created_during="live",
+    )
+    result = apply_patches(spec, [patch])
+    assert [s.main for s in result.slides] == [
+        "새로 끼어든 줄", "원본 1", "패치된 본문"
+    ]
+
+
+def test_edit_patches_for_slide_uses_the_same_resolution() -> None:
+    from flow.services.markdown import edit_patches_for_slide
+
+    spec = _make_spec("후렴", "둘째 줄", "후렴")
+    patch = SlidePatch(
+        id="p1",
+        type=PatchType.EDIT,
+        patched_main="후렴 (수정)",
+        slide_hash=slide_hash("후렴"),
+        slide_index=2,
+        created_at="t",
+        created_during="live",
+    )
+    assert edit_patches_for_slide([patch], spec, 2) == [patch]
+    assert edit_patches_for_slide([patch], spec, 0) == []
