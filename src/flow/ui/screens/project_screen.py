@@ -503,6 +503,10 @@ class ProjectScreen(QWidget):
         self._canvas = ScoreCanvas()
         canvas_container_layout.addWidget(self._canvas)
 
+        from flow.ui.editor.song_audio_player import SongAudioPlayer
+
+        self.audio_player = SongAudioPlayer(self._canvas_container)
+
         self._v_splitter = QSplitter(Qt.Orientation.Vertical)
         self._v_splitter.setStyleSheet(
             f"QSplitter::handle {{ background-color: {BORDER_SUBTLE_RGBA}; height: 1px; }}"

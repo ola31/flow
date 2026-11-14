@@ -79,12 +79,15 @@ class MarkdownEditorScreen(QWidget):
 
         layout.addWidget(header)
 
+        from flow.ui.editor.song_audio_player import SongAudioPlayer
+
         # Editor host (replaced when load_song is called)
         self._editor_host = QWidget()
         self._editor_layout = QVBoxLayout(self._editor_host)
         self._editor_layout.setContentsMargins(0, 0, 0, 0)
         self._editor_layout.setSpacing(0)
         layout.addWidget(self._editor_host, 1)
+        self.audio_player = SongAudioPlayer(self._editor_host)
 
     def load_song(self, song) -> None:
         """Replace the current editor with a new one for the given song."""
@@ -93,6 +96,7 @@ class MarkdownEditorScreen(QWidget):
         # 편집을 마치고 나갈 때 이 곡의 슬라이드를 다시 세고 렌더해야 하므로
         # 곡 객체를 붙들어 둔다 (SlideManager._songs와 같은 인스턴스).
         self._song = song
+        self.audio_player.set_song(song)
         self._title_label.setText(song.name)
 
         # Tear down previous editor
@@ -106,6 +110,7 @@ class MarkdownEditorScreen(QWidget):
             self._md_path, sheets=resolve_sheet_images(song)
         )
         self._editor_layout.addWidget(self._editor)
+        self.audio_player.raise_()
 
     def is_dirty(self) -> bool:
         return self._editor is not None and self._editor.is_dirty()

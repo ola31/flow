@@ -112,6 +112,19 @@ class Song:
         return self.abs_sheets_dir.exists()
 
     @property
+    def audio_files(self) -> list[Path]:
+        """Audio stored alongside song.json (no metadata migration needed)."""
+        extensions = {".mp3", ".wav", ".m4a", ".ogg", ".flac"}
+        try:
+            return sorted(
+                (p for p in self.abs_folder.iterdir()
+                 if p.suffix.lower() in extensions and p.is_file()),
+                key=lambda p: (p.name.casefold(), p.name),
+            )
+        except OSError:
+            return []
+
+    @property
     def markdown_path(self) -> Path:
         """slides.md absolute path."""
         return self._resolve_abs(self.folder / "slides.md")
