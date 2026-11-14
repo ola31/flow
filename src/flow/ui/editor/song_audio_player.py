@@ -121,8 +121,27 @@ class SongAudioPlayer(QWidget):
         self._time = QLabel("0:00 / 0:00")
         self._message = QLabel()
         self._message.setStyleSheet(f"color: {TEXT_SECONDARY};")
+        volume_row = QHBoxLayout()
+        volume_row.setSpacing(SP_SM)
+        volume_label = QLabel("볼륨")
+        self._volume = QSlider(Qt.Orientation.Horizontal)
+        self._volume.setRange(0, 100)
+        self._volume.setValue(100)
+        self._volume.setFixedHeight(18)
+        self._volume.setStyleSheet(self._seek.styleSheet())
+        self._volume.setAccessibleName("음원 볼륨")
+        self._volume.setToolTip("Flow 음원 볼륨 · 시스템 볼륨은 유지됩니다")
+        self._volume_value = QLabel("100%")
+        self._volume_value.setFixedWidth(40)
+        self._volume_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        volume_row.addWidget(volume_label)
+        volume_row.addWidget(self._volume, 1)
+        volume_row.addWidget(self._volume_value)
+        panel_layout.addLayout(volume_row)
+        self._volume.valueChanged.connect(self._set_volume)
         for control in (self._previous, self._name, self._next, self._play,
-                        self._stop, self._seek, self._time, self._message):
+                        self._stop, self._seek, self._time, self._message,
+                        self._volume):
             control.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             control.installEventFilter(self)
         tracks.addWidget(self._name, 1)
@@ -221,6 +240,7 @@ class SongAudioPlayer(QWidget):
         # No audio device/backend is opened until the user clicks Play.
         if self._player is None:
             self._output = QAudioOutput(self)
+            self._set_volume(self._volume.value())
             self._player = QMediaPlayer(self)
             self._player.setAudioOutput(self._output)
             self._player.playbackStateChanged.connect(self._state_changed)
@@ -229,6 +249,12 @@ class SongAudioPlayer(QWidget):
             self._player.seekableChanged.connect(self._seek.setEnabled)
             self._player.errorOccurred.connect(self._error)
         return self._player
+
+    def _set_volume(self, value: int) -> None:
+        self._volume_value.setText(f"{value}%")
+        if self._output is not None:
+            # Adjust only this media output's gain, never the system mixer.
+            self._output.setVolume(value / 100.0)
 
     def _toggle_play(self) -> None:
         if not self._files:

@@ -12,6 +12,15 @@ from flow.domain.song import Song
 from flow.ui.editor import song_audio_player as audio
 
 
+class FakeOutput(QObject):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.volume = 1.0
+
+    def setVolume(self, value):
+        self.volume = value
+
+
 class FakePlayer(QObject):
     PlaybackState = QMediaPlayer.PlaybackState
     MediaStatus = QMediaPlayer.MediaStatus
@@ -77,7 +86,7 @@ def song_at(tmp_path: Path, name="song", files=("MR.mp3",)):
 @pytest.fixture
 def player(qtbot, monkeypatch, tmp_path):
     monkeypatch.setattr(audio, "QMediaPlayer", FakePlayer)
-    monkeypatch.setattr(audio, "QAudioOutput", QObject)
+    monkeypatch.setattr(audio, "QAudioOutput", FakeOutput)
     widget = audio.SongAudioPlayer()
     qtbot.addWidget(widget)
     widget.set_song(song_at(tmp_path))
@@ -120,6 +129,22 @@ def test_seek_and_drag_not_overwritten_by_playback(player, qtbot):
     assert player._seek.sliderPosition() == 90000
     player._seek.setSliderDown(False)
     assert player._player.position == 90000
+
+
+def test_volume_is_local_and_preserved_across_restart(player, qtbot):
+    player._volume.setValue(35)
+    assert player._output is None  # Changing volume alone opens no device.
+    qtbot.mouseClick(player._play, Qt.MouseButton.LeftButton)
+    assert player._output.volume == pytest.approx(0.35)
+    player._volume.setValue(0)
+    assert player._output.volume == 0
+    player._restart()
+    assert player._output.volume == 0
+    player._volume.setValue(100)
+    assert player._output.volume == 1
+    assert player._volume.focusPolicy() == Qt.FocusPolicy.NoFocus
+    qtbot.keyClick(player._volume, Qt.Key.Key_Left)
+    assert player._volume.value() == 100
 
 
 def test_restart_button_plays_from_start_even_when_paused(player, qtbot):
