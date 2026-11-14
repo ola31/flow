@@ -1175,7 +1175,7 @@ class MainWindow(QMainWindow):
         choice = flow_save_changes(self)
         if choice == SAVE:
             self._save_project()
-            return True
+            return not self._is_dirty and self._undo_stack.isClean()
         return choice == DISCARD
 
     def _new_project(self) -> None:
@@ -1849,8 +1849,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             # 에러 발생 시에도 원복 시도
             self._globalize_project_indices()
-            from PySide6.QtWidgets import QMessageBox
-
             QMessageBox.critical(self, "오류", f"프로젝트를 저장할 수 없습니다:\n{e}")
 
     def _on_undo_stack_clean_changed(self, is_clean: bool) -> None:
@@ -1993,6 +1991,13 @@ class MainWindow(QMainWindow):
         new_project_dir = p_base
         old_project_dir = self._project_path.parent if self._project_path else None
 
+        if old_project_dir is not None:
+            source = old_project_dir.resolve()
+            if (new_project_dir == source or source in new_project_dir.parents
+                    or new_project_dir in source.parents):
+                QMessageBox.warning(self, "저장 불가", "원본과 겹치지 않는 폴더를 선택해 주세요.")
+                return
+
         try:
             if new_project_dir.exists():
                 shutil.rmtree(new_project_dir)
@@ -2119,7 +2124,18 @@ class MainWindow(QMainWindow):
         if not parent_dir:
             return
 
-        new_song_dir = Path(parent_dir).resolve() / folder_name
+        try:
+            folder_name = self._repo.validate_folder_name(folder_name)
+        except ValueError as exc:
+            QMessageBox.warning(self, "저장 불가", str(exc))
+            return
+        new_song_dir = (Path(parent_dir) / folder_name).resolve()
+        if old_song_dir is not None:
+            source = old_song_dir.resolve()
+            if (new_song_dir == source or source in new_song_dir.parents
+                    or new_song_dir in source.parents):
+                QMessageBox.warning(self, "저장 불가", "원본과 겹치지 않는 폴더를 선택해 주세요.")
+                return
         if new_song_dir.exists():
             from flow.ui.dialogs import flow_question
             ok = flow_question(

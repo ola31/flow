@@ -195,31 +195,51 @@ def _find_edit_target(slides: list, patch: SlidePatch) -> int | None:
 
 
 def apply_patches_to_text(text: str, patches: list[SlidePatch]) -> str:
-    """Apply patches by re-parsing text, applying patches at SongSpec level,
-    and re-emitting markdown. Preserves frontmatter and title."""
-    import re
-
-    from flow.services.markdown.parser import parse
+    """Replace slide bodies while preserving source headings and attributes."""
+    from flow.services.markdown.parser import (
+        _FRONTMATTER_RE, _parse_overrides, parse,
+    )
 
     spec = parse(text)
     patched = apply_patches(spec, patches)
+    fm = _FRONTMATTER_RE.match(text)
+    prefix = text[:fm.end()] if fm else ""
+    lines = text[len(prefix):].splitlines(keepends=True)
+    spans: list[tuple[int, int]] = []
+    start = None
 
-    lines: list[str] = []
-    if spec.title:
-        lines.append(f"# {spec.title}")
-        lines.append("")
-    for slide in patched.slides:
-        lines.append(slide.main.rstrip("\n"))
-        lines.append("")
-    out = "\n".join(lines).rstrip() + "\n"
+    def flush(end: int) -> None:
+        nonlocal start
+        if start is None:
+            return
+        first, last = start, end
+        override = _parse_overrides(lines[first])
+        if override is not None:
+            first += 1
+        sub = last > first and lines[last - 1].lstrip().startswith("> ")
+        if sub:
+            last -= 1
+        main = "".join(lines[first:last]).rstrip()
+        if main or sub or override:
+            spans.append((first, last))
+        start = None
 
-    # Preserve original frontmatter block if present.
-    # 본문이 빈 블록(--- 다음 줄이 바로 ---)도 잡아야 한다 — 라이브러리 곡이
-    # 대부분 그 형태라, 못 잡으면 패치를 원본에 반영할 때마다 그 두 줄이
-    # 사라진다. 뒤따르는 빈 줄까지 함께 떠서 제목과의 간격도 원래대로 둔다.
-    m = re.match(
-        r"\A(---[ \t]*\n(?:.*?\n)?---[ \t]*\n\n*)", text, flags=re.DOTALL
-    )
-    if m:
-        out = m.group(1) + out
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("# ", "## ")):
+            flush(i)
+        elif start is None:
+            start = i
+    flush(len(lines))
+    for i in range(len(spans) - 1, -1, -1):
+        if patched.slides[i].main != spec.slides[i].main:
+            first, last = spans[i]
+            lines[first:last] = [patched.slides[i].main.rstrip("\n") + "\n"]
+    out = prefix + "".join(lines)
+    appended = patched.slides[len(spec.slides):]
+    if appended:
+        out = out.rstrip() + "\n\n"
+        if spec.slides and spec.slides[-1].section_sub_default is not None:
+            out += "## 추가\n\n"
+        out += "\n\n".join(s.main.rstrip("\n") for s in appended) + "\n"
     return out

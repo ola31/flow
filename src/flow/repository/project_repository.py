@@ -457,7 +457,7 @@ class ProjectRepository:
                 pass
 
         if workspace is not None:
-            self._retarget_song_references(workspace, old_name, new_name)
+            self._retarget_song_references(workspace, old_name, new_name, song_dir)
 
         from flow.services import song_index
 
@@ -467,7 +467,8 @@ class ProjectRepository:
 
     @staticmethod
     def _retarget_song_references(
-        workspace: "Workspace", old_name: str, new_name: str
+        workspace: "Workspace", old_name: str, new_name: str,
+        original_dir: Path | None = None,
     ) -> int:
         """워크스페이스의 모든 project.json에서 곡 이름 참조를 갱신.
 
@@ -476,6 +477,14 @@ class ProjectRepository:
         """
         changed = 0
         for project_dir in workspace.list_projects():
+            if original_dir is not None:
+                local = (project_dir / "songs" / old_name).resolve()
+                library = workspace.library_song_dir(old_name).resolve()
+                if original_dir == library:
+                    if (local / "song.json").exists():
+                        continue
+                elif original_dir != local:
+                    continue
             pj = project_dir / "project.json"
             try:
                 with open(pj, encoding="utf-8-sig") as f:
