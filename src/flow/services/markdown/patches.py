@@ -120,7 +120,7 @@ def apply_patches(spec: SongSpec, patches: list[SlidePatch]) -> SongSpec:
     """Return a new SongSpec with edit and append patches applied.
 
     Two-phase:
-      1. Edit patches: hash match first, fall back to slide_index, else orphan.
+      1. Resolve edits against the original slides; later edits win per target.
       2. Append patches: appended at the end in created_at order.
     """
     from flow.services.markdown.parser import Slide
@@ -131,9 +131,11 @@ def apply_patches(spec: SongSpec, patches: list[SlidePatch]) -> SongSpec:
         key=lambda p: p.created_at,
     )
 
-    new_slides = list(spec.slides)
+    original_slides = list(spec.slides)
+    new_slides = list(original_slides)
     for patch in edit_patches:
-        target = _find_edit_target(new_slides, patch)
+        # Earlier edits must not change the target of a later patch.
+        target = _find_edit_target(original_slides, patch)
         if target is None:
             continue
         old = new_slides[target]
@@ -157,8 +159,7 @@ def edit_patches_for_slide(
     """`index` 번째 원본 슬라이드를 겨냥하는 EDIT 패치들.
 
     되돌리기가 기존 패치를 걷어낼 때 쓴다. apply_patches의 매칭 규칙과
-    같은 두 갈래를 본다 — 원문 해시가 같거나, slide_index가 그 자리를
-    가리키거나.
+    같은 원본 슬라이드 목록과 대상 판정을 사용한다.
     """
     if not (0 <= index < len(spec.slides)):
         return []

@@ -332,3 +332,46 @@ def test_edit_patches_for_slide_uses_the_same_resolution() -> None:
     )
     assert edit_patches_for_slide([patch], spec, 2) == [patch]
     assert edit_patches_for_slide([patch], spec, 0) == []
+
+
+
+def test_repeated_edits_stay_on_the_same_duplicate_and_revert_together() -> None:
+    from dataclasses import replace
+
+    from flow.services.markdown import edit_patches_for_slide
+
+    spec = _make_spec("chorus", "verse", "chorus")
+    first = SlidePatch(
+        id="first", type=PatchType.EDIT, patched_main="edit 1",
+        slide_hash=slide_hash("chorus"), slide_index=2,
+        created_at="t1", created_during="live",
+    )
+    second = replace(first, id="second", patched_main="edit 2", created_at="t2")
+    patches = [first, second]
+
+    result = apply_patches(spec, patches)
+    assert [s.main for s in result.slides] == ["chorus", "verse", "edit 2"]
+    assert [s.main for s in spec.slides] == ["chorus", "verse", "chorus"]
+    assert edit_patches_for_slide(patches, spec, 0) == []
+    stale = edit_patches_for_slide(patches, spec, 2)
+    assert stale == patches
+    remaining = [p for p in patches if p not in stale]
+    assert apply_patches(spec, remaining) == spec
+
+
+def test_edit_target_ignores_text_introduced_by_an_earlier_patch() -> None:
+    from dataclasses import replace
+
+    spec = _make_spec("first", "target")
+    first = SlidePatch(
+        id="first", type=PatchType.EDIT, patched_main="target",
+        slide_hash=slide_hash("first"), slide_index=0,
+        created_at="t1", created_during="live",
+    )
+    # The target moved from its saved seat 0 to seat 1 in the source.
+    moved = replace(
+        first, id="moved", patched_main="corrected",
+        slide_hash=slide_hash("target"), created_at="t2",
+    )
+    result = apply_patches(spec, [first, moved])
+    assert [s.main for s in result.slides] == ["target", "corrected"]
