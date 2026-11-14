@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QWidget
 
 from flow.perf_probe import install
@@ -18,10 +20,21 @@ class _FakeWindow(QWidget):
         time.sleep(0.01)
 
 
+@pytest.fixture
+def probe_window(qapp):
+    # Keep the Python window alive through pytest-qt's post-call event flush.
+    # The probe wraps bound methods, so relying on cyclic GC leaves an event
+    # filter attached to a partly destroyed window on PySide/Windows.
+    window = _FakeWindow()
+    yield window
+    window.close()
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
 class TestPerfProbe:
-    def test_switch_method_logged_and_still_works(self, qtbot, tmp_path):
-        w = _FakeWindow()
-        qtbot.addWidget(w)
+    def test_switch_method_logged_and_still_works(self, probe_window, tmp_path):
+        w = probe_window
         log = tmp_path / "perf.log"
 
         install(w, log_path=log)
@@ -31,9 +44,8 @@ class TestPerfProbe:
         text = log.read_text(encoding="utf-8")
         assert "show_home 본체" in text
 
-    def test_stall_detector_logs_long_block(self, qtbot, tmp_path):
-        w = _FakeWindow()
-        qtbot.addWidget(w)
+    def test_stall_detector_logs_long_block(self, probe_window, qtbot, tmp_path):
+        w = probe_window
         log = tmp_path / "perf.log"
 
         install(w, log_path=log)

@@ -243,7 +243,9 @@ def test_hotspot_toggle_auto_installs_captive_before_starting(
                 return False
 
             def captive_portal_install_command(self):
-                return ["true"]
+                # Exercise the real QProcess completion path on every OS.
+                import sys
+                return [sys.executable, "-c", "pass"]
 
             def start(self, ssid, pw):
                 calls.append("start")

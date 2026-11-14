@@ -383,15 +383,28 @@ def test_linux_start_deletes_stale_profile_before_creating():
     assert delete_idx < add_idx
 
 
-def test_windows_backend_unsupported_without_winsdk():
+def test_windows_backend_unsupported_without_winsdk(monkeypatch):
+    import sys
     from flow.services.hotspot import _WindowsHotspot
 
+    # Simulate the missing dependency even on a Windows host with winsdk.
+    monkeypatch.setitem(sys.modules, "winsdk.windows.networking.connectivity", None)
     be = _WindowsHotspot()
-    # On this Linux machine winsdk isn't importable and sys.platform != win32
+    assert be._manager() is None
     assert be.is_supported() is False
     assert "Windows" in be.support_message()
     assert be.captive_portal_installed() is False
     assert be.captive_portal_install_command() == []
+
+
+def test_windows_backend_supported_with_manager(monkeypatch):
+    from types import SimpleNamespace
+    from flow.services import hotspot
+
+    monkeypatch.setattr(hotspot, "sys", SimpleNamespace(platform="win32"))
+    be = hotspot._WindowsHotspot()
+    monkeypatch.setattr(be, "_manager", lambda: object())
+    assert be.is_supported() is True
 
 
 class TestCaptiveInstalledCache:

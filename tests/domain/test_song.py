@@ -144,26 +144,26 @@ class TestSongShiftIndices:
 class TestSongAbsolutePaths:
     """곡 절대 경로 테스트"""
 
-    def test_abs_slides_path_with_project_dir(self):
+    def test_abs_slides_path_with_project_dir(self, tmp_path):
         """project_dir이 있으면 절대 경로 반환"""
         song = Song(
             name="Test",
             folder=Path("songs/test"),
-            project_dir=Path("/home/user/projects/sample"),
+            project_dir=tmp_path,
         )
 
-        expected = Path("/home/user/projects/sample/songs/test/slides.pptx")
+        expected = tmp_path / "songs/test/slides.pptx"
         assert song.abs_slides_path == expected
 
-    def test_abs_sheets_dir_with_project_dir(self):
+    def test_abs_sheets_dir_with_project_dir(self, tmp_path):
         """project_dir이 있으면 sheets 절대 경로 반환"""
         song = Song(
             name="Test",
             folder=Path("songs/test"),
-            project_dir=Path("/home/user/projects/sample"),
+            project_dir=tmp_path,
         )
 
-        expected = Path("/home/user/projects/sample/songs/test/sheets")
+        expected = tmp_path / "songs/test/sheets"
         assert song.abs_sheets_dir == expected
 
 

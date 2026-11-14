@@ -212,10 +212,10 @@ class TestWorkspaceProjectLauncher:
         launcher.refresh_workspace_items()
         assert len(launcher._proj_panel._cards) == 1
 
-    def test_new_song_in_workspace_project_creates_local_project_song(
+    def test_new_song_with_open_project_uses_chosen_folder(
         self, qapp, workspace: Workspace, monkeypatch
     ):
-        """프로젝트 화면의 새 곡은 library가 아니라 project/songs에 생성."""
+        """새 곡은 선택한 폴더에 생성하고 열려 있던 프로젝트는 보존한다."""
         from flow.domain.project import Project
         from flow.repository.project_repository import ProjectRepository
         from flow.ui.main_window import MainWindow
@@ -236,6 +236,12 @@ class TestWorkspaceProjectLauncher:
             "flow_question",
             lambda *a, **k: False,
         )
+        monkeypatch.setattr(
+            "flow.ui.main_window.QFileDialog.getExistingDirectory",
+            lambda *a, **k: str(workspace.library_dir),
+        )
+        monkeypatch.setattr(MainWindow, "_prompt_song_format", lambda *a: None)
+        project_before = project_path.read_bytes()
 
         mw = MainWindow(workspace=workspace)
         try:
@@ -245,19 +251,20 @@ class TestWorkspaceProjectLauncher:
 
             mw._new_song()
 
-            assert not (workspace.library_song_dir("새곡") / "song.json").exists()
-            assert (
-                workspace.project_dir("프로젝트") / "songs" / "새곡" / "song.json"
-            ).exists()
-            assert project.selected_songs[0].source == "local"
+            assert (workspace.library_song_dir("새곡") / "song.json").exists()
+            assert not (workspace.project_dir("프로젝트") / "songs" / "새곡").exists()
+            assert project.selected_songs == []
+            assert project_path.read_bytes() == project_before
+            assert mw._is_standalone is True
+            assert mw._project is not project
         finally:
             mw._slide_manager.shutdown()
             mw.close()
 
-    def test_new_song_prompt_explains_project_local_folder(
+    def test_cancel_new_song_prompt_preserves_open_project(
         self, qapp, workspace: Workspace, monkeypatch
     ):
-        """프로젝트 화면의 새 곡 입력창은 project/songs 생성 위치를 알려준다."""
+        """곡 이름 입력 취소는 프로젝트와 파일 선택에 영향을 주지 않는다."""
         from flow.domain.project import Project
         from flow.repository.project_repository import ProjectRepository
         from flow.ui.main_window import MainWindow
@@ -275,6 +282,11 @@ class TestWorkspaceProjectLauncher:
             return ("", False)
 
         monkeypatch.setattr(dialogs, "flow_input_text", fake_input)
+        def unexpected_picker(*args, **kwargs):
+            raise AssertionError("Cancelling the name must not open the folder picker")
+        monkeypatch.setattr(
+            "flow.ui.main_window.QFileDialog.getExistingDirectory", unexpected_picker
+        )
 
         mw = MainWindow(workspace=workspace)
         try:
@@ -285,15 +297,18 @@ class TestWorkspaceProjectLauncher:
             mw._new_song()
 
             assert captured["title"] == "새 곡 생성"
-            assert "현재 프로젝트의 songs 폴더" in captured["message"]
+            assert "프로젝트" not in captured["message"]
+            assert mw._project is project
+            assert mw._project_path == project_path
+            assert project.selected_songs == []
         finally:
             mw._slide_manager.shutdown()
             mw.close()
 
-    def test_new_song_from_workspace_home_starts_folder_picker_at_workspace_root(
+    def test_new_song_from_workspace_home_starts_folder_picker_at_library(
         self, qapp, workspace: Workspace, monkeypatch
     ):
-        """홈/라이브러리의 새 곡 폴더 선택은 워크스페이스 루트에서 시작한다."""
+        """새 곡 폴더 선택은 라이브러리에서 시작하고 취소하면 생성하지 않는다."""
         from flow.ui.main_window import MainWindow, QFileDialog
 
         import flow.ui.dialogs as dialogs
@@ -322,7 +337,9 @@ class TestWorkspaceProjectLauncher:
 
             mw._new_song()
 
-            assert captured["directory"] == str(workspace.root)
+            assert captured["directory"] == str(workspace.library_dir)
+            assert mw._project is None
+            assert not workspace.library_song_dir("새곡").exists()
         finally:
             mw._slide_manager.shutdown()
             mw.close()
