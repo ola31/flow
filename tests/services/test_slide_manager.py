@@ -464,7 +464,8 @@ class TestMetadataCountsBeforeConverting:
 
         worker._handle_metadata_load([("song_a", p)])
 
-        assert results == [[("song_a", 3)]]
+        # Qt versions may marshal nested tuples as lists through Signal(list).
+        assert [[tuple(row) for row in batch] for batch in results] == [[("song_a", 3)]]
         mock_converter.convert_slide.assert_not_called()
 
     def test_conversion_enqueued_after_final_metadata(
@@ -876,3 +877,57 @@ class TestConversionQueueNeverStalls:
 
         assert manager._loading is False
         assert manager._queued_conversions == set()
+
+
+class TestNonblockingWatcherRetirement:
+    def test_switch_does_not_wait_for_old_emitter(self, manager, tmp_path, monkeypatch):
+        from threading import Event, get_ident
+        from types import SimpleNamespace
+
+        entered = Event()
+        release = Event()
+        finished = Event()
+        main_thread = get_ident()
+        stop_threads = []
+
+        def slow_stop():
+            stop_threads.append(get_ident())
+            entered.set()
+            release.wait(5)
+
+        old = SimpleNamespace(stop=slow_stop, join=finished.set)
+        manager._observer = old
+        manager._watched_path = tmp_path / "old.pptx"
+        old_callback = MagicMock()
+        from flow.services.slide_manager import SlideUpdateHandler
+        handler = SlideUpdateHandler(manager._watched_path, old_callback)
+        manager._watch_handler = handler
+        new = MagicMock()
+        monkeypatch.setattr("flow.services.slide_manager.Observer", lambda: new)
+        try:
+            manager.start_watching(tmp_path / "new.pptx")
+            assert entered.wait(1)
+            assert not finished.is_set()
+            assert len(stop_threads) == 1
+            assert stop_threads[0] != main_thread
+            assert manager._observer is new
+            new.start.assert_called_once()
+            handler.on_modified(SimpleNamespace(
+                is_directory=False, src_path=str(tmp_path / "old.pptx")
+            ))
+            old_callback.assert_not_called()
+        finally:
+            release.set()
+            assert finished.wait(2)
+
+    def test_shutdown_waits_for_retirement(self, manager):
+        from threading import Event
+        from types import SimpleNamespace
+
+        stopped = Event()
+        joined = Event()
+        manager._observer = SimpleNamespace(stop=stopped.set, join=joined.set)
+        manager.shutdown()
+        assert stopped.is_set()
+        assert joined.is_set()
+        assert manager._dying_observers == []

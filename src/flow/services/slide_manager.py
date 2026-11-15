@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import queue
+import threading
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -218,6 +219,7 @@ class SlideManager(QObject):
         except NoConverterAvailableError:
             self._converter = None
         self._observer = None
+        self._watch_handler = None
         self._old_workers: list[SlideWorker] = []
         self._pending_reload_song = None
         # load_songs가 md/pptx 두 워커로 배치를 나눌 때 아직 안 끝난 배치 수.
@@ -792,6 +794,7 @@ class SlideManager(QObject):
         self._watched_path = resolved
         self._observer = Observer()
         handler = SlideUpdateHandler(self._pptx_path, self._on_watch_event)
+        self._watch_handler = handler
         self._observer.schedule(handler, str(self._pptx_path.parent), recursive=False)
         self._observer.start()
 
@@ -810,15 +813,26 @@ class SlideManager(QObject):
 
     def stop_watching(self):
         if self._observer:
-            # join으로 GUI를 막지 않는다 — 곡 전환마다 ~35ms씩 걸리던 비용.
-            # 정지 요청만 하고 스레드는 뒤에서 끝나게 둔다 (shutdown에서 join).
-            self._observer.stop()
-            self._dying_observers = [
-                o for o in getattr(self, "_dying_observers", [])
-                if o.is_alive()
-            ]
-            self._dying_observers.append(self._observer)
+            observer = self._observer
             self._observer = None
+            # Retired callbacks must not refer to this QObject or report an old
+            # file change against the newly selected song.
+            if self._watch_handler is not None:
+                self._watch_handler.callback = lambda: None
+                self._watch_handler = None
+            # watchdog.stop() itself joins emitter threads (about 1 second on
+            # Windows), so moving only observer.join() off the GUI is not enough.
+            def retire() -> None:
+                observer.stop()
+                observer.join()
+
+            retirees = [
+                t for t in getattr(self, "_dying_observers", []) if t.is_alive()
+            ]
+            thread = threading.Thread(target=retire, daemon=True)
+            retirees.append(thread)
+            self._dying_observers = retirees
+            thread.start()
         self._watched_path = None
 
     def shutdown(self):
