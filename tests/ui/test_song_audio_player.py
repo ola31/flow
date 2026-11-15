@@ -16,9 +16,25 @@ class FakeOutput(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.volume = 1.0
+        self._device = None
+
+    def device(self):
+        return self._device
+
+    def setDevice(self, device):
+        self._device = device
 
     def setVolume(self, value):
         self.volume = value
+
+
+class FakeDevices(QObject):
+    audioOutputsChanged = Signal()
+    default = "speakers"
+
+    @classmethod
+    def defaultAudioOutput(cls):
+        return cls.default
 
 
 class FakePlayer(QObject):
@@ -87,6 +103,8 @@ def song_at(tmp_path: Path, name="song", files=("MR.mp3",)):
 def player(qtbot, monkeypatch, tmp_path):
     monkeypatch.setattr(audio, "QMediaPlayer", FakePlayer)
     monkeypatch.setattr(audio, "QAudioOutput", FakeOutput)
+    monkeypatch.setattr(audio, "QMediaDevices", FakeDevices)
+    monkeypatch.setattr(FakeDevices, "default", "speakers")
     widget = audio.SongAudioPlayer()
     qtbot.addWidget(widget)
     widget.set_song(song_at(tmp_path))
@@ -157,6 +175,32 @@ def test_restart_button_plays_from_start_even_when_paused(player, qtbot):
     assert player._player.playbackState() == FakePlayer.PlaybackState.PlayingState
     assert player._play.text() == ""
     assert player._stop.toolTip() == "처음부터 재생"
+
+
+def test_bluetooth_switch_preserves_playback_and_volume(player, qtbot):
+    player._volume.setValue(35)
+    qtbot.mouseClick(player._play, Qt.MouseButton.LeftButton)
+    player._player.setPosition(65000)
+    assert player._output.device() == "speakers"
+    FakeDevices.default = "bluetooth"
+    player._devices.audioOutputsChanged.emit()
+    assert player._output.device() == "bluetooth"
+    assert player._output.volume == pytest.approx(0.35)
+    assert player._player.position == 65000
+    assert player._player.playbackState() == FakePlayer.PlaybackState.PlayingState
+    FakeDevices.default = "speakers"
+    player._devices.audioOutputsChanged.emit()
+    assert player._output.device() == "speakers"
+
+
+def test_resume_refreshes_default_output_without_resetting_position(player, qtbot):
+    qtbot.mouseClick(player._play, Qt.MouseButton.LeftButton)
+    player._player.setPosition(65000)
+    qtbot.mouseClick(player._play, Qt.MouseButton.LeftButton)
+    FakeDevices.default = "bluetooth"
+    qtbot.mouseClick(player._play, Qt.MouseButton.LeftButton)
+    assert player._output.device() == "bluetooth"
+    assert player._player.position == 65000
 
 
 def test_same_song_keeps_playback_new_song_stops(player, qtbot, tmp_path):

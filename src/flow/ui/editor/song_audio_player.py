@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QEvent, QSize, Qt, QUrl
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap, QRegion
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PySide6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaPlayer
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSlider, QStyle, QVBoxLayout, QWidget
 
 from flow.domain.song import Song
@@ -49,6 +49,7 @@ class SongAudioPlayer(QWidget):
         self._index = 0
         self._player: QMediaPlayer | None = None
         self._output: QAudioOutput | None = None
+        self._devices: QMediaDevices | None = None
         self._duration = 0
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -239,7 +240,10 @@ class SongAudioPlayer(QWidget):
     def _ensure_player(self) -> QMediaPlayer:
         # No audio device/backend is opened until the user clicks Play.
         if self._player is None:
+            self._devices = QMediaDevices(self)
+            self._devices.audioOutputsChanged.connect(self._sync_output_device)
             self._output = QAudioOutput(self)
+            self._sync_output_device()
             self._set_volume(self._volume.value())
             self._player = QMediaPlayer(self)
             self._player.setAudioOutput(self._output)
@@ -249,6 +253,13 @@ class SongAudioPlayer(QWidget):
             self._player.seekableChanged.connect(self._seek.setEnabled)
             self._player.errorOccurred.connect(self._error)
         return self._player
+
+    def _sync_output_device(self) -> None:
+        """Follow system output changes (Bluetooth/USB) without changing volume."""
+        if self._output is not None:
+            device = QMediaDevices.defaultAudioOutput()
+            if self._output.device() != device:
+                self._output.setDevice(device)
 
     def _set_volume(self, value: int) -> None:
         self._volume_value.setText(f"{value}%")
@@ -260,6 +271,7 @@ class SongAudioPlayer(QWidget):
         if not self._files:
             return
         player = self._ensure_player()
+        self._sync_output_device()
         if player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             player.pause()
             return
